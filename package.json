@@ -1,0 +1,22 @@
+{
+  "name": "jeevan-rakshak",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.8.1",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "check": "turbo run typecheck",
+    "build:user:aab": "cross-env NODE_ENV=production EXPO_NO_METRO_WORKSPACE_ROOT=1 pnpm -C apps/user-app exec android/gradlew.bat -p android bundleRelease",
+    "build:driver:aab": "cross-env NODE_ENV=production EXPO_NO_METRO_WORKSPACE_ROOT=1 pnpm -C apps/driver-app exec android/gradlew.bat -p android bundleRelease"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.14",
+    "@babel/runtime": "^7.20.0",
+    "babel-preset-expo": "~13.2.5",
+    "cross-env": "^10.0.0",
+    "typescript": "^5.6.3"
+  }
+}

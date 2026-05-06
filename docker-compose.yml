@@ -1,0 +1,88 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: jr-postgres
+    environment:
+      POSTGRES_DB: jr_v0
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - jr_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d jr_v0"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api-server:
+    build:
+      context: .
+      dockerfile: services/api-server/Dockerfile
+    container_name: jr-api
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/jr_v0
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-replace-in-production-with-a-random-64-char-string}
+      API_PORT: 4000
+      SOCKET_BASE_URL: http://socket-server:4001
+      SMS_PROVIDER: ${SMS_PROVIDER:-mock}
+      MAPS_PROVIDER: ${MAPS_PROVIDER:-mock}
+      PAYMENTS_PROVIDER: ${PAYMENTS_PROVIDER:-mock}
+      PUSH_PROVIDER: ${PUSH_PROVIDER:-mock}
+      FLAG_DEMO_BYPASS: ${FLAG_DEMO_BYPASS:-true}
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["full"]
+
+  socket-server:
+    build:
+      context: .
+      dockerfile: services/socket-server/Dockerfile
+    container_name: jr-socket
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/jr_v0
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-replace-in-production-with-a-random-64-char-string}
+      SOCKET_PORT: 4001
+    ports:
+      - "4001:4001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["full"]
+
+  worker-jobs:
+    build:
+      context: .
+      dockerfile: services/worker-jobs/Dockerfile
+    container_name: jr-worker
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/jr_v0
+      BOOKING_TIMEOUT_SEC: ${BOOKING_TIMEOUT_SEC:-90}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["full"]
+
+  admin-web:
+    build:
+      context: .
+      dockerfile: apps/admin-web/Dockerfile
+    container_name: jr-admin
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://api-server:4000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api-server
+    profiles: ["full"]
+
+volumes:
+  jr_pg_data:

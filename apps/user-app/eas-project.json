@@ -1,0 +1,4 @@
+{
+  "_meta": "Set expoProjectId to your Expo Project ID (expo.dev project settings, or output of eas init). Replace the value below before shipping OTA updates.",
+  "expoProjectId": "c1d43e13-5400-4673-ba0e-72d8bb17711c"
+}

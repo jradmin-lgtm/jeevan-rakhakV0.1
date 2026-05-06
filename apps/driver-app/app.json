@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "Jeevan Rakshak Driver",
+    "slug": "jr-driver-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "jrdriver",
+    "userInterfaceStyle": "light",
+    "platforms": ["android", "web"],
+    "jsEngine": "hermes",
+    "newArchEnabled": false,
+    "web": {
+      "bundler": "metro"
+    },
+    "splash": {
+      "backgroundColor": "#0F172A",
+      "resizeMode": "contain"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "android": {
+      "package": "com.jeevanrakshak.driver",
+      "versionCode": 1,
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "POST_NOTIFICATIONS",
+        "FOREGROUND_SERVICE"
+      ],
+      "adaptiveIcon": {
+        "backgroundColor": "#0F172A"
+      }
+    }
+  }
+}

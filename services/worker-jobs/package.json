@@ -1,0 +1,23 @@
+{
+  "name": "@jr/worker-jobs",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/worker.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/worker.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "echo \"Wire eslint in next iteration\"",
+    "test": "echo \"Tests run via e2e/\""
+  },
+  "dependencies": {
+    "@jr/config": "workspace:*",
+    "@jr/db": "workspace:*",
+    "@types/node": "^25.6.0",
+    "drizzle-orm": "^0.36.4"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3"
+  }
+}

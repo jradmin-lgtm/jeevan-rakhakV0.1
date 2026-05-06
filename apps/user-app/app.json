@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Jeevan Rakshak",
+    "slug": "jr-user-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "jruser",
+    "userInterfaceStyle": "light",
+    "platforms": ["android", "web"],
+    "jsEngine": "hermes",
+    "newArchEnabled": false,
+    "web": {
+      "bundler": "metro"
+    },
+    "splash": {
+      "backgroundColor": "#E5322B",
+      "resizeMode": "contain"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "android": {
+      "package": "com.jeevanrakshak.user",
+      "versionCode": 1,
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "POST_NOTIFICATIONS"
+      ],
+      "adaptiveIcon": {
+        "backgroundColor": "#E5322B"
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+node_modules/
+.turbo/
+dist/
+build/
+.next/
+.expo/
+.gradle/
+**/.cxx/
+.env
+.env.*
+!**/.env.production.example
+coverage/
+*.log
+yarn.lock
+package-lock.json

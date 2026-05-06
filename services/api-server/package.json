@@ -1,0 +1,30 @@
+{
+  "name": "@jr/api-server",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "echo \"Wire eslint in next iteration\"",
+    "test": "echo \"Tests run via e2e/\""
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.1",
+    "@fastify/jwt": "^9.0.1",
+    "@fastify/rate-limit": "^10.1.1",
+    "@jr/config": "workspace:*",
+    "@jr/db": "workspace:*",
+    "@jr/types": "workspace:*",
+    "@jr/utils": "workspace:*",
+    "@types/node": "^25.6.0",
+    "drizzle-orm": "^0.36.4",
+    "fastify": "^5.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3"
+  }
+}

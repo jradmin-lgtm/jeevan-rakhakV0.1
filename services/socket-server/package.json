@@ -1,0 +1,26 @@
+{
+  "name": "@jr/socket-server",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "echo \"Wire eslint in next iteration\"",
+    "test": "echo \"Tests run via e2e/\""
+  },
+  "dependencies": {
+    "@jr/config": "workspace:*",
+    "@jr/db": "workspace:*",
+    "@types/node": "^25.6.0",
+    "drizzle-orm": "^0.36.4",
+    "jsonwebtoken": "^9.0.2",
+    "socket.io": "^4.8.0"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.7",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3"
+  }
+}
