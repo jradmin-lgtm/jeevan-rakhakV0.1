@@ -1,0 +1,4 @@
+{
+  "buildCommand": "pnpm --filter @jr/admin-web build",
+  "installCommand": "pnpm install"
+}
