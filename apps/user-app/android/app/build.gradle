@@ -115,6 +115,16 @@ if (isReleaseAndroidTask) {
     }
 }
 
+// Pin androidx.core to a version that doesn't require compileSdk 36 / AGP 8.9.1.
+// Expo SDK 53 ships compileSdk 35 + AGP 8.8.2; some libraries (e.g. recent
+// expo-modules-core) transitively pull androidx.core 1.17.0 which is "too new".
+configurations.all {
+    resolutionStrategy {
+        force 'androidx.core:core:1.15.0'
+        force 'androidx.core:core-ktx:1.15.0'
+    }
+}
+
 android {
     ndkVersion rootProject.ext.ndkVersion
 
@@ -126,7 +136,7 @@ android {
         applicationId 'com.jeevanrakshak.user'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
+        versionCode 4
         versionName "1.0.0"
         manifestPlaceholders = [expoUpdatesUrl: "https://u.expo.dev/${easProjectId}"]
     }

@@ -30,7 +30,7 @@
     },
     "android": {
       "package": "com.jeevanrakshak.driver",
-      "versionCode": 2,
+      "versionCode": 4,
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
