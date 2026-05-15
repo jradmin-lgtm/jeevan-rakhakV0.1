@@ -9,7 +9,7 @@
     "installCommand": "corepack enable && cd ../.. && pnpm install --frozen-lockfile --filter=@jr/admin-web...",
     "buildCommand": "cd ../.. && pnpm --filter @jr/admin-web build",
     "outputDirectory": ".next",
-    "rootDirectory": null,
+    "rootDirectory": "apps/admin-web",
     "directoryListing": false,
     "nodeVersion": "24.x"
   }
