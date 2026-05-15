@@ -1,5 +1,11 @@
 # Deploying admin-web to Vercel
 
+> **Live URL:** https://jr-admin.vercel.app   (privacy policy at `/privacy`)
+> First production deploy completed on 2026-05-15. Project root directory is `apps/admin-web`; the build uses pnpm workspace install from the monorepo root.
+
+---
+
+
 Vercel team: **jeevan-rakshak-s-projects** (owned by `jradmin@jeevan-rakshak.com`).
 Project to deploy: `apps/admin-web/` (Next.js 15, App Router).
 What gets hosted: the operations dashboard + the **`/privacy`** policy page that the Play Store listing + mobile sign-in screens link to.
