@@ -18,8 +18,10 @@ FROM node:20-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 RUN corepack enable && corepack prepare pnpm@10.8.1 --activate
-COPY --from=build /app/services/socket-server/dist services/socket-server/dist
-COPY --from=build /app/services/socket-server/package.json services/socket-server/
+# Copy the whole service folder so the workspace's node_modules symlinks
+# (pointing into ../../node_modules/.pnpm/*) are preserved — otherwise the
+# runtime container can't resolve `socket.io`, `drizzle-orm`, `@jr/db`, etc.
+COPY --from=build /app/services/socket-server services/socket-server
 COPY --from=build /app/packages packages
 COPY --from=build /app/node_modules node_modules
 COPY --from=build /app/pnpm-workspace.yaml /app/package.json /app/turbo.json ./
