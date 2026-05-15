@@ -30,7 +30,7 @@
     },
     "android": {
       "package": "com.jeevanrakshak.user",
-      "versionCode": 4,
+      "versionCode": 5,
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
