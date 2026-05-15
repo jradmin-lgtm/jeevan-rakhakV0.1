@@ -29,6 +29,8 @@
 | `FLAG_REQUIRE_KYC` | `true|false` | Driver KYC feature switch |
 | `FLAG_ENABLE_PAYMENTS` | `true|false` | Payment feature switch |
 | `FLAG_ENABLE_PUSH` | `true|false` | Push feature switch |
+| `FLAG_PILOT_BYPASS_OTP` | `false` in production, `true` for the pilot | Pilot mode: OTP becomes last 4 digits of phone, no SMS sent. Boot guard rejects `true` when `NODE_ENV=production`. |
+| `EXPO_PUBLIC_PRIVACY_POLICY_URL` | `https://<admin-domain>/privacy` | URL the mobile apps deep-link to from the sign-in footer; same URL is used in the Play Store listing |
 
 ## Socket Server (`services/socket-server`)
 

@@ -41,7 +41,14 @@ const verifySchema = z.object({
   code: z.string().min(4).max(8).regex(/^\d+$/)
 });
 
-function generateOtp(): string {
+function generateOtp(phone?: string): string {
+  // PILOT BYPASS: when FLAG_PILOT_BYPASS_OTP=true, the OTP is the last 4 digits
+  // of the caller's phone. Zero SMS cost, no DLT registration required. The
+  // rest of the OTP pipeline (DB write, expiry, brute-force lockout, verify
+  // route) runs unchanged. Boot guard refuses prod startup with this flag on.
+  if (config.flags.pilot_bypass_otp && phone) {
+    return phone.replace(/\D/g, "").slice(-4);
+  }
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
@@ -72,7 +79,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       }
       const { phone, role } = parsed.data;
 
-      const code = generateOtp();
+      const code = generateOtp(phone);
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
       await db.insert(otpCodes).values({ phone, role, code, expiresAt });
 
