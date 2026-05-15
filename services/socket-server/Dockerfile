@@ -27,4 +27,6 @@ COPY --from=build /app/node_modules node_modules
 COPY --from=build /app/pnpm-workspace.yaml /app/package.json /app/turbo.json ./
 EXPOSE 4001
 WORKDIR /app/services/socket-server
-CMD ["node", "dist/server.js"]
+# Use tsx in production: workspace deps (@jr/config etc.) have main=src/*.ts.
+# tsx transpiles those .ts imports on demand from the compiled entry.
+CMD ["pnpm", "exec", "tsx", "dist/server.js"]

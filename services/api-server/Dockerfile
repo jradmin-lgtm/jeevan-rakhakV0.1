@@ -34,4 +34,8 @@ COPY --from=build /app/node_modules node_modules
 COPY --from=build /app/pnpm-workspace.yaml /app/package.json /app/turbo.json ./
 EXPOSE 4000
 WORKDIR /app/services/api-server
-CMD ["node", "dist/main.js"]
+# Use tsx in production: the compiled dist/main.js requires workspace deps
+# (@jr/config etc.) whose package.json `main` points at src/*.ts. tsx hooks
+# the module loader and transpiles those .ts imports on demand. Slight
+# startup cost; no other code changes needed.
+CMD ["pnpm", "exec", "tsx", "dist/main.js"]
