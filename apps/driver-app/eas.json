@@ -7,12 +7,22 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://jr-api-xnmr.onrender.com",
+        "EXPO_PUBLIC_SOCKET_BASE_URL": "wss://jr-socket.onrender.com",
+        "EXPO_PUBLIC_PRIVACY_POLICY_URL": "https://jr-admin.vercel.app/privacy"
       }
     },
     "production": {
       "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://jr-api-xnmr.onrender.com",
+        "EXPO_PUBLIC_SOCKET_BASE_URL": "wss://jr-socket.onrender.com",
+        "EXPO_PUBLIC_PRIVACY_POLICY_URL": "https://jr-admin.vercel.app/privacy"
       }
     }
   },
