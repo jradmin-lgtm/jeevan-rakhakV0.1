@@ -6,7 +6,10 @@
     "orientation": "portrait",
     "scheme": "jruser",
     "userInterfaceStyle": "light",
-    "platforms": ["android", "web"],
+    "platforms": [
+      "android",
+      "web"
+    ],
     "jsEngine": "hermes",
     "newArchEnabled": false,
     "web": {
@@ -21,8 +24,9 @@
     "runtimeVersion": {
       "policy": "appVersion"
     },
+    "owner": "jradmin29s-organization",
     "updates": {
-      "url": "https://u.expo.dev/REPLACE_USER_EAS_PROJECT_ID"
+      "url": ""
     },
     "android": {
       "package": "com.jeevanrakshak.user",
@@ -39,7 +43,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "REPLACE_USER_EAS_PROJECT_ID"
+        "projectId": "be38a773-b8f2-4428-8297-7e757e90f57b"
       }
     }
   }

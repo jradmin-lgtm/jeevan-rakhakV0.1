@@ -6,7 +6,10 @@
     "orientation": "portrait",
     "scheme": "jrdriver",
     "userInterfaceStyle": "light",
-    "platforms": ["android", "web"],
+    "platforms": [
+      "android",
+      "web"
+    ],
     "jsEngine": "hermes",
     "newArchEnabled": false,
     "web": {
@@ -21,8 +24,9 @@
     "runtimeVersion": {
       "policy": "appVersion"
     },
+    "owner": "jradmin29s-organization",
     "updates": {
-      "url": "https://u.expo.dev/REPLACE_DRIVER_EAS_PROJECT_ID"
+      "url": ""
     },
     "android": {
       "package": "com.jeevanrakshak.driver",
@@ -40,7 +44,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "REPLACE_DRIVER_EAS_PROJECT_ID"
+        "projectId": "a39978e4-b46f-47bc-9ca8-28deee237fb7"
       }
     }
   }

@@ -9,20 +9,21 @@ function readEasProjectId() {
   ).trim();
   if (fromEnv) return fromEnv;
   const p = path.join(__dirname, "eas-project.json");
-  if (!fs.existsSync(p)) {
-    throw new Error(
-      "Missing eas-project.json. Run eas init in apps/user-app or set USER_EAS_PROJECT_ID."
-    );
+  if (!fs.existsSync(p)) return "";
+  try {
+    const json = JSON.parse(fs.readFileSync(p, "utf8"));
+    return (json.expoProjectId || "").trim();
+  } catch {
+    return "";
   }
-  const json = JSON.parse(fs.readFileSync(p, "utf8"));
-  return (json.expoProjectId || "").trim();
 }
 
 module.exports = ({ config }) => {
   const projectId = readEasProjectId();
-  if (!projectId) {
-    throw new Error("expoProjectId is empty in eas-project.json (apps/user-app).");
-  }
+  // If projectId is empty (e.g. before `eas init` has been run), return the
+  // base config so the CLI can create a fresh project and write the new ID
+  // into app.json. After init, paste the new ID into eas-project.json.
+  if (!projectId) return config;
   return {
     ...config,
     updates: {

@@ -10,20 +10,18 @@ function readEasProjectId() {
   ).trim();
   if (fromEnv) return fromEnv;
   const p = path.join(__dirname, "eas-project.json");
-  if (!fs.existsSync(p)) {
-    throw new Error(
-      "Missing eas-project.json. Run eas init in apps/driver-app or set DRIVER_EAS_PROJECT_ID."
-    );
+  if (!fs.existsSync(p)) return "";
+  try {
+    const json = JSON.parse(fs.readFileSync(p, "utf8"));
+    return (json.expoProjectId || "").trim();
+  } catch {
+    return "";
   }
-  const json = JSON.parse(fs.readFileSync(p, "utf8"));
-  return (json.expoProjectId || "").trim();
 }
 
 module.exports = ({ config }) => {
   const projectId = readEasProjectId();
-  if (!projectId) {
-    throw new Error("expoProjectId is empty in eas-project.json (apps/driver-app).");
-  }
+  if (!projectId) return config;
   return {
     ...config,
     updates: {
