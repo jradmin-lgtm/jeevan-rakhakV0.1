@@ -5,6 +5,7 @@ build/
 .next/
 .expo/
 .gradle/
+.vercel/
 **/.cxx/
 .env
 .env.*
