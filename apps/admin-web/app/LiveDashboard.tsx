@@ -53,7 +53,9 @@ export function LiveDashboard({
   const [stats, setStats] = useState<Stats>(initialStats);
   const [bookings, setBookings] = useState<Booking[]>(initialBookings);
   const [drivers, setDrivers] = useState<Driver[]>(initialDrivers);
-  const [updatedAt, setUpdatedAt] = useState<string>(new Date().toLocaleTimeString());
+  // Initialized empty so SSR + first client render match (avoids hydration
+  // mismatch on locale-formatted time). useEffect below sets it after mount.
+  const [updatedAt, setUpdatedAt] = useState<string>("");
 
   useEffect(() => {
     let alive = true;
@@ -87,7 +89,7 @@ export function LiveDashboard({
       <div className="page-header">
         <div>
           <h1>Live operations</h1>
-          <p>Auto-refreshing every 5 seconds · last updated {updatedAt}</p>
+          <p>Auto-refreshing every 5 seconds{updatedAt ? ` · last updated ${updatedAt}` : ""}</p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
           <SourceFilter value={source} onChange={setSource} />
@@ -141,7 +143,7 @@ export function LiveDashboard({
                 ) : (
                   bookings.slice(0, 8).map((b) => (
                     <tr key={b.id}>
-                      <td className="mono muted">{new Date(b.createdAt).toLocaleTimeString()}</td>
+                      <td className="mono muted" suppressHydrationWarning>{new Date(b.createdAt).toLocaleTimeString()}</td>
                       <td>
                         {prettyEmergency(b.emergencyType)}
                         {b.isDemo ? <span className="demo-flag">DEMO</span> : null}

@@ -12,12 +12,17 @@
     "web": {
       "bundler": "metro"
     },
+    "icon": "./assets/icon.png",
     "splash": {
+      "image": "./assets/splash.png",
       "backgroundColor": "#E5322B",
       "resizeMode": "contain"
     },
     "runtimeVersion": {
       "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/REPLACE_USER_EAS_PROJECT_ID"
     },
     "android": {
       "package": "com.jeevanrakshak.user",
@@ -28,7 +33,13 @@
         "POST_NOTIFICATIONS"
       ],
       "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#E5322B"
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "REPLACE_USER_EAS_PROJECT_ID"
       }
     }
   }

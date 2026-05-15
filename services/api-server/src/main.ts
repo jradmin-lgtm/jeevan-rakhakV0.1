@@ -32,6 +32,7 @@ function assertProductionReady() {
   if (config.internalApiSecret.startsWith("dev-"))  problems.push("INTERNAL_API_SECRET is still the dev default");
   if (config.adminApiKey.startsWith("dev-"))        problems.push("ADMIN_API_KEY is still the dev default");
   if (config.flags.show_demo_bypass)                problems.push("FLAG_DEMO_BYPASS=true must be disabled in production (would expose OTP codes in responses)");
+  if (config.flags.pilot_bypass_otp)                problems.push("FLAG_PILOT_BYPASS_OTP=true must be disabled in production (pilot-only: makes OTP guessable as last 4 digits of phone)");
   if (config.corsAllowedOrigins === "*")            problems.push("CORS_ALLOWED_ORIGINS=* is unsafe in production — set to a comma-separated allowlist");
   if (problems.length > 0) {
     console.error("[startup] refusing to boot in production:");

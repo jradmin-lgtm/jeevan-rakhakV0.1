@@ -9,8 +9,8 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "check": "turbo run typecheck",
-    "build:user:aab": "cross-env NODE_ENV=production EXPO_NO_METRO_WORKSPACE_ROOT=1 pnpm -C apps/user-app exec android/gradlew.bat -p android bundleRelease",
-    "build:driver:aab": "cross-env NODE_ENV=production EXPO_NO_METRO_WORKSPACE_ROOT=1 pnpm -C apps/driver-app exec android/gradlew.bat -p android bundleRelease"
+    "build:user:aab": "node scripts/build-android-aab.mjs user-app",
+    "build:driver:aab": "node scripts/build-android-aab.mjs driver-app"
   },
   "devDependencies": {
     "turbo": "^2.0.14",

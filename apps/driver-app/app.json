@@ -12,12 +12,17 @@
     "web": {
       "bundler": "metro"
     },
+    "icon": "./assets/icon.png",
     "splash": {
+      "image": "./assets/splash.png",
       "backgroundColor": "#0F172A",
       "resizeMode": "contain"
     },
     "runtimeVersion": {
       "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/REPLACE_DRIVER_EAS_PROJECT_ID"
     },
     "android": {
       "package": "com.jeevanrakshak.driver",
@@ -29,7 +34,13 @@
         "FOREGROUND_SERVICE"
       ],
       "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0F172A"
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "REPLACE_DRIVER_EAS_PROJECT_ID"
       }
     }
   }

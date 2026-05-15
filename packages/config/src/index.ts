@@ -138,7 +138,8 @@ export const config = {
     require_kyc_for_drivers: optional("FLAG_REQUIRE_KYC", "false") === "true",
     enable_payments: optional("FLAG_ENABLE_PAYMENTS", "false") === "true",
     enable_push: optional("FLAG_ENABLE_PUSH", "false") === "true",
-    show_demo_bypass: optional("FLAG_DEMO_BYPASS", "false") === "true"
+    show_demo_bypass: optional("FLAG_DEMO_BYPASS", "false") === "true",
+    pilot_bypass_otp: optional("FLAG_PILOT_BYPASS_OTP", "false") === "true"
   }
 } as const;
 

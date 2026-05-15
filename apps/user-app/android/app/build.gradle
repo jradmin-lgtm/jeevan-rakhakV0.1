@@ -4,20 +4,26 @@ apply plugin: "com.facebook.react"
 
 def projectRoot = projectDir.getAbsoluteFile().getParentFile().getParentFile().getAbsolutePath()
 
+// Inherits the resolved node path from the root build.gradle so Android Studio
+// builds work without the shell PATH being injected.
+def nodeBin = rootProject.hasProperty("NODE_BIN") ? rootProject.ext.NODE_BIN :
+    (System.getenv("NODE_BINARY") ?: (findProperty("NODE_BINARY")) ?:
+    (["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"].find { new File(it).exists() }) ?: "node")
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.
  */
 react {
-    entryFile = file(["node", "-e", "require('expo/scripts/resolveAppEntry')", projectRoot, "android", "absolute"].execute(null, projectDir).text.trim())
-    reactNativeDir = new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, projectDir).text.trim()).getParentFile().getAbsoluteFile()
-    hermesCommand = new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, projectDir).text.trim()).getParentFile().getAbsolutePath() + "/sdks/hermesc/%OS-BIN%/hermesc"
-    codegenDir = new File(["node", "--print", "require.resolve('@react-native/codegen/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, projectDir).text.trim()).getParentFile().getAbsoluteFile()
+    entryFile = file([nodeBin, "-e", "require('expo/scripts/resolveAppEntry')", projectRoot, "android", "absolute"].execute(null, projectDir).text.trim())
+    reactNativeDir = new File([nodeBin, "--print", "require.resolve('react-native/package.json')"].execute(null, projectDir).text.trim()).getParentFile().getAbsoluteFile()
+    hermesCommand = new File([nodeBin, "--print", "require.resolve('react-native/package.json')"].execute(null, projectDir).text.trim()).getParentFile().getAbsolutePath() + "/sdks/hermesc/%OS-BIN%/hermesc"
+    codegenDir = new File([nodeBin, "--print", "require.resolve('@react-native/codegen/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, projectDir).text.trim()).getParentFile().getAbsoluteFile()
 
     enableBundleCompression = (findProperty('android.enableBundleCompression') ?: false).toBoolean()
     // Use Expo CLI to bundle the app, this ensures the Metro config
     // works correctly with Expo projects.
-    cliFile = new File(["node", "--print", "require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })"].execute(null, projectDir).text.trim())
+    cliFile = new File([nodeBin, "--print", "require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })"].execute(null, projectDir).text.trim())
     bundleCommand = "export:embed"
 
     /* Folders */
@@ -35,7 +41,7 @@ react {
     // debuggableVariants = ["liteDebug", "prodDebug"]
 
     /* Bundling */
-    nodeExecutableAndArgs = ["node"]
+    nodeExecutableAndArgs = [nodeBin]
 
     //
     //   The path to the CLI configuration file. Default is empty.
