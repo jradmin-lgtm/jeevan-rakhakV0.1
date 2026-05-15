@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Linking, Pressable, View } from "react-native";
+import { Pressable, View } from "react-native";
+import * as WebBrowser from "expo-web-browser";
 import { AppHeader, Button, Card, Input, OtpInput, OtpToast, Screen, Text, colors, space } from "@jr/ui";
 import { auth as authApi, setToken } from "../api";
 
@@ -89,7 +90,15 @@ export function LoginScreen({ onAuthenticated }: { onAuthenticated: (profile: an
                 />
                 <Text variant="tiny" tone="muted" align="center">
                   By continuing you agree to our{" "}
-                  <Pressable onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>
+                  <Pressable
+                    onPress={() =>
+                      WebBrowser.openBrowserAsync(PRIVACY_POLICY_URL, {
+                        presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
+                        toolbarColor: colors.surface,
+                        controlsColor: colors.primary
+                      })
+                    }
+                  >
                     <Text variant="tiny" weight="bold" style={{ color: colors.primary }}>
                       privacy policy
                     </Text>
