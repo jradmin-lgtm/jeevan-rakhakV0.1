@@ -5,13 +5,17 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
  * not used — set EXPO_PUBLIC_API_BASE_URL / EXPO_PUBLIC_SOCKET_BASE_URL (see .env.production).
  */
 declare const __DEV__: boolean;
-
-const env = ((typeof globalThis !== "undefined" ? (globalThis as any).process : undefined)?.env ?? {}) as Record<string, string | undefined>;
+// Metro's static-analysis inliner only matches the literal `process.env.EXPO_PUBLIC_*`
+// pattern. Indirect access (e.g. via globalThis) bypasses inlining and leaves
+// the value `undefined` on native Android — which falls through to the localhost
+// default and crashes the env-check at startup. Declare `process` locally so
+// TypeScript is happy without pulling in @types/node.
+declare const process: { env: Record<string, string | undefined> };
 
 export const API_BASE =
-  env.EXPO_PUBLIC_API_BASE_URL ?? (__DEV__ ? "http://localhost:4000" : "");
+  process.env.EXPO_PUBLIC_API_BASE_URL ?? (__DEV__ ? "http://localhost:4000" : "");
 export const SOCKET_BASE =
-  env.EXPO_PUBLIC_SOCKET_BASE_URL ?? (__DEV__ ? "http://localhost:4001" : "");
+  process.env.EXPO_PUBLIC_SOCKET_BASE_URL ?? (__DEV__ ? "http://localhost:4001" : "");
 
 const TOKEN_KEY = "jr.user.token";
 

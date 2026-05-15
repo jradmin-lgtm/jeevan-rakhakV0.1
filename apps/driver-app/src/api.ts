@@ -1,13 +1,14 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 declare const __DEV__: boolean;
-
-const env = ((typeof globalThis !== "undefined" ? (globalThis as any).process : undefined)?.env ?? {}) as Record<string, string | undefined>;
+// Metro's inliner only handles direct `process.env.EXPO_PUBLIC_*` access.
+// Indirect (globalThis.process) leaves the value undefined on native Android.
+declare const process: { env: Record<string, string | undefined> };
 
 export const API_BASE =
-  env.EXPO_PUBLIC_API_BASE_URL ?? (__DEV__ ? "http://localhost:4000" : "");
+  process.env.EXPO_PUBLIC_API_BASE_URL ?? (__DEV__ ? "http://localhost:4000" : "");
 export const SOCKET_BASE =
-  env.EXPO_PUBLIC_SOCKET_BASE_URL ?? (__DEV__ ? "http://localhost:4001" : "");
+  process.env.EXPO_PUBLIC_SOCKET_BASE_URL ?? (__DEV__ ? "http://localhost:4001" : "");
 
 const TOKEN_KEY = "jr.driver.token";
 

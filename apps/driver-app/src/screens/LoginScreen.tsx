@@ -3,11 +3,11 @@ import { Linking, Pressable, View } from "react-native";
 import { AppHeader, Button, Card, Input, OtpInput, OtpToast, Screen, Text, colors, space } from "@jr/ui";
 import { auth as authApi, setToken } from "../api";
 
-// `EXPO_PUBLIC_*` env vars are inlined by Expo at bundle time; the accessor
-// pattern avoids needing @types/node.
-const env = ((typeof globalThis !== "undefined" ? (globalThis as any).process : undefined)?.env ?? {}) as Record<string, string | undefined>;
+// Metro inlines `process.env.EXPO_PUBLIC_*` at bundle time only on direct
+// access. Indirect access leaves the value undefined on native Android.
+declare const process: { env: Record<string, string | undefined> };
 const PRIVACY_POLICY_URL =
-  env.EXPO_PUBLIC_PRIVACY_POLICY_URL ?? "http://localhost:3000/privacy";
+  process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL ?? "https://jr-admin.vercel.app/privacy";
 
 const OTP_LENGTH = 4;
 
