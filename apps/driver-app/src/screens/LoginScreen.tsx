@@ -25,11 +25,15 @@ export function LoginScreen({ onAuthenticated }: { onAuthenticated: (profile: an
     try {
       const r = await authApi.requestOtp(phone);
       const otp = (r.demoOtp ?? "").slice(0, OTP_LENGTH);
+      // Hold on the phone screen for ~2.5s with the button-spinner showing so
+      // it feels like a real "we're sending an SMS" beat before the toast
+      // appears. Drop this delay when real SMS goes live.
+      await new Promise((res) => setTimeout(res, 2500));
       setCode("");
       setStage("code");
       if (otp) {
         setToast(`OTP received  •  ${otp}`);
-        setTimeout(() => setCode(otp), 380);
+        setTimeout(() => setCode(otp), 420);
       } else {
         setToast("OTP sent to your mobile");
       }
