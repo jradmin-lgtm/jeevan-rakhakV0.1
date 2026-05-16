@@ -7,6 +7,7 @@ import {
   doublePrecision,
   boolean,
   pgEnum,
+  jsonb,
   index
 } from "drizzle-orm/pg-core";
 
@@ -163,6 +164,28 @@ export const driverLocations = pgTable(
   })
 );
 
+/**
+ * Generic system-level events stream for observability / alerts.
+ * Distinct from `booking_events` (which is per-booking state history).
+ * Retained for 7 days by a cleanup job; older rows are deleted.
+ */
+export const systemEvents = pgTable(
+  "system_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ts: timestamp("ts", { withTimezone: true }).defaultNow().notNull(),
+    level: text("level").notNull(), // info | warn | error | critical
+    source: text("source").notNull(), // api | socket | worker | mobile-user | mobile-driver
+    message: text("message").notNull(),
+    context: jsonb("context"),
+    notified: boolean("notified").notNull().default(false) // set true once email alert sent
+  },
+  (t) => ({
+    tsIdx: index("system_events_ts_idx").on(t.ts),
+    levelIdx: index("system_events_level_idx").on(t.level)
+  })
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Driver = typeof drivers.$inferSelect;
@@ -171,3 +194,5 @@ export type Booking = typeof bookings.$inferSelect;
 export type NewBooking = typeof bookings.$inferInsert;
 export type BookingEvent = typeof bookingEvents.$inferSelect;
 export type DriverLocation = typeof driverLocations.$inferSelect;
+export type SystemEvent = typeof systemEvents.$inferSelect;
+export type NewSystemEvent = typeof systemEvents.$inferInsert;

@@ -121,6 +121,23 @@ ALTER TABLE bookings ADD COLUMN IF NOT EXISTS is_demo boolean NOT NULL DEFAULT f
 CREATE INDEX IF NOT EXISTS users_is_demo_idx    ON users(is_demo);
 CREATE INDEX IF NOT EXISTS drivers_is_demo_idx  ON drivers(is_demo);
 CREATE INDEX IF NOT EXISTS bookings_is_demo_idx ON bookings(is_demo);
+
+-- system_events — observability stream. Retained 7 days by a cron in
+-- services/api-server. Source values seen so far: api, socket, worker,
+-- mobile-user, mobile-driver. level is one of: info, warn, error, critical.
+-- The notified column flips to true once notifyAdmin() has emailed the row,
+-- so a retry won't re-spam jradmin@jeevan-rakshak.com.
+CREATE TABLE IF NOT EXISTS system_events (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  ts timestamptz NOT NULL DEFAULT now(),
+  level text NOT NULL,
+  source text NOT NULL,
+  message text NOT NULL,
+  context jsonb,
+  notified boolean NOT NULL DEFAULT false
+);
+CREATE INDEX IF NOT EXISTS system_events_ts_idx ON system_events(ts DESC);
+CREATE INDEX IF NOT EXISTS system_events_level_idx ON system_events(level);
 `;
 
 async function main() {

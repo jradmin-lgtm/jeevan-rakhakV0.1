@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { and, count, desc, eq, gte, sql as drizzleSql } from "drizzle-orm";
-import { bookingEvents, bookings, drivers, db, users } from "@jr/db";
+import { bookingEvents, bookings, drivers, db, users, systemEvents } from "@jr/db";
 
 type Source = "all" | "real" | "demo";
 
@@ -146,5 +146,97 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       .orderBy(desc(users.createdAt))
       .limit(200);
     return reply.send({ source, users: rows });
+  });
+
+  // ─── Observability ─────────────────────────────────────────────────────────
+
+  app.get("/api/v1/admin/health", adminGuard, async (_req, reply) => {
+    const start = Date.now();
+    const result: {
+      api: { status: "up" | "down"; uptimeSec: number };
+      db: { status: "up" | "down"; latencyMs: number | null; error?: string };
+      events: { critical24h: number; error24h: number; warn24h: number };
+      checkedAt: string;
+    } = {
+      api: { status: "up", uptimeSec: Math.floor(process.uptime()) },
+      db: { status: "down", latencyMs: null },
+      events: { critical24h: 0, error24h: 0, warn24h: 0 },
+      checkedAt: new Date().toISOString()
+    };
+    try {
+      const t0 = Date.now();
+      await db.execute(drizzleSql`SELECT 1`);
+      result.db = { status: "up", latencyMs: Date.now() - t0 };
+    } catch (e: any) {
+      result.db = { status: "down", latencyMs: null, error: String(e?.message ?? e).slice(0, 200) };
+    }
+
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    try {
+      const rows = await db
+        .select({ level: systemEvents.level, c: count() })
+        .from(systemEvents)
+        .where(gte(systemEvents.ts, since))
+        .groupBy(systemEvents.level);
+      for (const r of rows) {
+        const c = Number(r.c);
+        if (r.level === "critical") result.events.critical24h = c;
+        if (r.level === "error") result.events.error24h = c;
+        if (r.level === "warn") result.events.warn24h = c;
+      }
+    } catch {
+      /* leave zeros */
+    }
+
+    reply.header("x-server-time-ms", String(Date.now() - start));
+    return reply.send(result);
+  });
+
+  app.get("/api/v1/admin/events", adminGuard, async (req, reply) => {
+    const q = (req as any).query ?? {};
+    const level = String(q.level ?? "all").toLowerCase();
+    const sinceParam = q.since ? new Date(String(q.since)) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const since = isNaN(sinceParam.getTime()) ? new Date(Date.now() - 24 * 60 * 60 * 1000) : sinceParam;
+    const limit = Math.min(parseInt(String(q.limit ?? "100"), 10) || 100, 500);
+
+    const filters = [gte(systemEvents.ts, since)];
+    if (["info", "warn", "error", "critical"].includes(level)) {
+      filters.push(eq(systemEvents.level, level));
+    }
+
+    const rows = await db
+      .select()
+      .from(systemEvents)
+      .where(and(...filters))
+      .orderBy(desc(systemEvents.ts))
+      .limit(limit);
+    return reply.send({ events: rows, since: since.toISOString(), limit });
+  });
+
+  app.post("/api/v1/admin/events/cleanup", adminGuard, async (_req, reply) => {
+    const cutoffIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const result = await (db as any).execute(
+      drizzleSql`DELETE FROM system_events WHERE ts < ${cutoffIso}::timestamptz`
+    );
+    return reply.send({ deletedBefore: cutoffIso, result: (result as any).rowCount ?? null });
+  });
+
+  // Mobile clients post their own anomalies here so we have a single timeline.
+  app.post("/api/v1/admin/events/report", async (req, reply) => {
+    const body = (req as any).body ?? {};
+    const level = ["info", "warn", "error", "critical"].includes(String(body.level))
+      ? (body.level as "info" | "warn" | "error" | "critical")
+      : "info";
+    const source = String(body.source ?? "client").slice(0, 50);
+    const message = String(body.message ?? "(no message)").slice(0, 500);
+    const context = typeof body.context === "object" && body.context !== null ? body.context : undefined;
+    // Best-effort; never reject the client.
+    try {
+      const { emitEvent } = await import("../events.js");
+      await emitEvent({ level, source, message, context });
+    } catch {
+      /* swallow */
+    }
+    return reply.send({ ok: true });
   });
 }

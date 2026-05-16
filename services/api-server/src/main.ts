@@ -9,6 +9,7 @@ import { registerMeRoutes } from "./routes/me";
 import { registerBookingRoutes } from "./routes/bookings";
 import { registerDriverRoutes } from "./routes/drivers";
 import { registerAdminRoutes } from "./routes/admin";
+import { emitEvent } from "./events";
 
 declare module "@fastify/jwt" {
   interface FastifyJWT {
@@ -88,7 +89,7 @@ async function bootstrap() {
   await registerDriverRoutes(app);
   await registerAdminRoutes(app);
 
-  app.setErrorHandler((err: any, _req, reply) => {
+  app.setErrorHandler((err: any, req, reply) => {
     // Respect status codes set by Fastify plugins (rate-limit → 429, JWT → 401, etc.)
     if (err?.statusCode && err.statusCode >= 400 && err.statusCode < 500) {
       return reply
@@ -99,11 +100,44 @@ async function bootstrap() {
     if (err?.validation) {
       return reply.code(400).send({ error: "bad_request", details: err.message });
     }
+    // Unhandled 5xx — record + alert. Fire-and-forget; never block the response.
+    void emitEvent({
+      level: "error",
+      source: "api",
+      message: err?.message ?? "internal_error",
+      context: {
+        path: (req as any).routerPath ?? req.url,
+        method: req.method,
+        stack: String(err?.stack ?? "").slice(0, 2000)
+      }
+    });
     return reply.code(500).send({ error: "internal_error" });
   });
 
+  // Daily cleanup of events older than 7 days. Runs every 6h via setInterval.
+  // Cheap (~ms) and idempotent; keeps Neon row count bounded.
+  setInterval(async () => {
+    try {
+      const { db } = await import("@jr/db");
+      const sevenDaysAgoIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      // Raw SQL avoids cross-version drizzle type friction.
+      await (db as any).execute(
+        (await import("drizzle-orm")).sql`DELETE FROM system_events WHERE ts < ${sevenDaysAgoIso}::timestamptz`
+      );
+    } catch (err) {
+      app.log.warn({ err }, "[events] cleanup failed");
+    }
+  }, 6 * 60 * 60 * 1000);
+
   await app.listen({ host: "0.0.0.0", port: config.apiPort });
   app.log.info(`api-server listening on :${config.apiPort}`);
+  // Mark a clean boot in the timeline.
+  void emitEvent({
+    level: "info",
+    source: "api",
+    message: "api-server started",
+    context: { port: config.apiPort, env: config.env }
+  });
 }
 
 bootstrap().catch((err) => {
