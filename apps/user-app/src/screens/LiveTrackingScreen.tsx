@@ -145,14 +145,11 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
   // with the driver on call instead of pulling the rug out.
   const cancellable = booking.status === "REQUESTED";
 
-  // 90-minute help banner. If the trip is still active 90 min after it was
-  // created, surface a "Need help?" prompt with our contact email so the
-  // patient/driver can reach support if something has gone wrong.
+  // ── Timer / ETA derivation ───────────────────────────────────────────────
+  // createdMs serves double duty: the elapsed/ETA timer + the 90-min help
+  // banner threshold.
   const createdMs = booking.createdAt ? new Date(booking.createdAt).getTime() : Date.now();
   const showHelpBanner = !finished && (nowTs - createdMs) > 90 * 60 * 1000;
-
-  // ── Timer / ETA derivation ───────────────────────────────────────────────
-  const createdMs = booking.createdAt ? new Date(booking.createdAt).getTime() : Date.now();
   const elapsedSec = Math.max(0, Math.floor((nowTs - createdMs) / 1000));
   let timerLabel = "";
   let timerValue = "";
