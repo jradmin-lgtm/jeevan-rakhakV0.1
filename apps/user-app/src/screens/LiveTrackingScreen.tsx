@@ -4,6 +4,7 @@ import {
   AppHeader,
   Button,
   Card,
+  MapEmbed,
   OtpToast,
   Pill,
   Screen,
@@ -202,44 +203,38 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
         </View>
       </Card>
 
-      {driverPos ? (
-        <Card>
-          <View style={{ gap: space.sm }}>
-            <Text variant="label" tone="secondary">DRIVER LOCATION (LIVE)</Text>
-            <Text variant="body">
-              {driverPos.lat.toFixed(5)}, {driverPos.lng.toFixed(5)}
-            </Text>
+      <Card padding="md">
+        <View style={{ gap: space.sm }}>
+          <Text variant="label" tone="secondary">
+            {driverPos ? "DRIVER LIVE" : "PICKUP"}
+          </Text>
+          <MapEmbed
+            pickup={{ lat: booking.pickupLat, lng: booking.pickupLng, label: "Pickup" }}
+            driver={driverPos ? { lat: driverPos.lat, lng: driverPos.lng, label: "Driver" } : null}
+            height={220}
+          />
+          {driverPos ? (
             <Text variant="tiny" tone="muted">
-              Updated {Math.max(0, Math.round((Date.now() - driverPos.ts) / 1000))}s ago
+              Driver at {driverPos.lat.toFixed(5)}, {driverPos.lng.toFixed(5)} · updated{" "}
+              {Math.max(0, Math.round((Date.now() - driverPos.ts) / 1000))}s ago
             </Text>
-            <Button
-              label="View driver on Google Maps"
-              variant="outline"
-              onPress={() => openOnGoogleMaps(driverPos.lat, driverPos.lng)}
-              fullWidth
-            />
-          </View>
-        </Card>
-      ) : (
-        <Card>
-          <View style={{ gap: space.sm }}>
-            <Text variant="label" tone="secondary">PICKUP</Text>
-            <Text variant="body">{booking.pickupAddress ?? "Your current location"}</Text>
+          ) : (
             <Text variant="tiny" tone="muted">
-              {booking.pickupLat.toFixed(5)}, {booking.pickupLng.toFixed(5)}
+              Live driver position appears on this map once the trip starts.
             </Text>
-            <Button
-              label="View pickup on Google Maps"
-              variant="outline"
-              onPress={() => openOnGoogleMaps(booking.pickupLat, booking.pickupLng)}
-              fullWidth
-            />
-            <Text variant="tiny" tone="muted" align="center">
-              Live driver location appears here once the trip starts.
-            </Text>
-          </View>
-        </Card>
-      )}
+          )}
+          <Button
+            label={driverPos ? "Open driver in Google Maps" : "Open pickup in Google Maps"}
+            variant="ghost"
+            onPress={() =>
+              driverPos
+                ? openOnGoogleMaps(driverPos.lat, driverPos.lng)
+                : openOnGoogleMaps(booking.pickupLat, booking.pickupLng)
+            }
+            fullWidth
+          />
+        </View>
+      </Card>
 
       {!finished ? (
         <Button label="Cancel booking" variant="outline" onPress={onCancel} fullWidth />

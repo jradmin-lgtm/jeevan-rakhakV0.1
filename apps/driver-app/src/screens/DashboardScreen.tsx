@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Animated, RefreshControl, View } from "react-native";
+import * as Location from "expo-location";
 import {
   AppHeader,
   Button,
   Card,
   EmptyState,
   IconBadge,
+  MapEmbed,
   Pill,
   PulseDot,
   Screen,
@@ -20,6 +22,21 @@ import { Booking, bookings as bookingsApi, clearToken, driver as driverApi, me }
 import { getSocket, disconnectSocket } from "../socket";
 
 const DRIVER_DEFAULT = { lat: 28.6139, lng: 77.209 };
+
+// Helper duplicated from TripScreen for self-containment.
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+function estimateEtaMin(km: number, avgKmh = 28, roadFactor = 1.4): number {
+  return Math.max(1, Math.round(((km * roadFactor) / avgKmh) * 60));
+}
 
 type Props = {
   profile: any;
@@ -36,8 +53,39 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
   const [loaded, setLoaded] = useState(false);
   const [activeTrip, setActiveTrip] = useState<Booking | null>(null);
   const [todayCompleted, setTodayCompleted] = useState(0);
+  const [myPos, setMyPos] = useState<{ lat: number; lng: number } | null>(null);
+  const [ignored, setIgnored] = useState<Set<string>>(new Set());
   const subscribed = useRef(false);
   const fade = useFadeIn();
+
+  // Get driver location once on mount + every 20s so dashboard ETA stays fresh
+  // without burning battery. Foreground permission only.
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        await Location.requestForegroundPermissionsAsync();
+      } catch {
+        /* ignored */
+      }
+    })();
+    const tick = async () => {
+      try {
+        const fix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        if (mounted) setMyPos({ lat: fix.coords.latitude, lng: fix.coords.longitude });
+      } catch {
+        /* keep prior fix */
+      }
+    };
+    void tick();
+    const id = setInterval(tick, 20_000);
+    return () => {
+      mounted = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  const ignore = (id: string) => setIgnored((prev) => new Set(prev).add(id));
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -205,36 +253,76 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
             </View>
           </Card>
         ) : available ? (
-          pending.length === 0 ? (
-            <Card flat>
-              <EmptyState title="No active requests" description="New SOS requests will appear here instantly." />
-            </Card>
-          ) : (
-            pending.map((b) => (
-              <Animated.View key={b.id} style={fade}>
-                <Card>
-                  <View style={{ gap: space.md }}>
-                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-                        <PulseDot size={8} color={colors.primary} rings={1} />
-                        <Pill label={prettyEmergency(b.emergencyType)} />
-                      </View>
-                      <Text variant="small" tone="muted">{new Date(b.createdAt).toLocaleTimeString()}</Text>
-                    </View>
-                    <Text variant="heading">Pickup: {b.pickupAddress ?? "Patient location"}</Text>
-                    <Text variant="small" tone="secondary">
-                      {b.dropAddress ? `Drop: ${b.dropAddress}` : "Drop hospital not specified yet"}
-                    </Text>
-                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                      <Text variant="small" tone="secondary">Estimated payout</Text>
-                      <Text variant="heading" weight="bold" tone="primary">₹{b.fareEstimateInr ?? "—"}</Text>
-                    </View>
-                    <Button label="Accept request" onPress={() => accept(b)} fullWidth size="lg" testID={`accept-${b.id}`} />
-                  </View>
+          (() => {
+            const visible = pending.filter((b) => !ignored.has(b.id));
+            if (visible.length === 0) {
+              return (
+                <Card flat>
+                  <EmptyState title="No active requests" description="New SOS requests will appear here instantly." />
                 </Card>
-              </Animated.View>
-            ))
-          )
+              );
+            }
+            return visible.map((b) => {
+              const km = myPos ? haversineKm(myPos.lat, myPos.lng, b.pickupLat, b.pickupLng) : null;
+              const eta = km != null ? estimateEtaMin(km) : null;
+              return (
+                <Animated.View key={b.id} style={fade}>
+                  <Card padding="md">
+                    <View style={{ gap: space.md }}>
+                      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+                          <PulseDot size={8} color={colors.primary} rings={1} />
+                          <Pill label={prettyEmergency(b.emergencyType)} />
+                        </View>
+                        <Text variant="small" tone="muted">{new Date(b.createdAt).toLocaleTimeString()}</Text>
+                      </View>
+
+                      <MapEmbed
+                        pickup={{ lat: b.pickupLat, lng: b.pickupLng, label: "Patient" }}
+                        driver={myPos ? { lat: myPos.lat, lng: myPos.lng, label: "You" } : null}
+                        height={180}
+                      />
+
+                      <Text variant="heading">{b.pickupAddress ?? "Patient location"}</Text>
+                      <Text variant="small" tone="secondary">
+                        {b.dropAddress ? `Drop: ${b.dropAddress}` : "Drop hospital not specified yet"}
+                      </Text>
+
+                      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                        <View>
+                          <Text variant="tiny" tone="secondary">Distance</Text>
+                          <Text variant="body" weight="semi">
+                            {km != null ? `${km.toFixed(1)} km` : "Locating you…"}
+                          </Text>
+                        </View>
+                        <View>
+                          <Text variant="tiny" tone="secondary">ETA to pickup</Text>
+                          <Text variant="body" weight="semi">
+                            {eta != null ? `~${eta} min` : "—"}
+                          </Text>
+                        </View>
+                        <View>
+                          <Text variant="tiny" tone="secondary">Payout</Text>
+                          <Text variant="body" weight="bold" tone="primary">
+                            ₹{b.fareEstimateInr ?? "—"}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={{ flexDirection: "row", gap: space.sm }}>
+                        <View style={{ flex: 1 }}>
+                          <Button label="Ignore" onPress={() => ignore(b.id)} variant="outline" fullWidth />
+                        </View>
+                        <View style={{ flex: 2 }}>
+                          <Button label="Accept" onPress={() => accept(b)} fullWidth size="lg" testID={`accept-${b.id}`} />
+                        </View>
+                      </View>
+                    </View>
+                  </Card>
+                </Animated.View>
+              );
+            });
+          })()
         ) : (
           <Card flat>
             <EmptyState title="You're offline" description="Go online above to receive emergency requests." />

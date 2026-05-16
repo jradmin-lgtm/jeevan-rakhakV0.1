@@ -5,7 +5,7 @@ import {
   AppHeader,
   Button,
   Card,
-  MapPlaceholder,
+  MapEmbed,
   Pill,
   PulseDot,
   Screen,
@@ -188,11 +188,10 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
       </Card>
 
       <Card padding="md">
-        <MapPlaceholder
-          driverActive={sharing}
-          pickupLabel="Patient"
-          driverLabel="You"
-          height={180}
+        <MapEmbed
+          pickup={{ lat: booking.pickupLat, lng: booking.pickupLng, label: "Patient" }}
+          driver={myPos ? { lat: myPos.lat, lng: myPos.lng, label: "You" } : null}
+          height={220}
         />
         {sharing ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm, marginTop: space.md }}>
