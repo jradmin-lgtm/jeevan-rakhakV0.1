@@ -108,7 +108,9 @@ async function bootstrap() {
     `);
     await (db as any).execute(sql`CREATE INDEX IF NOT EXISTS system_events_ts_idx ON system_events(ts DESC)`);
     await (db as any).execute(sql`CREATE INDEX IF NOT EXISTS system_events_level_idx ON system_events(level)`);
-    app.log.info("[migrate] system_events ready");
+    // Per-ride OTP (4 digits) for the driver's PICKUP verification step.
+    await (db as any).execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS ride_otp_code text`);
+    app.log.info("[migrate] system_events + ride_otp_code ready");
   } catch (err) {
     app.log.warn({ err }, "[migrate] system_events DDL failed — alerts won't have data yet");
   }

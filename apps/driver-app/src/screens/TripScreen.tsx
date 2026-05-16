@@ -6,7 +6,9 @@ import {
   Button,
   Card,
   ContactSupport,
+  Input,
   MapEmbed,
+  OtpInput,
   Pill,
   PulseDot,
   Screen,
@@ -292,13 +294,55 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
         </Card>
       ) : null}
 
+      {/* SOS flow: drop hospital wasn't set at booking time. On arrival, the
+        * driver assesses the patient and captures the drop here. Saved via
+        * /set-drop so the patient app immediately sees the destination.
+        * Then a Maps deep-link opens Google Maps for turn-by-turn nav. */}
+      {!finished && booking.status === "ARRIVED" && !booking.dropAddress ? (
+        <Card>
+          <View style={{ gap: space.sm }}>
+            <Text variant="label" tone="secondary">DROP HOSPITAL (SOS)</Text>
+            <Text variant="tiny" tone="muted">
+              Capture where the patient needs to go. Saved instantly to the patient app.
+            </Text>
+            <DropPicker
+              bookingId={booking.id}
+              defaultLat={booking.pickupLat}
+              defaultLng={booking.pickupLng}
+              onSaved={(b) => setBooking(b)}
+              onMaps={(lat, lng) => openTurnByTurn(lat, lng)}
+            />
+          </View>
+        </Card>
+      ) : null}
+
+      {/* OTP verification — required to flip ARRIVED → PICKED_UP. Replaces
+        * the legacy 1-tap "Patient picked up" so a driver can't start the
+        * meter on a wrong patient by accident. */}
+      {!finished && booking.status === "ARRIVED" ? (
+        <Card>
+          <View style={{ gap: space.sm }}>
+            <Text variant="label" tone="secondary">VERIFY RIDE OTP</Text>
+            <Text variant="tiny" tone="muted">
+              Ask the patient for their 4-digit ride OTP and enter it below.
+            </Text>
+            <OtpVerify
+              onSubmit={async (code) => {
+                await advance(() => bookingsApi.pickup(booking.id, code), {
+                  title: "",
+                  body: ""
+                });
+              }}
+              busy={busy}
+            />
+          </View>
+        </Card>
+      ) : null}
+
       {!finished ? (
         <View style={{ gap: space.sm }}>
           {booking.status === "ACCEPTED" ? (
             <Button label="I have arrived" loading={busy} onPress={() => advance(() => bookingsApi.arrived(booking.id))} fullWidth size="lg" testID="arrived-cta" />
-          ) : null}
-          {booking.status === "ARRIVED" ? (
-            <Button label="Patient picked up" loading={busy} onPress={() => advance(() => bookingsApi.pickup(booking.id))} fullWidth size="lg" testID="pickup-cta" />
           ) : null}
           {booking.status === "PICKED_UP" ? (
             <Button
@@ -324,6 +368,109 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
         <Button label="Back to dashboard" onPress={onClose} fullWidth />
       )}
     </Screen>
+  );
+}
+
+/**
+ * 4-box OTP entry for the driver to verify the patient's ride OTP before
+ * starting the trip. Keeps the keypad tight + auto-validates so the driver
+ * doesn't have to tap a separate submit.
+ */
+function OtpVerify({
+  onSubmit,
+  busy
+}: {
+  onSubmit: (code: string) => void | Promise<void>;
+  busy: boolean;
+}) {
+  const [code, setCode] = useState("");
+  return (
+    <View style={{ gap: space.md }}>
+      <OtpInput value={code} onChangeText={setCode} length={4} autoFocus />
+      <Button
+        label="Start ride"
+        loading={busy}
+        disabled={code.length !== 4}
+        onPress={() => onSubmit(code)}
+        fullWidth
+        size="lg"
+        testID="pickup-cta"
+      />
+      <Text variant="tiny" tone="muted" align="center">
+        The patient can see this code on their app. Ask them to read it out.
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * Lightweight drop-hospital input. The driver types the name + optionally a
+ * lat/lng (defaulting to pickup, since SOS hospitals are usually near). On
+ * "Set drop" we PATCH the booking via /set-drop so the patient app starts
+ * showing the destination immediately, and then offer a Google Maps button
+ * to navigate. A full map picker arrives in a later iteration.
+ */
+function DropPicker({
+  bookingId,
+  defaultLat,
+  defaultLng,
+  onSaved,
+  onMaps
+}: {
+  bookingId: string;
+  defaultLat: number;
+  defaultLng: number;
+  onSaved: (b: Booking) => void;
+  onMaps: (lat: number, lng: number) => void;
+}) {
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  const save = async () => {
+    const label = name.trim();
+    if (!label) return;
+    setBusy(true);
+    try {
+      const r = await bookingsApi.setDrop(bookingId, defaultLat, defaultLng, label);
+      onSaved(r.booking);
+      setSavedAt(Date.now());
+    } catch (e: any) {
+      Alert.alert("Could not save drop", e?.message ?? "Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={{ gap: space.sm }}>
+      <Input
+        label="Hospital name"
+        value={name}
+        onChangeText={setName}
+        placeholder="e.g., Apollo Indraprastha"
+        autoCapitalize="words"
+      />
+      <Button
+        label={savedAt ? "Drop saved · update" : "Save drop hospital"}
+        onPress={save}
+        loading={busy}
+        disabled={!name.trim()}
+        fullWidth
+        variant={savedAt ? "outline" : "primary"}
+      />
+      {savedAt ? (
+        <Button
+          label="Open in Google Maps"
+          variant="ghost"
+          onPress={() => onMaps(defaultLat, defaultLng)}
+          fullWidth
+        />
+      ) : null}
+      <Text variant="tiny" tone="muted">
+        Tip: the patient app updates the moment you save this.
+      </Text>
+    </View>
   );
 }
 

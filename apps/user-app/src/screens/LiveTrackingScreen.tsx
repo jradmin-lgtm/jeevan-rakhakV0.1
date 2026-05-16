@@ -212,6 +212,30 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
         </View>
       </Card>
 
+      {/* Ride OTP — visible from the moment the booking is created so the
+        * patient can rehearse the code. Goes prominently red once the driver
+        * has actually arrived ("Tell this code to the driver"). Disappears
+        * after PICKED_UP since the OTP has been consumed. */}
+      {booking.rideOtpCode && ["REQUESTED", "ACCEPTED", "ARRIVED"].includes(booking.status) ? (
+        <Card style={
+          booking.status === "ARRIVED"
+            ? { borderColor: colors.primary, borderWidth: 2, backgroundColor: "#FFF5F4" }
+            : undefined
+        }>
+          <View style={{ gap: space.sm, alignItems: "center" }}>
+            <Text variant="label" tone={booking.status === "ARRIVED" ? "danger" : "secondary"}>
+              {booking.status === "ARRIVED" ? "TELL THIS OTP TO THE DRIVER" : "RIDE OTP"}
+            </Text>
+            <Text style={{ fontSize: 40, fontWeight: "700", color: colors.primary, letterSpacing: 8 }}>
+              {booking.rideOtpCode}
+            </Text>
+            <Text variant="tiny" tone="muted" align="center">
+              The driver will ask you for this 4-digit code before starting the trip.
+            </Text>
+          </View>
+        </Card>
+      ) : null}
+
       <Card padding="md">
         <View style={{ gap: space.sm }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>

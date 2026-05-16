@@ -68,6 +68,7 @@ export type Booking = {
   dropAddress?: string | null;
   fareEstimateInr?: number | null;
   fareFinalInr?: number | null;
+  rideOtpCode?: string | null;
   createdAt: string;
 };
 
@@ -118,8 +119,13 @@ export const bookings = {
     api<{ booking: Booking }>(`/api/v1/bookings/${id}/accept`, { method: "POST", body: {} }),
   arrived: (id: string) =>
     api<{ booking: Booking }>(`/api/v1/bookings/${id}/arrived`, { method: "POST", body: {} }),
-  pickup: (id: string) =>
-    api<{ booking: Booking }>(`/api/v1/bookings/${id}/pickup`, { method: "POST", body: {} }),
+  pickup: (id: string, code: string) =>
+    api<{ booking: Booking }>(`/api/v1/bookings/${id}/pickup`, { method: "POST", body: { code } }),
+  setDrop: (id: string, dropLat: number, dropLng: number, dropAddress?: string) =>
+    api<{ booking: Booking }>(`/api/v1/bookings/${id}/set-drop`, {
+      method: "POST",
+      body: { dropLat, dropLng, dropAddress }
+    }),
   complete: (id: string) =>
     api<{ booking: Booking }>(`/api/v1/bookings/${id}/complete`, { method: "POST", body: {} })
 };

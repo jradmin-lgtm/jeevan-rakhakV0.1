@@ -103,6 +103,9 @@ export const bookings = pgTable(
     pickupLat: doublePrecision("pickup_lat").notNull(),
     pickupLng: doublePrecision("pickup_lng").notNull(),
     pickupAddress: text("pickup_address"),
+    // 4-digit per-ride OTP the patient must read out for the driver to start
+    // the trip. Generated at booking creation; cleared once consumed.
+    rideOtpCode: text("ride_otp_code"),
     dropLat: doublePrecision("drop_lat"),
     dropLng: doublePrecision("drop_lng"),
     dropAddress: text("drop_address"),

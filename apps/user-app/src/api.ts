@@ -96,6 +96,7 @@ export type Booking = {
   fareFinalInr?: number | null;
   rating?: number | null;
   feedback?: string | null;
+  rideOtpCode?: string | null;
   createdAt: string;
   acceptedAt?: string | null;
   arrivedAt?: string | null;

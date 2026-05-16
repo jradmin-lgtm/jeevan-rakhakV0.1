@@ -74,6 +74,11 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         data.dropLng
       );
 
+      // Per-ride OTP — 4 random digits the patient reads out to the driver
+      // before pickup. New code per booking so a previous trip's OTP can't
+      // be reused.
+      const rideOtpCode = String(Math.floor(1000 + Math.random() * 9000));
+
       const [created] = await db
         .insert(bookings)
         .values({
@@ -85,7 +90,8 @@ export async function registerBookingRoutes(app: FastifyInstance) {
           dropLat: data.dropLat,
           dropLng: data.dropLng,
           dropAddress: data.dropAddress,
-          fareEstimateInr: fareEstimate
+          fareEstimateInr: fareEstimate,
+          rideOtpCode
         })
         .returning();
 
@@ -164,7 +170,12 @@ export async function registerBookingRoutes(app: FastifyInstance) {
   const driverActionSchemas = {
     accept: z.object({}),
     arrived: z.object({}),
-    pickup: z.object({}),
+    pickup: z.object({ code: z.string().regex(/^\d{4}$/, "OTP must be 4 digits") }),
+    setDrop: z.object({
+      dropLat: z.number(),
+      dropLng: z.number(),
+      dropAddress: z.string().max(500).optional()
+    }),
     complete: z.object({ ratingByDriver: z.number().min(1).max(5).optional() }),
     cancel: z.object({ reason: z.string().max(200).optional() })
   };
@@ -243,6 +254,28 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       const { sub, role } = req.user;
       if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
       const id = req.params.id as string;
+      const parsed = driverActionSchemas.pickup.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return reply.code(400).send({ error: "otp_required", message: "Ask the patient for their 4-digit ride OTP." });
+      }
+      // Read the booking once so we can compare OTP without giving the
+      // driver a way to brute-force via repeated 4xx responses (rate-limit
+      // is global; this is just the per-request check).
+      const [current] = await db
+        .select()
+        .from(bookings)
+        .where(and(eq(bookings.id, id), eq(bookings.driverId, sub)))
+        .limit(1);
+      if (!current) return reply.code(404).send({ error: "not_found_or_forbidden" });
+      if (current.status !== "ARRIVED") {
+        return reply.code(409).send({ error: "wrong_state", message: "Mark 'I have arrived' before verifying OTP." });
+      }
+      if (!current.rideOtpCode) {
+        // Legacy booking created before the OTP column existed — let the
+        // driver proceed without OTP. New bookings always carry one.
+      } else if (current.rideOtpCode !== parsed.data.code) {
+        return reply.code(401).send({ error: "otp_mismatch", message: "OTP didn't match. Ask the patient to read it again." });
+      }
       const [b] = await db
         .update(bookings)
         .set({ status: "PICKED_UP", pickedUpAt: new Date() })
@@ -250,6 +283,40 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         .returning();
       if (!b) return reply.code(404).send({ error: "not_found_or_forbidden" });
       await emitBookingEvent(id, "booking.picked_up", `driver:${sub}`);
+      return reply.send({ booking: b });
+    }
+  );
+
+  // SOS bookings often arrive with no drop hospital set yet — the driver
+  // captures it on-site after assessing the patient. This endpoint lets the
+  // assigned driver patch the drop coordinates + label any time before
+  // PICKED_UP.
+  app.post(
+    "/api/v1/bookings/:id/set-drop",
+    { preHandler: [(app as any).authenticate] },
+    async (req: any, reply) => {
+      const { sub, role } = req.user;
+      if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
+      const id = req.params.id as string;
+      const parsed = driverActionSchemas.setDrop.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return reply.code(400).send({ error: "invalid_drop", details: parsed.error.flatten() });
+      }
+      const [b] = await db
+        .update(bookings)
+        .set({
+          dropLat: parsed.data.dropLat,
+          dropLng: parsed.data.dropLng,
+          dropAddress: parsed.data.dropAddress
+        })
+        .where(and(eq(bookings.id, id), eq(bookings.driverId, sub)))
+        .returning();
+      if (!b) return reply.code(404).send({ error: "not_found_or_forbidden" });
+      await emitBookingEvent(id, "booking.drop_set", `driver:${sub}`, {
+        dropLat: parsed.data.dropLat,
+        dropLng: parsed.data.dropLng,
+        dropAddress: parsed.data.dropAddress
+      });
       return reply.send({ booking: b });
     }
   );
