@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
 import rateLimit from "@fastify/rate-limit";
 import { config } from "@jr/config";
+import { sql as pgClient } from "@jr/db";
 import { registerHealthRoutes } from "./routes/health";
 import { registerAuthRoutes } from "./routes/auth";
 import { registerMeRoutes } from "./routes/me";
@@ -89,13 +90,13 @@ async function bootstrap() {
   await registerDriverRoutes(app);
   await registerAdminRoutes(app);
 
-  // Idempotent auto-migration of the system_events table so the obs stack
-  // works on a fresh Neon DB without an out-of-band step. Cheap (~5ms when
-  // table already exists) and safe — every CREATE has IF NOT EXISTS.
+  // Idempotent auto-migration so observability + per-ride OTP work on a
+  // fresh Neon DB without an out-of-band step. Uses the raw postgres
+  // client (pgClient) — earlier attempt used drizzle's `db.execute(sql\`…\`)`
+  // through a dynamic import and silently failed with "Cannot read
+  // properties of undefined (reading 'execute')" on the compiled JS path.
   try {
-    const { db } = await import("@jr/db");
-    const { sql } = await import("drizzle-orm");
-    await (db as any).execute(sql`
+    await pgClient`
       CREATE TABLE IF NOT EXISTS system_events (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         ts timestamptz NOT NULL DEFAULT now(),
@@ -105,14 +106,14 @@ async function bootstrap() {
         context jsonb,
         notified boolean NOT NULL DEFAULT false
       )
-    `);
-    await (db as any).execute(sql`CREATE INDEX IF NOT EXISTS system_events_ts_idx ON system_events(ts DESC)`);
-    await (db as any).execute(sql`CREATE INDEX IF NOT EXISTS system_events_level_idx ON system_events(level)`);
+    `;
+    await pgClient`CREATE INDEX IF NOT EXISTS system_events_ts_idx ON system_events(ts DESC)`;
+    await pgClient`CREATE INDEX IF NOT EXISTS system_events_level_idx ON system_events(level)`;
     // Per-ride OTP (4 digits) for the driver's PICKUP verification step.
-    await (db as any).execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS ride_otp_code text`);
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS ride_otp_code text`;
     app.log.info("[migrate] system_events + ride_otp_code ready");
   } catch (err) {
-    app.log.warn({ err }, "[migrate] system_events DDL failed — alerts won't have data yet");
+    app.log.warn({ err }, "[migrate] DDL failed — alerts/OTP features won't work yet");
   }
 
   app.setErrorHandler((err: any, req, reply) => {
@@ -141,15 +142,11 @@ async function bootstrap() {
   });
 
   // Daily cleanup of events older than 7 days. Runs every 6h via setInterval.
-  // Cheap (~ms) and idempotent; keeps Neon row count bounded.
+  // Uses the raw postgres client so the migrate/cleanup path stays consistent
+  // and doesn't rely on the drizzle dynamic-import that broke before.
   setInterval(async () => {
     try {
-      const { db } = await import("@jr/db");
-      const sevenDaysAgoIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-      // Raw SQL avoids cross-version drizzle type friction.
-      await (db as any).execute(
-        (await import("drizzle-orm")).sql`DELETE FROM system_events WHERE ts < ${sevenDaysAgoIso}::timestamptz`
-      );
+      await pgClient`DELETE FROM system_events WHERE ts < NOW() - INTERVAL '7 days'`;
     } catch (err) {
       app.log.warn({ err }, "[events] cleanup failed");
     }
