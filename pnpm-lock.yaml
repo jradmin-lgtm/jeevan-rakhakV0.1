@@ -94,9 +94,15 @@ importers:
         specifier: ^4.8.0
         version: 4.8.3
     devDependencies:
+      '@babel/core':
+        specifier: ^7.29.0
+        version: 7.29.0
       '@types/react':
         specifier: 19.0.10
         version: 19.0.10
+      babel-preset-expo:
+        specifier: ^13.2.5
+        version: 13.2.5(@babel/core@7.29.0)
       typescript:
         specifier: ^5.8.3
         version: 5.8.3
@@ -146,9 +152,15 @@ importers:
         specifier: ^4.8.0
         version: 4.8.3
     devDependencies:
+      '@babel/core':
+        specifier: ^7.29.0
+        version: 7.29.0
       '@types/react':
         specifier: 19.0.10
         version: 19.0.10
+      babel-preset-expo:
+        specifier: ^13.2.5
+        version: 13.2.5(@babel/core@7.29.0)
       typescript:
         specifier: ^5.8.3
         version: 5.8.3
