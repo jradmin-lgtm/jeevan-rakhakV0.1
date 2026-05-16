@@ -16,7 +16,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <a href="/bookings">Bookings</a>
           <a href="/drivers">Drivers</a>
         </nav>
-        <div className="footer">v0.2 demo · investor preview</div>
+        <div className="footer">Jeevan Rakshak · v1.0</div>
       </aside>
       <main className="content">{children}</main>
     </div>

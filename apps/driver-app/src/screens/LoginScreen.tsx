@@ -122,6 +122,15 @@ export function LoginScreen({ onAuthenticated }: { onAuthenticated: (profile: an
             )}
           </View>
         </Card>
+
+        <View style={{ marginTop: space.xl, gap: space.xs, alignItems: "center" }}>
+          <Text variant="tiny" tone="muted" align="center">
+            Created with care · Jeevan Rakshak
+          </Text>
+          <Text variant="tiny" tone="muted" align="center">
+            Booking an ambulance? Use the Jeevan Rakshak patient app.
+          </Text>
+        </View>
       </Screen>
       <OtpToast message={toast} onHide={() => setToast(null)} />
     </View>

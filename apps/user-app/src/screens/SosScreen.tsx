@@ -51,12 +51,21 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
   };
 
   return (
-    <Screen bg={colors.danger} padding={0}>
+    <Screen bg={colors.danger} padding={0} scroll={false}>
       <View style={styles.headerWrap}>
         <AppHeader title="" onBack={onBack} />
       </View>
 
       <View style={styles.content}>
+        <View style={styles.headlineWrap}>
+          <Text variant="title" tone="inverse" weight="bold" align="center">
+            Emergency SOS
+          </Text>
+          <Text variant="body" tone="inverse" align="center" style={{ opacity: 0.92 }}>
+            Hold the button below to dispatch the nearest ambulance immediately.
+          </Text>
+        </View>
+
         <View style={styles.ringWrap}>
           <PulseDot size={140} color="#FFFFFF" rings={3} />
           <Animated.View style={[styles.bigButton, { transform: [{ scale: breathe }] }]}>
@@ -66,23 +75,31 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
               style={styles.bigButtonInner}
               disabled={busy}
             >
-              <Text variant="title" tone="inverse" weight="bold" style={{ fontSize: 40 }}>SOS</Text>
-              <Text variant="small" tone="inverse" style={{ opacity: 0.9 }}>Tap to dispatch</Text>
+              <Text variant="title" tone="inverse" weight="bold" style={{ fontSize: 44, letterSpacing: 2 }}>
+                SOS
+              </Text>
+              <Text variant="small" tone="inverse" style={{ opacity: 0.92, marginTop: 4 }}>
+                Tap to dispatch
+              </Text>
             </Pressable>
           </Animated.View>
         </View>
 
-        <Card style={{ backgroundColor: "rgba(255,255,255,0.95)" }}>
+        <Card style={styles.infoCard}>
           <View style={{ gap: space.md }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
-              <IconBadge glyph="!" bg="#FEE2E2" color={colors.danger} size={40} />
+            <View style={{ flexDirection: "row", alignItems: "flex-start", gap: space.md }}>
+              <IconBadge glyph="!" bg="#FEE2E2" color={colors.danger} size={44} />
               <View style={{ flex: 1 }}>
-                <Text variant="body" weight="semi">For life-threatening emergencies</Text>
-                <Text variant="small" tone="secondary">Highest dispatch priority. Misuse may suspend your account.</Text>
+                <Text variant="heading" weight="semi">For life-threatening emergencies</Text>
+                <Text variant="small" tone="secondary" style={{ marginTop: 4 }}>
+                  This sends a high-priority cardiac dispatch. Misuse may suspend your account.
+                </Text>
               </View>
             </View>
             <Button label="Cancel and go back" variant="outline" onPress={onBack} fullWidth />
-            {busy ? <Text variant="small" tone="secondary" align="center">Sending SOS…</Text> : null}
+            {busy ? (
+              <Text variant="small" tone="secondary" align="center">Sending SOS…</Text>
+            ) : null}
           </View>
         </Card>
       </View>
@@ -92,7 +109,15 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
 
 const styles = StyleSheet.create({
   headerWrap: { paddingHorizontal: space.lg, paddingTop: space.lg },
-  content: { flex: 1, padding: space.lg, gap: space.xl, alignItems: "center", justifyContent: "center" },
+  content: {
+    flex: 1,
+    paddingHorizontal: space.lg,
+    paddingBottom: space.xl,
+    gap: space.lg,
+    alignItems: "center",
+    justifyContent: "space-between"
+  },
+  headlineWrap: { gap: space.sm, paddingHorizontal: space.md, alignItems: "center" },
   ringWrap: {
     width: 240,
     height: 240,
@@ -121,5 +146,9 @@ const styles = StyleSheet.create({
     height: "100%",
     alignItems: "center",
     justifyContent: "center"
+  },
+  infoCard: {
+    backgroundColor: "#FFFFFF",
+    width: "100%"
   }
 });

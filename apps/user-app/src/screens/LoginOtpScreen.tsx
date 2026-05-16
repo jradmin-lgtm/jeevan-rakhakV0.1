@@ -139,6 +139,15 @@ export function LoginOtpScreen({ onAuthenticated }: { onAuthenticated: (profile:
             </View>
           )}
         </Card>
+
+        <View style={{ marginTop: space.xl, gap: space.xs, alignItems: "center" }}>
+          <Text variant="tiny" tone="muted" align="center">
+            Created with care · Jeevan Rakshak
+          </Text>
+          <Text variant="tiny" tone="muted" align="center">
+            Are you a driver? Sign in via the Jeevan Rakshak Driver app.
+          </Text>
+        </View>
       </Screen>
       <OtpToast message={toast} onHide={() => setToast(null)} />
     </View>

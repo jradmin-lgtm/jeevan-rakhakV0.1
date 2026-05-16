@@ -111,7 +111,7 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
       </Card>
 
       <Text variant="tiny" tone="muted" align="center">
-        Demo build · feedback helps us launch officially in 30 days.
+        Made with care for India&apos;s emergency response.
       </Text>
     </Screen>
   );
