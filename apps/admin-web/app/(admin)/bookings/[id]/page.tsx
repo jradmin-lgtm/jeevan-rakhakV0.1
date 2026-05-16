@@ -40,6 +40,9 @@ export default async function BookingDetail({ params }: { params: Promise<{ id: 
           <Field label="Emergency type" value={prettyEmergency(booking.emergencyType)} />
           <Field label="Pickup" value={booking.pickupAddress ?? `${booking.pickupLat}, ${booking.pickupLng}`} />
           <Field label="Drop" value={booking.dropAddress ?? "Not specified"} />
+          {/* Surfaces the per-ride OTP so ops/support can quote it directly
+            * on a phone call if the patient or driver can't read it. */}
+          <Field label="Ride OTP" value={booking.rideOtpCode ?? "—"} />
           <Field label="Fare estimate" value={`₹${booking.fareEstimateInr ?? "—"}`} />
           <Field label="Fare final" value={booking.fareFinalInr ? `₹${booking.fareFinalInr}` : "Not closed yet"} />
           <Field label="Rating" value={booking.rating ? "★".repeat(booking.rating) : "Not rated"} />
