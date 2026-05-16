@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Animated, RefreshControl, View } from "react-native";
+import { Alert, Animated, Easing, Pressable, RefreshControl, View } from "react-native";
 import * as Location from "expo-location";
 import {
   AppHeader,
@@ -238,97 +238,75 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
         </View>
       </Card>
 
-      <View style={{ gap: space.sm }}>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-          <Text variant="label" tone="secondary">INCOMING REQUESTS</Text>
-          {available ? <PulseDot size={6} color={colors.primary} rings={1} /> : null}
-        </View>
-        {!loaded ? (
-          <Card>
-            <View style={{ gap: space.sm }}>
-              <Skeleton width={140} height={10} />
-              <Skeleton width="100%" height={20} />
-              <Skeleton width="60%" height={14} />
-              <Skeleton height={44} />
+      {/* Hide the entire INCOMING REQUESTS section while the driver is on
+        * an active trip — a one-at-a-time policy. Pending requests stay in
+        * the queue server-side; other drivers pick them up. This is the
+        * "auto-hide on accept" behaviour requested for v1.0.8. */}
+      {!activeTrip ? (
+        <View style={{ gap: space.sm }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+              <Text variant="label" tone="secondary">INCOMING REQUESTS</Text>
+              {available && (() => {
+                const c = pending.filter((b) => !ignored.has(b.id)).length;
+                return c > 0 ? <Pill label={`${c}`} color={colors.primary} bg={colors.primaryFaint} /> : null;
+              })()}
             </View>
-          </Card>
-        ) : available ? (
-          (() => {
-            const visible = pending.filter((b) => !ignored.has(b.id));
-            if (visible.length === 0) {
-              return (
-                <Card flat>
-                  <EmptyState title="No active requests" description="New SOS requests will appear here instantly." />
-                </Card>
-              );
-            }
-            return visible.map((b) => {
-              const km = myPos ? haversineKm(myPos.lat, myPos.lng, b.pickupLat, b.pickupLng) : null;
-              const eta = km != null ? estimateEtaMin(km) : null;
-              return (
-                <Animated.View key={b.id} style={fade}>
-                  <Card padding="md">
-                    <View style={{ gap: space.md }}>
-                      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-                          <PulseDot size={8} color={colors.primary} rings={1} />
-                          <Pill label={prettyEmergency(b.emergencyType)} />
-                        </View>
-                        <Text variant="small" tone="muted">{new Date(b.createdAt).toLocaleTimeString()}</Text>
-                      </View>
-
-                      <MapEmbed
-                        pickup={{ lat: b.pickupLat, lng: b.pickupLng, label: "Patient" }}
-                        driver={myPos ? { lat: myPos.lat, lng: myPos.lng, label: "You" } : null}
-                        height={180}
-                      />
-
-                      <Text variant="heading">{b.pickupAddress ?? "Patient location"}</Text>
-                      <Text variant="small" tone="secondary">
-                        {b.dropAddress ? `Drop: ${b.dropAddress}` : "Drop hospital not specified yet"}
-                      </Text>
-
-                      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                        <View>
-                          <Text variant="tiny" tone="secondary">Distance</Text>
-                          <Text variant="body" weight="semi">
-                            {km != null ? `${km.toFixed(1)} km` : "Locating you…"}
-                          </Text>
-                        </View>
-                        <View>
-                          <Text variant="tiny" tone="secondary">ETA to pickup</Text>
-                          <Text variant="body" weight="semi">
-                            {eta != null ? `~${eta} min` : "—"}
-                          </Text>
-                        </View>
-                        <View>
-                          <Text variant="tiny" tone="secondary">Payout</Text>
-                          <Text variant="body" weight="bold" tone="primary">
-                            ₹{b.fareEstimateInr ?? "—"}
-                          </Text>
-                        </View>
-                      </View>
-
-                      <View style={{ flexDirection: "row", gap: space.sm }}>
-                        <View style={{ flex: 1 }}>
-                          <Button label="Ignore" onPress={() => ignore(b.id)} variant="outline" fullWidth />
-                        </View>
-                        <View style={{ flex: 2 }}>
-                          <Button label="Accept" onPress={() => accept(b)} fullWidth size="lg" testID={`accept-${b.id}`} />
-                        </View>
-                      </View>
-                    </View>
+            {available ? <PulseDot size={6} color={colors.primary} rings={1} /> : null}
+          </View>
+          {!loaded ? (
+            <Card>
+              <View style={{ gap: space.sm }}>
+                <Skeleton width={140} height={10} />
+                <Skeleton width="100%" height={20} />
+                <Skeleton width="60%" height={14} />
+                <Skeleton height={44} />
+              </View>
+            </Card>
+          ) : available ? (
+            (() => {
+              // Sort closest-first so the driver always sees the most-likely
+              // accept candidate at the top. Falls back to creation order
+              // when GPS isn't ready yet.
+              const visible = pending
+                .filter((b) => !ignored.has(b.id))
+                .map((b) => ({
+                  b,
+                  km: myPos ? haversineKm(myPos.lat, myPos.lng, b.pickupLat, b.pickupLng) : null
+                }))
+                .sort((a, b) => {
+                  if (a.km == null && b.km == null) return 0;
+                  if (a.km == null) return 1;
+                  if (b.km == null) return -1;
+                  return a.km - b.km;
+                });
+              if (visible.length === 0) {
+                return (
+                  <Card flat>
+                    <EmptyState title="No active requests" description="New SOS requests will appear here instantly." />
                   </Card>
-                </Animated.View>
-              );
-            });
-          })()
-        ) : (
-          <Card flat>
-            <EmptyState title="You're offline" description="Go online above to receive emergency requests." />
-          </Card>
-        )}
-      </View>
+                );
+              }
+              return visible.map(({ b, km }, idx) => (
+                <RequestRow
+                  key={b.id}
+                  booking={b}
+                  km={km}
+                  eta={km != null ? estimateEtaMin(km) : null}
+                  driverPos={myPos}
+                  highlight={idx === 0}
+                  onIgnore={() => ignore(b.id)}
+                  onAccept={() => accept(b)}
+                />
+              ));
+            })()
+          ) : (
+            <Card flat>
+              <EmptyState title="You're offline" description="Go online above to receive emergency requests." />
+            </Card>
+          )}
+        </View>
+      ) : null}
 
       <Card flat>
         <View style={{ gap: space.md }}>
@@ -354,6 +332,154 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
       </Card>
     </Screen>
   );
+}
+
+/**
+ * Compact list-row for an incoming booking. Designed for high-density
+ * stacking (10+ requests at once). Tap the row to expand the inline map;
+ * "Accept" gives a press-scale animation + spinner while the request fires
+ * so the driver gets clear feedback before the row vanishes from the list.
+ */
+function RequestRow({
+  booking,
+  km,
+  eta,
+  driverPos,
+  highlight,
+  onIgnore,
+  onAccept
+}: {
+  booking: Booking;
+  km: number | null;
+  eta: number | null;
+  driverPos: { lat: number; lng: number } | null;
+  highlight: boolean;
+  onIgnore: () => void;
+  onAccept: () => void | Promise<void>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const scale = useRef(new Animated.Value(1)).current;
+  const fade = useFadeIn();
+
+  // Pulsing border highlight on the top (closest) request so the driver's
+  // eye lands on it first.
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!highlight) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: false }),
+        Animated.timing(pulse, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: false })
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [highlight, pulse]);
+
+  const borderOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] });
+
+  const handleAccept = async () => {
+    // Press-scale + busy spinner. Once the API resolves, the parent's
+    // refresh() removes the booking from `pending` so this row unmounts
+    // automatically — no extra cleanup needed here.
+    setBusy(true);
+    Animated.sequence([
+      Animated.timing(scale, { toValue: 0.96, duration: 80, useNativeDriver: true }),
+      Animated.timing(scale, { toValue: 1, duration: 120, useNativeDriver: true })
+    ]).start();
+    try {
+      await onAccept();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Animated.View style={[fade, { transform: [{ scale }] }]}>
+      <Animated.View
+        style={
+          highlight
+            ? {
+                borderRadius: 14,
+                borderWidth: 2,
+                borderColor: colors.primary,
+                opacity: borderOpacity
+              }
+            : undefined
+        }
+      >
+        <Card padding="md">
+          <Pressable onPress={() => setExpanded((x) => !x)} android_ripple={{ color: "rgba(0,0,0,0.04)" }}>
+            <View style={{ gap: space.sm }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+                  <PulseDot size={8} color={colors.primary} rings={1} />
+                  <Pill label={prettyEmergency(booking.emergencyType)} />
+                </View>
+                <Text variant="tiny" tone="muted">{secondsAgo(booking.createdAt)}</Text>
+              </View>
+              <Text variant="body" weight="semi">
+                {booking.pickupAddress ?? "Patient location"}
+              </Text>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <View style={{ flexDirection: "row", gap: space.lg }}>
+                  <View>
+                    <Text variant="tiny" tone="secondary">DISTANCE</Text>
+                    <Text variant="body" weight="bold">
+                      {km != null ? `${km.toFixed(1)} km` : "—"}
+                    </Text>
+                  </View>
+                  <View>
+                    <Text variant="tiny" tone="secondary">ETA</Text>
+                    <Text variant="body" weight="bold" tone="primary">
+                      {eta != null ? `~${eta} min` : "—"}
+                    </Text>
+                  </View>
+                </View>
+                <Text variant="tiny" tone="muted">
+                  {expanded ? "Tap to hide map ▴" : "Tap for map ▾"}
+                </Text>
+              </View>
+            </View>
+          </Pressable>
+
+          {expanded ? (
+            <View style={{ marginTop: space.md }}>
+              <MapEmbed
+                pickup={{ lat: booking.pickupLat, lng: booking.pickupLng, label: "Patient" }}
+                driver={driverPos ? { lat: driverPos.lat, lng: driverPos.lng, label: "You" } : null}
+                height={180}
+              />
+            </View>
+          ) : null}
+
+          <View style={{ flexDirection: "row", gap: space.sm, marginTop: space.md }}>
+            <View style={{ flex: 1 }}>
+              <Button label="Ignore" onPress={onIgnore} variant="outline" fullWidth disabled={busy} />
+            </View>
+            <View style={{ flex: 2 }}>
+              <Button
+                label={busy ? "Accepting…" : "Accept"}
+                onPress={handleAccept}
+                loading={busy}
+                fullWidth
+                size="lg"
+                testID={`accept-${booking.id}`}
+              />
+            </View>
+          </View>
+        </Card>
+      </Animated.View>
+    </Animated.View>
+  );
+}
+
+function secondsAgo(iso: string): string {
+  const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  return new Date(iso).toLocaleTimeString();
 }
 
 export function prettyEmergency(t: string): string {
