@@ -113,7 +113,16 @@ async function bootstrap() {
     await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS ride_otp_code text`;
     app.log.info("[migrate] system_events + ride_otp_code ready");
   } catch (err) {
-    app.log.warn({ err }, "[migrate] DDL failed — alerts/OTP features won't work yet");
+    // Thumb rule: migrations FATAL-EXIT on failure. Silent catch+warn here
+    // previously let the service start with a broken schema (system_events
+    // missing, ride_otp_code missing) and every booking POST 500'd. Loud
+    // failure surfaces the issue immediately in Render's deploy logs and
+    // holds the deploy open ("live" stays on the previous good build).
+    // eslint-disable-next-line no-console
+    console.error("[migrate] DDL failed — refusing to start with a broken schema:");
+    // eslint-disable-next-line no-console
+    console.error(err);
+    process.exit(1);
   }
 
   app.setErrorHandler((err: any, req, reply) => {
