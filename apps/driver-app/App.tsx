@@ -12,6 +12,7 @@ import { DashboardScreen } from "./src/screens/DashboardScreen";
 import { TripScreen } from "./src/screens/TripScreen";
 import { EarningsScreen } from "./src/screens/EarningsScreen";
 import { ProfileScreen } from "./src/screens/ProfileScreen";
+import { NameCaptureScreen } from "./src/screens/NameCaptureScreen";
 
 type RootStackParamList = {
   Splash: undefined;
@@ -67,6 +68,15 @@ export default function App() {
               {() => <LoginScreen onAuthenticated={(p) => setProfile(p)} />}
             </Stack.Screen>
           </>
+        ) : !profile.name || String(profile.name).trim().length < 2 ? (
+          <Stack.Screen name="NameCapture">
+            {() => (
+              <NameCaptureScreen
+                initialName={profile.name}
+                onSaved={(p) => setProfile(p)}
+              />
+            )}
+          </Stack.Screen>
         ) : (
           <>
             <Stack.Screen name="Dashboard">

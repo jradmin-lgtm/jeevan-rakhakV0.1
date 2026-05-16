@@ -31,6 +31,22 @@ function openTurnByTurn(lat: number, lng: number) {
   });
 }
 
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Quick urban-India ETA — free, no Maps API. Matches user-app's same formula.
+function estimateEtaMin(km: number, avgKmh = 28, roadFactor = 1.4): number {
+  return Math.max(1, Math.round(((km * roadFactor) / avgKmh) * 60));
+}
+
 const STEPS = [
   { key: "ACCEPTED", label: "Drive" },
   { key: "ARRIVED", label: "Arrive" },
@@ -47,6 +63,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
   const [booking, setBooking] = useState<Booking>(initial);
   const [busy, setBusy] = useState(false);
   const [pushedAt, setPushedAt] = useState<number | null>(null);
+  const [myPos, setMyPos] = useState<{ lat: number; lng: number } | null>(null);
   const ticker = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Push real GPS location every 5s to socket + every 15s to API for persistence.
@@ -80,6 +97,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
 
         sock.emit("driver:location", { bookingId: booking.id, lat, lng, ts: Date.now() });
         setPushedAt(Date.now());
+        setMyPos({ lat, lng });
         if (counter % 3 === 0) {
           try { await driverApi.pushLocation(lat, lng, booking.id); } catch { /* ignore */ }
         }
@@ -144,6 +162,28 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
             <Text variant="heading">{stepHeadline(booking.status)}</Text>
             <Text variant="small" tone="secondary">{stepSubline(booking.status)}</Text>
           </View>
+          {(() => {
+            // ETA card shown only when we have a GPS fix + a destination ahead.
+            if (!myPos) return null;
+            let label: string | null = null;
+            let value: string | null = null;
+            if (booking.status === "ACCEPTED") {
+              const km = haversineKm(myPos.lat, myPos.lng, booking.pickupLat, booking.pickupLng);
+              label = "ETA to pickup";
+              value = `~${estimateEtaMin(km)} min · ${km.toFixed(1)} km`;
+            } else if (booking.status === "PICKED_UP" && booking.dropLat != null && booking.dropLng != null) {
+              const km = haversineKm(myPos.lat, myPos.lng, booking.dropLat, booking.dropLng);
+              label = "ETA to hospital";
+              value = `~${estimateEtaMin(km)} min · ${km.toFixed(1)} km`;
+            }
+            if (!label || !value) return null;
+            return (
+              <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", marginTop: space.sm, paddingTop: space.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
+                <Text variant="small" tone="secondary">{label}</Text>
+                <Text variant="heading" weight="bold" tone="primary">{value}</Text>
+              </View>
+            );
+          })()}
         </View>
       </Card>
 

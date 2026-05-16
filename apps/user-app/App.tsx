@@ -14,6 +14,7 @@ import { LiveTrackingScreen } from "./src/screens/LiveTrackingScreen";
 import { HistoryScreen } from "./src/screens/HistoryScreen";
 import { MedicalProfileScreen } from "./src/screens/MedicalProfileScreen";
 import { SosScreen } from "./src/screens/SosScreen";
+import { NameCaptureScreen } from "./src/screens/NameCaptureScreen";
 
 type RootStackParamList = {
   Splash: undefined;
@@ -77,6 +78,15 @@ export default function App() {
               )}
             </Stack.Screen>
           </>
+        ) : !profile.name || String(profile.name).trim().length < 2 ? (
+          <Stack.Screen name="NameCapture">
+            {() => (
+              <NameCaptureScreen
+                initialName={profile.name}
+                onSaved={(p) => setProfile(p)}
+              />
+            )}
+          </Stack.Screen>
         ) : (
           <>
             <Stack.Screen name="Home">
