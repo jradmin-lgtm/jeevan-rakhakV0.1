@@ -17,6 +17,7 @@ import { NameCaptureScreen } from "./src/screens/NameCaptureScreen";
 type RootStackParamList = {
   Splash: undefined;
   Login: undefined;
+  NameCapture: undefined;
   Dashboard: undefined;
   Trip: { booking: Booking };
   Earnings: undefined;
