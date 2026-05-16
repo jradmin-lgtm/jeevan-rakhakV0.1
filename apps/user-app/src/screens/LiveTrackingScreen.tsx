@@ -138,6 +138,16 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
   };
 
   const finished = ["COMPLETED", "CANCELLED", "TIMED_OUT"].includes(booking.status);
+  // Cancel is only safe before a driver has been assigned. Once a driver
+  // accepts, the ambulance is already en route and the user must coordinate
+  // with the driver on call instead of pulling the rug out.
+  const cancellable = booking.status === "REQUESTED";
+
+  // 90-minute help banner. If the trip is still active 90 min after it was
+  // created, surface a "Need help?" prompt with our contact email so the
+  // patient/driver can reach support if something has gone wrong.
+  const createdMs = booking.createdAt ? new Date(booking.createdAt).getTime() : Date.now();
+  const showHelpBanner = !finished && (nowTs - createdMs) > 90 * 60 * 1000;
 
   // ── Timer / ETA derivation ───────────────────────────────────────────────
   const createdMs = booking.createdAt ? new Date(booking.createdAt).getTime() : Date.now();
@@ -236,8 +246,33 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
         </View>
       </Card>
 
+      {showHelpBanner ? (
+        <Card>
+          <View style={{ gap: space.xs }}>
+            <Text variant="label" tone="danger">NEED HELP?</Text>
+            <Text variant="body" weight="semi">This trip has been active for over 90 minutes.</Text>
+            <Text variant="small" tone="secondary">
+              Contact our support team if you need assistance — we&apos;ll reach
+              the driver and coordinate.
+            </Text>
+            <Button
+              label="Email support"
+              variant="outline"
+              onPress={() => Linking.openURL("mailto:contact.jeevanrakshak@gmail.com?subject=Help with booking " + booking.id.slice(0, 8))}
+              fullWidth
+            />
+          </View>
+        </Card>
+      ) : null}
+
       {!finished ? (
-        <Button label="Cancel booking" variant="outline" onPress={onCancel} fullWidth />
+        cancellable ? (
+          <Button label="Cancel booking" variant="outline" onPress={onCancel} fullWidth />
+        ) : (
+          <Text variant="tiny" tone="muted" align="center">
+            Driver is on the way — please coordinate with them by call if you need to change anything.
+          </Text>
+        )
       ) : (
         <Button label="Done" onPress={onClose} fullWidth />
       )}

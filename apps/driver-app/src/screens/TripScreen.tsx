@@ -147,6 +147,13 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
   const sharing = !finished && ["ACCEPTED", "ARRIVED", "PICKED_UP"].includes(booking.status);
   const stepIndex = statusToIndex(booking.status);
 
+  // 90-min "Need help?" check. Same shape as user-app: if the trip is still
+  // active 90 min after it was created, show a support-contact banner so the
+  // driver can flag anything going wrong (vehicle issue, patient changed mind,
+  // can't reach drop, etc).
+  const createdMs = booking.createdAt ? new Date(booking.createdAt).getTime() : Date.now();
+  const showHelpBanner = !finished && Date.now() - createdMs > 90 * 60 * 1000;
+
   return (
     <Screen>
       <AppHeader title="Active trip" subtitle={`#${booking.id.slice(0, 8)}`} onBack={onClose} />
@@ -232,14 +239,37 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
               ) : null}
             </>
           ) : null}
-          {booking.fareEstimateInr ? (
-            <>
-              <Text variant="label" tone="secondary">PAYOUT (EST.)</Text>
-              <Text variant="title" weight="bold" tone="primary">₹{booking.fareEstimateInr}</Text>
-            </>
-          ) : null}
+          {/*
+           * Fare amount intentionally hidden from drivers during launch.
+           * Many patients use the PILOT100 100%-off coupon → driver would
+           * see ₹250 but collect ₹0, causing confusion. Once paid bookings
+           * land and the coupon flow is server-side, revisit this card.
+           */}
+          <Text variant="label" tone="secondary">PAYMENT</Text>
+          <Text variant="body" tone="secondary">
+            Paid in-app · Nothing to collect from patient
+          </Text>
         </View>
       </Card>
+
+      {showHelpBanner ? (
+        <Card>
+          <View style={{ gap: space.xs }}>
+            <Text variant="label" tone="danger">NEED HELP?</Text>
+            <Text variant="body" weight="semi">This trip has been active for over 90 minutes.</Text>
+            <Text variant="small" tone="secondary">
+              If something has gone wrong, contact support — we&apos;ll
+              coordinate with the patient and ops.
+            </Text>
+            <Button
+              label="Email support"
+              variant="outline"
+              onPress={() => Linking.openURL("mailto:contact.jeevanrakshak@gmail.com?subject=Help with trip " + booking.id.slice(0, 8))}
+              fullWidth
+            />
+          </View>
+        </Card>
+      ) : null}
 
       {!finished ? (
         <View style={{ gap: space.sm }}>
