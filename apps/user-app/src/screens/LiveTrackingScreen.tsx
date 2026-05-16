@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, View } from "react-native";
+import { Alert, Linking, View } from "react-native";
 import {
   AppHeader,
   Button,
@@ -14,6 +14,13 @@ import {
 import { Booking, bookings as bookingsApi } from "../api";
 import { getSocket } from "../socket";
 import { prettyEmergency } from "./HomeScreen";
+
+function openOnGoogleMaps(lat: number, lng: number) {
+  // Universal Google Maps URL — opens native app if installed, browser
+  // otherwise. No Maps API key needed, no quota cost.
+  const url = `https://www.google.com/maps?q=${lat},${lng}`;
+  Linking.openURL(url).catch(() => {});
+}
 
 type Props = {
   booking: Booking;
@@ -113,20 +120,41 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
       </Card>
 
       {driverPos ? (
-        <Card flat>
-          <Text variant="label" tone="secondary">DRIVER LOCATION (LIVE)</Text>
-          <Text variant="body">
-            {driverPos.lat.toFixed(5)}, {driverPos.lng.toFixed(5)} ·{" "}
-            <Text tone="muted" variant="small">
-              updated {Math.max(0, Math.round((Date.now() - driverPos.ts) / 1000))}s ago
+        <Card>
+          <View style={{ gap: space.sm }}>
+            <Text variant="label" tone="secondary">DRIVER LOCATION (LIVE)</Text>
+            <Text variant="body">
+              {driverPos.lat.toFixed(5)}, {driverPos.lng.toFixed(5)}
             </Text>
-          </Text>
+            <Text variant="tiny" tone="muted">
+              Updated {Math.max(0, Math.round((Date.now() - driverPos.ts) / 1000))}s ago
+            </Text>
+            <Button
+              label="View driver on Google Maps"
+              variant="outline"
+              onPress={() => openOnGoogleMaps(driverPos.lat, driverPos.lng)}
+              fullWidth
+            />
+          </View>
         </Card>
       ) : (
-        <Card flat>
-          <Text variant="small" tone="secondary">
-            Map view will render here. Live coordinates appear once driver is en route.
-          </Text>
+        <Card>
+          <View style={{ gap: space.sm }}>
+            <Text variant="label" tone="secondary">PICKUP</Text>
+            <Text variant="body">{booking.pickupAddress ?? "Your current location"}</Text>
+            <Text variant="tiny" tone="muted">
+              {booking.pickupLat.toFixed(5)}, {booking.pickupLng.toFixed(5)}
+            </Text>
+            <Button
+              label="View pickup on Google Maps"
+              variant="outline"
+              onPress={() => openOnGoogleMaps(booking.pickupLat, booking.pickupLng)}
+              fullWidth
+            />
+            <Text variant="tiny" tone="muted" align="center">
+              Live driver location appears here once the trip starts.
+            </Text>
+          </View>
         </Card>
       )}
 

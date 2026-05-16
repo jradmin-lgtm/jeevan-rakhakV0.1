@@ -1,9 +1,29 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Alert, Animated, Pressable, StyleSheet, View } from "react-native";
+import * as Location from "expo-location";
 import { AppHeader, Button, Card, IconBadge, PulseDot, Screen, Text, colors, space } from "@jr/ui";
 import { Booking, bookings as bookingsApi } from "../api";
 
-const PICKUP = { lat: 28.6139, lng: 77.209 };
+// Fallback pickup if GPS denied / unavailable. Drivers can call the patient
+// to confirm in that case.
+const FALLBACK_PICKUP = { lat: 28.6139, lng: 77.209 };
+
+async function getPickup(): Promise<{ lat: number; lng: number }> {
+  try {
+    const perm = await Location.requestForegroundPermissionsAsync();
+    if (perm.status !== "granted") return FALLBACK_PICKUP;
+    const fix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+    return { lat: fix.coords.latitude, lng: fix.coords.longitude };
+  } catch {
+    try {
+      const last = await Location.getLastKnownPositionAsync();
+      if (last) return { lat: last.coords.latitude, lng: last.coords.longitude };
+    } catch {
+      /* ignored */
+    }
+    return FALLBACK_PICKUP;
+  }
+}
 
 export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: (b: Booking) => void }) {
   const [busy, setBusy] = useState(false);
@@ -32,10 +52,11 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
           onPress: async () => {
             setBusy(true);
             try {
+              const pickup = await getPickup();
               const r = await bookingsApi.create({
                 emergencyType: "CARDIAC",
-                pickupLat: PICKUP.lat,
-                pickupLng: PICKUP.lng,
+                pickupLat: pickup.lat,
+                pickupLng: pickup.lng,
                 pickupAddress: "SOS · current location"
               });
               onBooked(r.booking);

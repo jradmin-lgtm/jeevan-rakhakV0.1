@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, View } from "react-native";
+import { Alert, Linking, View } from "react-native";
+import * as Location from "expo-location";
 import {
   AppHeader,
   Button,
@@ -18,7 +19,17 @@ import { Booking, bookings as bookingsApi, driver as driverApi } from "../api";
 import { getSocket } from "../socket";
 import { prettyEmergency } from "./DashboardScreen";
 
-const DRIVER_DEFAULT = { lat: 28.6139, lng: 77.209 };
+// Fallback only used if GPS permission is denied or no fix yet.
+const FALLBACK_DRIVER = { lat: 28.6139, lng: 77.209 };
+
+function openTurnByTurn(lat: number, lng: number) {
+  // Opens native Google Maps app with directions to pickup. No Maps API key
+  // needed — uses Google's universal URL scheme. Free, no quota.
+  const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
+  Linking.openURL(url).catch(() => {
+    /* Maps app not installed — fall back to opening in browser, same URL works */
+  });
+}
 
 const STEPS = [
   { key: "ACCEPTED", label: "Drive" },
@@ -38,18 +49,35 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
   const [pushedAt, setPushedAt] = useState<number | null>(null);
   const ticker = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Push location every 5s to socket + every 15s to API for persistence.
+  // Push real GPS location every 5s to socket + every 15s to API for persistence.
   useEffect(() => {
     let mounted = true;
     let counter = 0;
+
     (async () => {
+      // Foreground permission only — pilot doesn't track when the app is
+      // backgrounded. If denied, fall back to a static centroid so the patient
+      // at least sees something on the live map.
+      try {
+        await Location.requestForegroundPermissionsAsync();
+      } catch {
+        /* ignored */
+      }
       const sock = await getSocket();
       ticker.current = setInterval(async () => {
         if (!mounted) return;
         counter += 1;
-        const drift = (counter * 0.0001) % 0.005;
-        const lat = DRIVER_DEFAULT.lat + drift;
-        const lng = DRIVER_DEFAULT.lng + drift;
+
+        let lat = FALLBACK_DRIVER.lat;
+        let lng = FALLBACK_DRIVER.lng;
+        try {
+          const fix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          lat = fix.coords.latitude;
+          lng = fix.coords.longitude;
+        } catch {
+          /* GPS unavailable on this tick — keep the previous fallback */
+        }
+
         sock.emit("driver:location", { bookingId: booking.id, lat, lng, ts: Date.now() });
         setPushedAt(Date.now());
         if (counter % 3 === 0) {
@@ -139,11 +167,30 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
       <Card>
         <View style={{ gap: space.md }}>
           <Text variant="label" tone="secondary">PICKUP</Text>
-          <Text variant="body">{booking.pickupAddress ?? `${booking.pickupLat.toFixed(4)}, ${booking.pickupLng.toFixed(4)}`}</Text>
+          <Text variant="body">{booking.pickupAddress ?? "Patient location"}</Text>
+          <Text variant="tiny" tone="muted">
+            {booking.pickupLat.toFixed(5)}, {booking.pickupLng.toFixed(5)}
+          </Text>
+          {!finished ? (
+            <Button
+              label="Open in Google Maps"
+              variant="outline"
+              onPress={() => openTurnByTurn(booking.pickupLat, booking.pickupLng)}
+              fullWidth
+            />
+          ) : null}
           {booking.dropAddress ? (
             <>
               <Text variant="label" tone="secondary">DROP HOSPITAL</Text>
               <Text variant="body">{booking.dropAddress}</Text>
+              {booking.dropLat != null && booking.dropLng != null && !finished ? (
+                <Button
+                  label="Navigate to drop"
+                  variant="ghost"
+                  onPress={() => openTurnByTurn(booking.dropLat!, booking.dropLng!)}
+                  fullWidth
+                />
+              ) : null}
             </>
           ) : null}
           {booking.fareEstimateInr ? (
