@@ -16,4 +16,5 @@ export { Skeleton } from "./components/Skeleton";
 export { MapPlaceholder } from "./components/MapPlaceholder";
 export { OtpInput } from "./components/OtpInput";
 export { OtpToast } from "./components/OtpToast";
+export { ErrorBoundary } from "./components/ErrorBoundary";
 export { useFadeIn } from "./hooks/useFadeIn";

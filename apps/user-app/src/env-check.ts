@@ -12,8 +12,13 @@ function isBadProductionBase(url: string): boolean {
 
 if (!__DEV__) {
   if (isBadProductionBase(API_BASE) || isBadProductionBase(SOCKET_BASE)) {
-    throw new Error(
-      "Release build: set EXPO_PUBLIC_API_BASE_URL and EXPO_PUBLIC_SOCKET_BASE_URL (see .env.production)."
+    // NEVER throw at module load — that crashes the entire app before any
+    // React boundary can catch it. Surface as a console warning instead;
+    // any actual API call will fail cleanly with a UI-visible error.
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[env-check] Release build appears to have a missing/bad API base URL. " +
+      "API_BASE=" + API_BASE + " SOCKET_BASE=" + SOCKET_BASE
     );
   }
 }
