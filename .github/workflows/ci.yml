@@ -2,9 +2,9 @@ name: ci
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "prod"]
   pull_request:
-    branches: ["main"]
+    branches: ["main", "prod"]
 
 jobs:
   validate:
@@ -14,9 +14,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup pnpm
+        # Pin via package.json's `"packageManager": "pnpm@10.8.1"` instead of a
+        # `version:` arg — pnpm/action-setup@v4 errors out (ERR_PNPM_BAD_PM_VERSION)
+        # when both are set, since they can silently drift.
         uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - name: Setup node
         uses: actions/setup-node@v4
