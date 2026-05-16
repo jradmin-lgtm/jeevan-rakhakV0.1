@@ -19,6 +19,7 @@ export default function AdminLayout({ children }: any) {
           <a className="active" href="/">Live dashboard</a>
           <a href="/bookings">Bookings</a>
           <a href="/drivers">Drivers</a>
+          <a href="/alerts">Alerts</a>
         </nav>
         <div className="footer">Jeevan Rakshak · v1.0</div>
       </aside>
