@@ -11,7 +11,8 @@
     "submit:production": "eas submit --profile production --platform android",
     "lint": "echo \"lint wired in next iteration\"",
     "typecheck": "tsc --noEmit",
-    "test": "echo \"tests via e2e/\""
+    "test": "echo \"tests via e2e/\"",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "@expo/metro-runtime": "~5.0.5",

@@ -12,20 +12,10 @@ buildscript {
   }
 }
 
-// Resolve the node binary. Android Studio's gradle daemon does not inherit
-// the shell PATH on macOS, so a bare `node` fails when this project is opened
-// in Android Studio directly. Order: env var → gradle.properties → common
-// install locations → bare `node` (works from terminal where PATH is set).
-def nodeBin = System.getenv("NODE_BINARY") ?:
-    (providers.gradleProperty("NODE_BINARY").orNull) ?:
-    (["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"].find { new File(it).exists() }) ?:
-    "node"
-ext.NODE_BIN = nodeBin
-
 def reactNativeAndroidDir = new File(
   providers.exec {
     workingDir(rootDir)
-    commandLine(nodeBin, "--print", "require.resolve('react-native/package.json')")
+    commandLine("node", "--print", "require.resolve('react-native/package.json')")
   }.standardOutput.asText.get().trim(),
   "../android"
 )

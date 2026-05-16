@@ -2,28 +2,22 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
-def projectRoot = projectDir.getAbsoluteFile().getParentFile().getParentFile().getAbsolutePath()
-
-// Inherits the resolved node path from the root build.gradle so Android Studio
-// builds work without the shell PATH being injected.
-def nodeBin = rootProject.hasProperty("NODE_BIN") ? rootProject.ext.NODE_BIN :
-    (System.getenv("NODE_BINARY") ?: (findProperty("NODE_BINARY")) ?:
-    (["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"].find { new File(it).exists() }) ?: "node")
+def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.
  */
 react {
-    entryFile = file([nodeBin, "-e", "require('expo/scripts/resolveAppEntry')", projectRoot, "android", "absolute"].execute(null, projectDir).text.trim())
-    reactNativeDir = new File([nodeBin, "--print", "require.resolve('react-native/package.json')"].execute(null, projectDir).text.trim()).getParentFile().getAbsoluteFile()
-    hermesCommand = new File([nodeBin, "--print", "require.resolve('react-native/package.json')"].execute(null, projectDir).text.trim()).getParentFile().getAbsolutePath() + "/sdks/hermesc/%OS-BIN%/hermesc"
-    codegenDir = new File([nodeBin, "--print", "require.resolve('@react-native/codegen/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, projectDir).text.trim()).getParentFile().getAbsoluteFile()
+    entryFile = file(["node", "-e", "require('expo/scripts/resolveAppEntry')", projectRoot, "android", "absolute"].execute(null, rootDir).text.trim())
+    reactNativeDir = new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()).getParentFile().getAbsoluteFile()
+    hermesCommand = new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()).getParentFile().getAbsolutePath() + "/sdks/hermesc/%OS-BIN%/hermesc"
+    codegenDir = new File(["node", "--print", "require.resolve('@react-native/codegen/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()).getParentFile().getAbsoluteFile()
 
     enableBundleCompression = (findProperty('android.enableBundleCompression') ?: false).toBoolean()
     // Use Expo CLI to bundle the app, this ensures the Metro config
     // works correctly with Expo projects.
-    cliFile = new File([nodeBin, "--print", "require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })"].execute(null, projectDir).text.trim())
+    cliFile = new File(["node", "--print", "require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })"].execute(null, rootDir).text.trim())
     bundleCommand = "export:embed"
 
     /* Folders */
@@ -41,7 +35,8 @@ react {
     // debuggableVariants = ["liteDebug", "prodDebug"]
 
     /* Bundling */
-    nodeExecutableAndArgs = [nodeBin]
+    //   A list containing the node command and its flags. Default is just 'node'.
+    // nodeExecutableAndArgs = ["node"]
 
     //
     //   The path to the CLI configuration file. Default is empty.
@@ -86,45 +81,6 @@ def enableProguardInReleaseBuilds = (findProperty('android.enableProguardInRelea
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
-def readEasProjectId = {
-    def fromEnv = (System.getenv("USER_EAS_PROJECT_ID") ?: System.getenv("EAS_PROJECT_ID") ?: "").trim()
-    if (fromEnv) return fromEnv
-    def easFile = rootProject.file("../eas-project.json")
-    if (!easFile.exists()) {
-        throw new GradleException("Missing eas-project.json next to the app (or set USER_EAS_PROJECT_ID) for expo-updates.")
-    }
-    def json = new groovy.json.JsonSlurper().parse(easFile)
-    return json.expoProjectId?.toString()?.trim() ?: ""
-}
-
-def easProjectId = readEasProjectId()
-def easProjectIdBanned = ["REPLACE", "PASTE", "SET_", "YOUR_", "CHANGE", "TODO", "FIXME"]
-def isReleaseAndroidTask = gradle.startParameter.taskNames.any { tn ->
-    def n = tn.toLowerCase()
-    n.contains("release") && (n.contains("bundle") || n.contains("assemble") || n.contains("install"))
-}
-if (isReleaseAndroidTask) {
-    if (!easProjectId) {
-        throw new GradleException("expoProjectId is empty. Set apps/user-app/eas-project.json from Expo (Project ID) or USER_EAS_PROJECT_ID.")
-    }
-    if (easProjectIdBanned.any { easProjectId.contains(it) }) {
-        throw new GradleException("expoProjectId still contains a placeholder token.")
-    }
-    if (!(easProjectId ==~ /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/)) {
-        throw new GradleException("expoProjectId must be a UUID (Expo EAS project id). Got: ${easProjectId}")
-    }
-}
-
-// Pin androidx.core to a version that doesn't require compileSdk 36 / AGP 8.9.1.
-// Expo SDK 53 ships compileSdk 35 + AGP 8.8.2; some libraries (e.g. recent
-// expo-modules-core) transitively pull androidx.core 1.17.0 which is "too new".
-configurations.all {
-    resolutionStrategy {
-        force 'androidx.core:core:1.15.0'
-        force 'androidx.core:core-ktx:1.15.0'
-    }
-}
-
 android {
     ndkVersion rootProject.ext.ndkVersion
 
@@ -138,7 +94,6 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 10
         versionName "1.0.2"
-        manifestPlaceholders = [expoUpdatesUrl: "https://u.expo.dev/${easProjectId}"]
     }
     signingConfigs {
         debug {
@@ -147,21 +102,15 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
-        release {
-            if (project.hasProperty('MYAPP_UPLOAD_STORE_FILE')) {
-                storeFile file(MYAPP_UPLOAD_STORE_FILE)
-                storePassword MYAPP_UPLOAD_STORE_PASSWORD
-                keyAlias MYAPP_UPLOAD_KEY_ALIAS
-                keyPassword MYAPP_UPLOAD_KEY_PASSWORD
-            }
-        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            signingConfig signingConfigs.release
+            // Caution! In production, you need to generate your own keystore file.
+            // see https://reactnative.dev/docs/signed-apk-android.
+            signingConfig signingConfigs.debug
             shrinkResources (findProperty('android.enableShrinkResourcesInReleaseBuilds')?.toBoolean() ?: false)
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
@@ -224,25 +173,5 @@ dependencies {
         implementation("com.facebook.react:hermes-android")
     } else {
         implementation jscFlavor
-    }
-}
-
-// RN autolinking can emit expo.core.ExpoModulesPackage; the type lives in expo.modules (Expo SDK 53).
-afterEvaluate {
-    def fixAutolinkingExpoImport = tasks.register('fixAutolinkingExpoImport') {
-        doLast {
-            def packageListFile = file("${project.buildDir}/generated/autolinking/src/main/java/com/facebook/react/PackageList.java")
-            if (packageListFile.exists()) {
-                def text = packageListFile.getText('UTF-8')
-                def updated = text.replace('expo.core.ExpoModulesPackage', 'expo.modules.ExpoModulesPackage')
-                if (text != updated) {
-                    packageListFile.write(updated, 'UTF-8')
-                }
-            }
-        }
-    }
-    def gen = tasks.findByName('generateAutolinkingPackageList')
-    if (gen != null) {
-        gen.finalizedBy(fixAutolinkingExpoImport)
     }
 }
