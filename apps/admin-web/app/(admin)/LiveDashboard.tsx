@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { Source, SourceFilter } from "./SourceFilter";
-import { adminFetch } from "../lib/adminFetch";
+import { adminFetch } from "../../lib/adminFetch";
 
 type Stats = {
   source: Source;

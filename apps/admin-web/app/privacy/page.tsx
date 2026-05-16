@@ -7,9 +7,8 @@ export const metadata: Metadata = {
     "How Jeevan Rakshak collects, uses, stores, and shares personal information of patients and drivers using the ambulance dispatch service."
 };
 
-const EFFECTIVE_DATE = "15 May 2026";
-const CONTACT_EMAIL = "privacy@jeevanrakshak.example";
-const GRIEVANCE_OFFICER = "[TO BE FILLED — name, designation, address]";
+const EFFECTIVE_DATE = "16 May 2026";
+const CONTACT_EMAIL = "contact.jeevanrakshak@gmail.com";
 
 export default function PrivacyPolicyPage() {
   return (
@@ -179,25 +178,25 @@ export default function PrivacyPolicyPage() {
             location during the trip.
           </li>
           <li>
-            <strong>SMS / OTP delivery provider</strong> — when real SMS
-            delivery is enabled, your phone number and the OTP are sent to our
-            SMS provider (for example, MSG91 or Twilio). The OTP code is
-            short-lived (5 minutes) and is deleted once used.
+            <strong>SMS / OTP delivery provider</strong> — when SMS delivery
+            is active, your phone number and the OTP are sent to our SMS
+            provider. The OTP code is short-lived (5 minutes) and is deleted
+            once used.
           </li>
           <li>
-            <strong>Map and routing provider</strong> — when real maps are
-            enabled, your location coordinates are sent to the map provider
-            (for example, Google Maps or Mapbox) to compute routes and ETAs.
+            <strong>Map and routing provider</strong> — your location
+            coordinates are sent to the map provider to compute routes and
+            ETAs.
           </li>
           <li>
             <strong>Payment gateway</strong> — when payments are enabled, your
-            payment-method token and fare amount are sent to the gateway (for
-            example, Razorpay) to settle the trip.
+            payment-method token and fare amount are sent to a regulated
+            payment gateway to settle the trip.
           </li>
           <li>
             <strong>Push-notification platform</strong> — anonymised device
-            tokens are sent to the push provider (for example, Firebase Cloud
-            Messaging) so we can deliver dispatch alerts.
+            tokens are sent to our push-notification provider so we can
+            deliver dispatch alerts.
           </li>
           <li>
             <strong>Operations staff</strong> — our internal dispatchers can
@@ -343,16 +342,15 @@ export default function PrivacyPolicyPage() {
       </section>
 
       <section>
-        <h2>11. Grievance Officer</h2>
+        <h2>11. Contact &amp; Grievance Officer</h2>
         <p>
           In accordance with the Digital Personal Data Protection Act, 2023 and
-          the Information Technology Rules, 2011, the Grievance Officer is:
+          the Information Technology Rules, 2011, all privacy questions,
+          deletion requests, and grievances are handled by the Jeevan Rakshak
+          team. Reach us at{" "}
+          <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
         </p>
-        <p>{GRIEVANCE_OFFICER}</p>
-        <p>
-          Email:{" "}
-          <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
-        </p>
+        <p>We acknowledge complaints within 48 hours and resolve them within 30 days.</p>
       </section>
 
       <footer>

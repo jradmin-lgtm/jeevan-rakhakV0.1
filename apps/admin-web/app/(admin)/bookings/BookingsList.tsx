@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Source, SourceFilter } from "../SourceFilter";
-import { adminFetch } from "../../lib/adminFetch";
+import { adminFetch } from "../../../lib/adminFetch";
 
 type Booking = {
   id: string;
