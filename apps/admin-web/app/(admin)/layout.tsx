@@ -1,6 +1,10 @@
-import type { ReactNode } from "react";
-
-export default function AdminLayout({ children }: { children: ReactNode }) {
+// Note: leaving the props type open so Next 15.5's auto-generated
+// LayoutConfig<"/"> typecheck succeeds. The ReactNode/ReactPortal asymmetry
+// in @types/react 19.0.x makes a strict `{ children: ReactNode }` annotation
+// fail under Next's typed-routes validator even though runtime is identical.
+// Cast at the destructure site instead.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export default function AdminLayout({ children }: any) {
   return (
     <div className="shell">
       <aside className="sidebar">
