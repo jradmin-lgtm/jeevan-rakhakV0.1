@@ -1,7 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, count, desc, eq, isNull, sql as drizzleSql } from "drizzle-orm";
 import { db, bookingEvents, bookings, driverLocations, drivers, users } from "@jr/db";
+
+// Pilot cap: any single user can have at most 3 active (un-terminal) bookings
+// in flight at once. Prevents misuse + keeps dispatch fan-out load bounded.
+const MAX_ACTIVE_BOOKINGS_PER_USER = 3;
 import { config } from "@jr/config";
 import { haversineDistanceKm } from "@jr/utils";
 
@@ -40,6 +44,29 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
       }
       const data = parsed.data;
+
+      // Enforce the active-bookings cap before paying for a DB insert. Bookings
+      // in REQUESTED / ACCEPTED / ARRIVED / PICKED_UP count toward the limit;
+      // COMPLETED / CANCELLED / TIMED_OUT do not.
+      const [activeCountRow] = await db
+        .select({ c: count() })
+        .from(bookings)
+        .where(
+          and(
+            eq(bookings.userId, sub),
+            drizzleSql`${bookings.status} IN ('REQUESTED','ACCEPTED','ARRIVED','PICKED_UP')`
+          )
+        );
+      const activeCount = Number(activeCountRow?.c ?? 0);
+      if (activeCount >= MAX_ACTIVE_BOOKINGS_PER_USER) {
+        return reply.code(429).send({
+          error: "max_active_bookings_reached",
+          message: `You already have ${activeCount} active bookings. Complete or cancel one before booking again (limit ${MAX_ACTIVE_BOOKINGS_PER_USER}).`,
+          activeCount,
+          limit: MAX_ACTIVE_BOOKINGS_PER_USER
+        });
+      }
+
       const fareEstimate = estimateFare(
         data.pickupLat,
         data.pickupLng,

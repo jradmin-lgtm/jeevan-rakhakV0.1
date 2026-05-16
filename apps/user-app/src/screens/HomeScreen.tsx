@@ -4,6 +4,7 @@ import {
   AppHeader,
   Button,
   Card,
+  ContactSupport,
   Pill,
   Screen,
   StatusBadge,
@@ -23,8 +24,12 @@ type Props = {
   onHistory: () => void;
 };
 
+const MAX_ACTIVE_BOOKINGS = 3;
+
 export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfile, onHistory }: Props) {
   const [active, setActive] = useState<Booking | null>(null);
+  const [activeCount, setActiveCount] = useState<number>(0);
+  const [activeList, setActiveList] = useState<Booking[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [name, setName] = useState<string | null>(profile?.name ?? null);
 
@@ -33,10 +38,12 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
     try {
       const [m, b] = await Promise.all([me.get().catch(() => null), bookingsApi.mine()]);
       if (m?.profile?.name) setName(m.profile.name);
-      const live = b.bookings.find((x) =>
+      const liveList = b.bookings.filter((x) =>
         ["REQUESTED", "ACCEPTED", "ARRIVED", "PICKED_UP"].includes(x.status)
       );
-      setActive(live ?? null);
+      setActiveList(liveList);
+      setActiveCount(liveList.length);
+      setActive(liveList[0] ?? null);
     } finally {
       setRefreshing(false);
     }
@@ -87,13 +94,41 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
           <View style={{ gap: space.md }}>
             <Text variant="heading">Need an ambulance now?</Text>
             <Text variant="body" tone="secondary">
-              Book the nearest ambulance in two taps. We'll dispatch the closest available driver.
+              Book the nearest ambulance in two taps. We&apos;ll dispatch the closest available driver.
             </Text>
             <Button label="Book ambulance" onPress={onBook} fullWidth testID="book-cta" />
             <Button label="Emergency SOS" variant="danger" onPress={onSos} fullWidth />
           </View>
         </Card>
       )}
+
+      {activeCount > 0 ? (
+        <Card flat>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <View>
+              <Text variant="label" tone="secondary">ACTIVE RIDES</Text>
+              <Text variant="body">
+                {activeCount} of {MAX_ACTIVE_BOOKINGS}
+                {activeCount >= MAX_ACTIVE_BOOKINGS ? " · limit reached" : ""}
+              </Text>
+            </View>
+            {activeCount >= MAX_ACTIVE_BOOKINGS ? (
+              <Pill label="MAX" color={colors.danger} bg={colors.primaryFaint} />
+            ) : (
+              <Pill
+                label={`${MAX_ACTIVE_BOOKINGS - activeCount} more allowed`}
+                color={colors.success}
+                bg="#E8F8F1"
+              />
+            )}
+          </View>
+          {activeCount >= MAX_ACTIVE_BOOKINGS ? (
+            <Text variant="tiny" tone="muted" style={{ marginTop: space.xs }}>
+              Complete or cancel an active ride before booking a new one.
+            </Text>
+          ) : null}
+        </Card>
+      ) : null}
 
       <Card flat>
         <View style={{ gap: space.md }}>
@@ -109,6 +144,8 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
           <Button label="Sign out" variant="ghost" onPress={async () => { await clearToken(); onLogout(); }} />
         </View>
       </Card>
+
+      <ContactSupport />
 
       <Text variant="tiny" tone="muted" align="center">
         Made with care for India&apos;s emergency response.

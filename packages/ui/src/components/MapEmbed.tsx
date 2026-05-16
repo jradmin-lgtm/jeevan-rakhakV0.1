@@ -58,7 +58,21 @@ function MapEmbedInner({
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
-<style>html,body,#map{height:100%;margin:0;padding:0;background:#eef2f7}.leaflet-bar a{color:#0F172A}</style>
+<style>
+html,body,#map{height:100%;margin:0;padding:0;background:#eef2f7;font-family:-apple-system,Roboto,sans-serif}
+.leaflet-control-zoom,.leaflet-bottom.leaflet-right,.leaflet-control-attribution{display:none !important}
+.jr-pin{transform:translate(-50%,-100%);pointer-events:none}
+.jr-pin .label{background:#E5322B;color:#fff;font-weight:700;padding:5px 10px;border-radius:14px;font-size:11px;letter-spacing:.3px;box-shadow:0 6px 14px rgba(229,50,43,.35), 0 2px 4px rgba(0,0,0,.2);white-space:nowrap;display:inline-block}
+.jr-pin .label.driver{background:#1E5EFF;box-shadow:0 6px 14px rgba(30,94,255,.35), 0 2px 4px rgba(0,0,0,.2)}
+.jr-pin .dot{width:14px;height:14px;border-radius:50%;background:#E5322B;border:3px solid #fff;box-shadow:0 0 0 4px rgba(229,50,43,.18), 0 4px 10px rgba(0,0,0,.25);margin:6px auto 0;position:relative}
+.jr-pin .dot.driver{background:#1E5EFF;box-shadow:0 0 0 4px rgba(30,94,255,.18), 0 4px 10px rgba(0,0,0,.25)}
+.jr-pin .pulse{position:absolute;top:50%;left:50%;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:#1E5EFF;animation:jrPulse 1.6s ease-out infinite;opacity:.7}
+@keyframes jrPulse {
+  0% { transform:scale(1); opacity:.7 }
+  100% { transform:scale(3.2); opacity:0 }
+}
+.jr-route{stroke:#1E5EFF;stroke-width:3;stroke-dasharray:8 6;stroke-linecap:round;fill:none;opacity:.9}
+</style>
 </head>
 <body>
 <div id="map"></div>
@@ -67,30 +81,29 @@ function MapEmbedInner({
 (function(){
   var pickup = [${pLat}, ${pLng}];
   var driver = ${dLat === "null" ? "null" : `[${dLat}, ${dLng}]`};
-  var map = L.map('map', {zoomControl: true, attributionControl: false}).setView(pickup, 14);
+  var map = L.map('map', {zoomControl: false, attributionControl: false, dragging: true, scrollWheelZoom: false, doubleClickZoom: false}).setView(pickup, 14);
   L.tileLayer(${safeTileUrl}, {attribution: ${safeAttr}, maxZoom: 19}).addTo(map);
 
-  var pickupIcon = L.divIcon({
-    className: 'jr-pickup',
-    html: '<div style="background:#E5322B;color:#fff;font-weight:700;padding:6px 10px;border-radius:14px;font-family:-apple-system,Roboto,sans-serif;font-size:12px;box-shadow:0 2px 6px rgba(0,0,0,.25);white-space:nowrap;">'+ ${pLabel} +'</div>',
-    iconSize: null,
-    iconAnchor: [40, 14]
-  });
-  L.marker(pickup, {icon: pickupIcon}).addTo(map);
+  function makePin(label, kind){
+    var labelCls = kind === 'driver' ? 'label driver' : 'label';
+    var dotCls   = kind === 'driver' ? 'dot driver'   : 'dot';
+    var pulseHtml = kind === 'driver' ? '<span class="pulse"></span>' : '';
+    return L.divIcon({
+      className: 'jr-pin',
+      html: '<div style="text-align:center"><span class="'+labelCls+'">'+label+'</span><div class="'+dotCls+'">'+pulseHtml+'</div></div>',
+      iconSize: null,
+      iconAnchor: [0, 0]
+    });
+  }
+
+  L.marker(pickup, {icon: makePin(${pLabel}, 'pickup')}).addTo(map);
 
   if (driver) {
-    var driverIcon = L.divIcon({
-      className: 'jr-driver',
-      html: '<div style="background:#1E5EFF;color:#fff;font-weight:700;padding:6px 10px;border-radius:14px;font-family:-apple-system,Roboto,sans-serif;font-size:12px;box-shadow:0 2px 6px rgba(0,0,0,.25);white-space:nowrap;">' + ${dLabel} + '</div>',
-      iconSize: null,
-      iconAnchor: [30, 14]
-    });
-    L.marker(driver, {icon: driverIcon}).addTo(map);
+    L.marker(driver, {icon: makePin(${dLabel}, 'driver')}).addTo(map);
+    // Dashed route hint between driver and pickup
+    L.polyline([driver, pickup], {className:'jr-route', dashArray:'8 6', color:'#1E5EFF', weight:3, opacity:.85}).addTo(map);
     // Auto-fit both markers in view with a touch of padding.
-    var group = L.featureGroup([
-      L.marker(pickup),
-      L.marker(driver)
-    ]);
+    var group = L.featureGroup([L.marker(pickup), L.marker(driver)]);
     map.fitBounds(group.getBounds().pad(0.5));
   }
 })();

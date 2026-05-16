@@ -4,9 +4,11 @@ import {
   AppHeader,
   Button,
   Card,
+  ContactSupport,
   MapEmbed,
   OtpToast,
   Pill,
+  PulseDot,
   Screen,
   StatusBadge,
   Text,
@@ -215,26 +217,46 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
 
       <Card padding="md">
         <View style={{ gap: space.sm }}>
-          <Text variant="label" tone="secondary">
-            {driverPos ? "DRIVER LIVE" : "PICKUP"}
-          </Text>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <Text variant="label" tone="secondary">
+              {driverPos ? "DRIVER LIVE" : "PICKUP"}
+            </Text>
+            {driverPos ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
+                <PulseDot size={8} color={colors.success} rings={1} />
+                <Text variant="tiny" tone="success" weight="bold">
+                  LIVE · {Math.max(0, Math.round((Date.now() - driverPos.ts) / 1000))}s
+                </Text>
+              </View>
+            ) : null}
+          </View>
           <MapEmbed
             pickup={{ lat: booking.pickupLat, lng: booking.pickupLng, label: "Pickup" }}
             driver={driverPos ? { lat: driverPos.lat, lng: driverPos.lng, label: "Driver" } : null}
-            height={220}
+            height={280}
           />
           {driverPos ? (
-            <Text variant="tiny" tone="muted">
-              Driver at {driverPos.lat.toFixed(5)}, {driverPos.lng.toFixed(5)} · updated{" "}
-              {Math.max(0, Math.round((Date.now() - driverPos.ts) / 1000))}s ago
-            </Text>
+            <View style={{ flexDirection: "row", justifyContent: "space-around", paddingVertical: space.xs }}>
+              <View style={{ alignItems: "center" }}>
+                <Text variant="tiny" tone="secondary">DISTANCE</Text>
+                <Text variant="heading" weight="bold">
+                  {haversineKm(driverPos.lat, driverPos.lng, booking.pickupLat, booking.pickupLng).toFixed(1)} km
+                </Text>
+              </View>
+              <View style={{ alignItems: "center" }}>
+                <Text variant="tiny" tone="secondary">ETA</Text>
+                <Text variant="heading" weight="bold" tone="primary">
+                  ~{estimateEtaMin(haversineKm(driverPos.lat, driverPos.lng, booking.pickupLat, booking.pickupLng))} min
+                </Text>
+              </View>
+            </View>
           ) : (
-            <Text variant="tiny" tone="muted">
+            <Text variant="tiny" tone="muted" align="center" style={{ paddingVertical: space.xs }}>
               Live driver position appears on this map once the trip starts.
             </Text>
           )}
           <Button
-            label={driverPos ? "Open driver in Google Maps" : "Open pickup in Google Maps"}
+            label="Open in Google Maps"
             variant="ghost"
             onPress={() =>
               driverPos
@@ -248,19 +270,14 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
 
       {showHelpBanner ? (
         <Card>
-          <View style={{ gap: space.xs }}>
+          <View style={{ gap: space.sm }}>
             <Text variant="label" tone="danger">NEED HELP?</Text>
             <Text variant="body" weight="semi">This trip has been active for over 90 minutes.</Text>
             <Text variant="small" tone="secondary">
               Contact our support team if you need assistance — we&apos;ll reach
               the driver and coordinate.
             </Text>
-            <Button
-              label="Email support"
-              variant="outline"
-              onPress={() => Linking.openURL("mailto:contact.jeevanrakshak@gmail.com?subject=Help with booking " + booking.id.slice(0, 8))}
-              fullWidth
-            />
+            <ContactSupport bookingId={booking.id} compact />
           </View>
         </Card>
       ) : null}

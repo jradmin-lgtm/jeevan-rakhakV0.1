@@ -5,6 +5,7 @@ import {
   AppHeader,
   Button,
   Card,
+  ContactSupport,
   MapEmbed,
   Pill,
   PulseDot,
@@ -195,11 +196,36 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
       </Card>
 
       <Card padding="md">
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: space.sm }}>
+          <Text variant="label" tone="secondary">PATIENT &amp; YOU</Text>
+          {sharing ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
+              <PulseDot size={8} color={colors.success} rings={1} />
+              <Text variant="tiny" tone="success" weight="bold">SHARING LIVE</Text>
+            </View>
+          ) : null}
+        </View>
         <MapEmbed
           pickup={{ lat: booking.pickupLat, lng: booking.pickupLng, label: "Patient" }}
           driver={myPos ? { lat: myPos.lat, lng: myPos.lng, label: "You" } : null}
-          height={220}
+          height={280}
         />
+        {myPos && booking.status === "ACCEPTED" ? (
+          <View style={{ flexDirection: "row", justifyContent: "space-around", paddingVertical: space.sm }}>
+            <View style={{ alignItems: "center" }}>
+              <Text variant="tiny" tone="secondary">DISTANCE</Text>
+              <Text variant="heading" weight="bold">
+                {haversineKm(myPos.lat, myPos.lng, booking.pickupLat, booking.pickupLng).toFixed(1)} km
+              </Text>
+            </View>
+            <View style={{ alignItems: "center" }}>
+              <Text variant="tiny" tone="secondary">ETA</Text>
+              <Text variant="heading" weight="bold" tone="primary">
+                ~{estimateEtaMin(haversineKm(myPos.lat, myPos.lng, booking.pickupLat, booking.pickupLng))} min
+              </Text>
+            </View>
+          </View>
+        ) : null}
         {sharing ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm, marginTop: space.md }}>
             <PulseDot size={10} color={colors.success} />
@@ -254,19 +280,14 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
 
       {showHelpBanner ? (
         <Card>
-          <View style={{ gap: space.xs }}>
+          <View style={{ gap: space.sm }}>
             <Text variant="label" tone="danger">NEED HELP?</Text>
             <Text variant="body" weight="semi">This trip has been active for over 90 minutes.</Text>
             <Text variant="small" tone="secondary">
               If something has gone wrong, contact support — we&apos;ll
               coordinate with the patient and ops.
             </Text>
-            <Button
-              label="Email support"
-              variant="outline"
-              onPress={() => Linking.openURL("mailto:contact.jeevanrakshak@gmail.com?subject=Help with trip " + booking.id.slice(0, 8))}
-              fullWidth
-            />
+            <ContactSupport bookingId={booking.id} compact />
           </View>
         </Card>
       ) : null}
