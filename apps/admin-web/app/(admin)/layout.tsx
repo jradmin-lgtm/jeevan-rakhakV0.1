@@ -21,7 +21,7 @@ export default function AdminLayout({ children }: any) {
           <a href="/drivers">Drivers</a>
           <a href="/alerts">Alerts</a>
         </nav>
-        <div className="footer">Jeevan Rakshak · v1.0</div>
+        <div className="footer">Jeevan Rakshak Operations · v1.0.4</div>
       </aside>
       <main className="content">{children}</main>
     </div>
