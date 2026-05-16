@@ -397,68 +397,62 @@ function RequestRow({
 
   return (
     <Animated.View style={[fade, { transform: [{ scale }] }]}>
-      <Animated.View
-        style={
-          highlight
-            ? {
-                borderRadius: 14,
-                borderWidth: 2,
-                borderColor: colors.primary,
-                opacity: borderOpacity
-              }
-            : undefined
-        }
-      >
-        <Card padding="md">
-          <Pressable onPress={() => setExpanded((x) => !x)} android_ripple={{ color: "rgba(0,0,0,0.04)" }}>
-            <View style={{ gap: space.sm }}>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-                  <PulseDot size={8} color={colors.primary} rings={1} />
-                  <Pill label={prettyEmergency(booking.emergencyType)} />
-                </View>
-                <Text variant="tiny" tone="muted">{secondsAgo(booking.createdAt)}</Text>
+      {/* No more pulsing card border — feedback was that the whole-card pulse
+        * was too much. Hook is now scoped to the Accept button (see below). */}
+      <Card padding="md">
+        <Pressable onPress={() => setExpanded((x) => !x)} android_ripple={{ color: "rgba(0,0,0,0.04)" }}>
+          <View style={{ gap: space.sm }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+                <PulseDot size={8} color={colors.primary} rings={1} />
+                <Pill label={prettyEmergency(booking.emergencyType)} />
               </View>
-              <Text variant="body" weight="semi">
-                {booking.pickupAddress ?? "Patient location"}
+              <Text variant="tiny" tone="muted">{secondsAgo(booking.createdAt)}</Text>
+            </View>
+            <Text variant="body" weight="semi">
+              {booking.pickupAddress ?? "Patient location"}
+            </Text>
+            {/* Distance + ETA chips always rendered — visible without expanding. */}
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <View style={{ flexDirection: "row", gap: space.lg }}>
+                <View>
+                  <Text variant="tiny" tone="secondary">DISTANCE</Text>
+                  <Text variant="body" weight="bold">
+                    {km != null ? `${km.toFixed(1)} km` : "—"}
+                  </Text>
+                </View>
+                <View>
+                  <Text variant="tiny" tone="secondary">ETA</Text>
+                  <Text variant="body" weight="bold" tone="primary">
+                    {eta != null ? `~${eta} min` : "—"}
+                  </Text>
+                </View>
+              </View>
+              <Text variant="tiny" tone="muted">
+                {expanded ? "Hide map ▴" : "Show map ▾"}
               </Text>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                <View style={{ flexDirection: "row", gap: space.lg }}>
-                  <View>
-                    <Text variant="tiny" tone="secondary">DISTANCE</Text>
-                    <Text variant="body" weight="bold">
-                      {km != null ? `${km.toFixed(1)} km` : "—"}
-                    </Text>
-                  </View>
-                  <View>
-                    <Text variant="tiny" tone="secondary">ETA</Text>
-                    <Text variant="body" weight="bold" tone="primary">
-                      {eta != null ? `~${eta} min` : "—"}
-                    </Text>
-                  </View>
-                </View>
-                <Text variant="tiny" tone="muted">
-                  {expanded ? "Tap to hide map ▴" : "Tap for map ▾"}
-                </Text>
-              </View>
             </View>
-          </Pressable>
+          </View>
+        </Pressable>
 
-          {expanded ? (
-            <View style={{ marginTop: space.md }}>
-              <MapEmbed
-                pickup={{ lat: booking.pickupLat, lng: booking.pickupLng, label: "Patient" }}
-                driver={driverPos ? { lat: driverPos.lat, lng: driverPos.lng, label: "You" } : null}
-                height={180}
-              />
-            </View>
-          ) : null}
+        {expanded ? (
+          <View style={{ marginTop: space.md }}>
+            <MapEmbed
+              pickup={{ lat: booking.pickupLat, lng: booking.pickupLng, label: "Patient" }}
+              driver={driverPos ? { lat: driverPos.lat, lng: driverPos.lng, label: "You" } : null}
+              height={180}
+            />
+          </View>
+        ) : null}
 
-          <View style={{ flexDirection: "row", gap: space.sm, marginTop: space.md }}>
-            <View style={{ flex: 1 }}>
-              <Button label="Ignore" onPress={onIgnore} variant="outline" fullWidth disabled={busy} />
-            </View>
-            <View style={{ flex: 2 }}>
+        <View style={{ flexDirection: "row", gap: space.sm, marginTop: space.md }}>
+          <View style={{ flex: 1 }}>
+            <Button label="Ignore" onPress={onIgnore} variant="outline" fullWidth disabled={busy} />
+          </View>
+          <View style={{ flex: 2 }}>
+            {/* Hook moved here — the Accept button itself glows on the top
+              * (closest) row. Eye-catching without the whole-card noise. */}
+            <Animated.View style={highlight ? { opacity: borderOpacity } : undefined}>
               <Button
                 label={busy ? "Accepting…" : "Accept"}
                 onPress={handleAccept}
@@ -467,10 +461,10 @@ function RequestRow({
                 size="lg"
                 testID={`accept-${booking.id}`}
               />
-            </View>
+            </Animated.View>
           </View>
-        </Card>
-      </Animated.View>
+        </View>
+      </Card>
     </Animated.View>
   );
 }

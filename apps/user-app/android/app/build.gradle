@@ -92,8 +92,8 @@ android {
         applicationId 'com.jeevanrakshak.user'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 16
-        versionName "1.0.8"
+        versionCode 17
+        versionName "1.0.9"
     }
     signingConfigs {
         debug {
