@@ -8,15 +8,11 @@
     "dev": "turbo run dev --parallel",
     "lint": "turbo run lint",
     "test": "turbo run test",
-    "check": "turbo run typecheck",
-    "build:user:aab": "node scripts/build-android-aab.mjs user-app",
-    "build:driver:aab": "node scripts/build-android-aab.mjs driver-app"
+    "check": "turbo run typecheck"
   },
   "devDependencies": {
+    "@types/react": "~19.0.10",
     "turbo": "^2.0.14",
-    "@babel/runtime": "^7.20.0",
-    "babel-preset-expo": "~13.2.5",
-    "cross-env": "^10.0.0",
-    "typescript": "^5.6.3"
+    "typescript": "^5.8.3"
   }
 }
