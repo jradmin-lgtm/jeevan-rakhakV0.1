@@ -89,6 +89,30 @@ async function bootstrap() {
   await registerDriverRoutes(app);
   await registerAdminRoutes(app);
 
+  // Idempotent auto-migration of the system_events table so the obs stack
+  // works on a fresh Neon DB without an out-of-band step. Cheap (~5ms when
+  // table already exists) and safe — every CREATE has IF NOT EXISTS.
+  try {
+    const { db } = await import("@jr/db");
+    const { sql } = await import("drizzle-orm");
+    await (db as any).execute(sql`
+      CREATE TABLE IF NOT EXISTS system_events (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        ts timestamptz NOT NULL DEFAULT now(),
+        level text NOT NULL,
+        source text NOT NULL,
+        message text NOT NULL,
+        context jsonb,
+        notified boolean NOT NULL DEFAULT false
+      )
+    `);
+    await (db as any).execute(sql`CREATE INDEX IF NOT EXISTS system_events_ts_idx ON system_events(ts DESC)`);
+    await (db as any).execute(sql`CREATE INDEX IF NOT EXISTS system_events_level_idx ON system_events(level)`);
+    app.log.info("[migrate] system_events ready");
+  } catch (err) {
+    app.log.warn({ err }, "[migrate] system_events DDL failed — alerts won't have data yet");
+  }
+
   app.setErrorHandler((err: any, req, reply) => {
     // Respect status codes set by Fastify plugins (rate-limit → 429, JWT → 401, etc.)
     if (err?.statusCode && err.statusCode >= 400 && err.statusCode < 500) {
