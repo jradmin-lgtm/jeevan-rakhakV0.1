@@ -33,10 +33,15 @@ export default function App() {
     (async () => {
       const token = await getToken();
       if (token) {
+        // 4s cap — see user-app App.tsx for the rationale (Render cold-starts).
+        const TIMEOUT_MS = 4000;
         try {
-          const r = await me.get();
-          setProfile(r.profile);
-        } catch { /* invalid token */ }
+          const r = await Promise.race<any>([
+            me.get(),
+            new Promise((_res, rej) => setTimeout(() => rej(new Error("hydrate_timeout")), TIMEOUT_MS))
+          ]);
+          if (r?.profile) setProfile(r.profile);
+        } catch { /* fall through to Login; later refreshes will pick up the session */ }
       }
       setHydrated(true);
     })();

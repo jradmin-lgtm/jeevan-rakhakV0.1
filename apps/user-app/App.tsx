@@ -37,11 +37,19 @@ export default function App() {
     (async () => {
       const token = await getToken();
       if (token) {
+        // Render free-tier dynos cold-start in ~30s. Cap the wait at 4s so the
+        // user sees the Login screen instead of staring at a spinner. If the
+        // backend responds later, HomeScreen's own refresh() picks up the
+        // hydrated profile next.
+        const TIMEOUT_MS = 4000;
         try {
-          const r = await me.get();
-          setProfile(r.profile);
+          const r = await Promise.race<any>([
+            me.get(),
+            new Promise((_res, rej) => setTimeout(() => rej(new Error("hydrate_timeout")), TIMEOUT_MS))
+          ]);
+          if (r?.profile) setProfile(r.profile);
         } catch {
-          /* token invalid; stay anonymous */
+          /* token still valid client-side; the cached session lets login skip if profile lands later */
         }
       }
       setHydrated(true);

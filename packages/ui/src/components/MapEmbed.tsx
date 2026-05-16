@@ -1,7 +1,8 @@
-import React, { memo, useMemo } from "react";
-import { StyleSheet, View } from "react-native";
+import React, { memo, useMemo, useState } from "react";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { WebView } from "react-native-webview";
-import { colors, radius } from "../tokens";
+import { Text } from "./Text";
+import { colors, radius, space } from "../tokens";
 
 type Point = { lat: number; lng: number; label?: string };
 
@@ -38,6 +39,7 @@ function MapEmbedInner({
   tileUrl = DEFAULT_TILE_URL,
   tileAttribution = DEFAULT_TILE_ATTR
 }: Props) {
+  const [loaded, setLoaded] = useState(false);
   const html = useMemo(() => {
     const pLat = Number(pickup.lat).toFixed(6);
     const pLng = Number(pickup.lng).toFixed(6);
@@ -102,6 +104,7 @@ function MapEmbedInner({
         originWhitelist={["*"]}
         source={{ html }}
         style={styles.web}
+        onLoadEnd={() => setLoaded(true)}
         // Block obvious dev-loop wastefulness on this WebView. The map doesn't
         // need cookies, file access, or hardware acceleration outside the
         // tile renderer.
@@ -113,6 +116,14 @@ function MapEmbedInner({
         showsVerticalScrollIndicator={false}
         androidLayerType="hardware"
       />
+      {!loaded ? (
+        <View style={styles.loading} pointerEvents="none">
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text variant="tiny" tone="muted" style={{ marginTop: space.xs }}>
+            Loading map…
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -122,9 +133,15 @@ const styles = StyleSheet.create({
     width: "100%",
     borderRadius: radius.lg,
     overflow: "hidden",
-    backgroundColor: colors.border
+    backgroundColor: "#EEF2F7"
   },
-  web: { flex: 1, backgroundColor: "transparent" }
+  web: { flex: 1, backgroundColor: "transparent" },
+  loading: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(238, 242, 247, 0.85)"
+  }
 });
 
 export const MapEmbed = memo(MapEmbedInner);
