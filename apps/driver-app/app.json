@@ -24,10 +24,7 @@
     "runtimeVersion": {
       "policy": "appVersion"
     },
-    "owner": "jradmin29s-organization",
-    "updates": {
-      "url": ""
-    },
+    "owner": "jradmin29",
     "android": {
       "package": "com.jeevanrakshak.driver",
       "versionCode": 10,
@@ -44,7 +41,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "a39978e4-b46f-47bc-9ca8-28deee237fb7"
+        "projectId": "6b1dd022-52b7-4c70-b0e8-93cf5bdf7e32"
       }
     }
   }
