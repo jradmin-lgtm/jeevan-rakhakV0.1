@@ -11,6 +11,7 @@ type Analytics = {
   emergencyMix: { type: string; count: number }[];
   hourly: { hour: number; count: number }[];
   couponBreakdown: { code: string; uses: number; total_discount: number }[];
+  appTraffic: { day: string; user_app: number; driver_app: number }[];
   stats: {
     totalBookings: number;
     completed: number;
@@ -173,6 +174,16 @@ export function TrendsCard({ apiBase }: { apiBase: string }) {
         <Sparkline series={data?.bookingsPerDay ?? []} />
       </div>
 
+      {/* APP TRAFFIC — user app vs driver app side-by-side */}
+      <div className="card">
+        <SectionLabel>App traffic — user app vs driver app</SectionLabel>
+        <p className="muted" style={{ fontSize: 12, margin: "0 0 10px" }}>
+          Daily distinct active users (per side). User-app active = unique users who created a booking that day.
+          Driver-app active = unique drivers who accepted a booking that day.
+        </p>
+        <AppTrafficChart series={data?.appTraffic ?? []} />
+      </div>
+
       {/* HOURLY HEATMAP */}
       <div className="card">
         <SectionLabel>Hour of day · IST</SectionLabel>
@@ -283,6 +294,57 @@ function Sparkline({ series }: { series: { day: string; count: number; completed
         <span><span style={{ display: "inline-block", width: 10, height: 2, background: "rgba(30,94,255,0.6)", marginRight: 6, verticalAlign: "middle" }} />Total</span>
         <span><span style={{ display: "inline-block", width: 10, height: 2, background: "#10B981", marginRight: 6, verticalAlign: "middle" }} />Completed</span>
         <span style={{ marginLeft: "auto" }}>{series[0].day} → {series[series.length - 1].day} · hover dots for GMV/Revenue</span>
+      </div>
+    </div>
+  );
+}
+
+function AppTrafficChart({ series }: { series: { day: string; user_app: number; driver_app: number }[] }) {
+  if (!series.length) {
+    return <div className="muted" style={{ fontSize: 12 }}>No traffic data in range.</div>;
+  }
+  const max = Math.max(1, ...series.map((s) => Math.max(s.user_app, s.driver_app)));
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 120, padding: "8px 0" }}>
+        {series.map((s) => {
+          const userPct = (s.user_app / max) * 100;
+          const drvPct = (s.driver_app / max) * 100;
+          return (
+            <div key={s.day} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }}>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 2, width: "100%", height: "100%" }}>
+                <div
+                  title={`${s.day} · user app: ${s.user_app}`}
+                  style={{
+                    flex: 1,
+                    height: `${Math.max(2, userPct)}%`,
+                    background: "linear-gradient(180deg, #1E5EFF 0%, #4F86FF 100%)",
+                    borderRadius: "4px 4px 0 0",
+                    transition: "height 0.3s ease"
+                  }}
+                />
+                <div
+                  title={`${s.day} · driver app: ${s.driver_app}`}
+                  style={{
+                    flex: 1,
+                    height: `${Math.max(2, drvPct)}%`,
+                    background: "linear-gradient(180deg, #E5322B 0%, #FF6B65 100%)",
+                    borderRadius: "4px 4px 0 0",
+                    transition: "height 0.3s ease"
+                  }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "var(--muted)", marginTop: 4 }}>
+        <span>{series[0].day}</span>
+        <div style={{ display: "flex", gap: 14 }}>
+          <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#1E5EFF", marginRight: 4, verticalAlign: "middle" }} />User app</span>
+          <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#E5322B", marginRight: 4, verticalAlign: "middle" }} />Driver app</span>
+        </div>
+        <span>{series[series.length - 1].day}</span>
       </div>
     </div>
   );

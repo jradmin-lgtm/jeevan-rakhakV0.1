@@ -374,7 +374,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     // ────────────────────────────────────────────────────────────────
     // Money: GMV / Revenue / Discount / Profit (margin-based estimate)
     // ────────────────────────────────────────────────────────────────
-    const [moneyRow]: any = await db.execute(drizzleSql`
+    const moneyResult: any = await db.execute(drizzleSql`
       SELECT
         COALESCE(SUM(fare_final_inr), 0)::int AS gmv,
         COALESCE(SUM(payable_inr), 0)::int     AS revenue,
@@ -385,10 +385,16 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         AND created_at >= ${sinceIso}::timestamptz
         AND created_at <= ${untilIso}::timestamptz
     `);
-    const gmv = Number((moneyRow.rows ?? moneyRow)[0]?.gmv ?? 0);
-    const revenue = Number((moneyRow.rows ?? moneyRow)[0]?.revenue ?? 0);
-    const discountGiven = Number((moneyRow.rows ?? moneyRow)[0]?.discount_given ?? 0);
-    const couponBookings = Number((moneyRow.rows ?? moneyRow)[0]?.coupon_bookings ?? 0);
+    // postgres.js returns an array of rows; drizzle's typed wrapper may
+    // shape it as either the array directly or `{ rows: [...] }`. Handle
+    // both before indexing — bug fix from the v1.0.11.x analytics
+    // shipping where double-indexing returned undefined for every money
+    // field.
+    const moneyRow = (Array.isArray(moneyResult) ? moneyResult : moneyResult.rows ?? [])[0] ?? {};
+    const gmv = Number(moneyRow.gmv ?? 0);
+    const revenue = Number(moneyRow.revenue ?? 0);
+    const discountGiven = Number(moneyRow.discount_given ?? 0);
+    const couponBookings = Number(moneyRow.coupon_bookings ?? 0);
     // Profit estimate. JR doesn't have a real driver-payout model yet —
     // for the pilot we assume a 20% platform margin on revenue. Show as
     // an *estimate*; the team can override when a real payout schedule
@@ -420,19 +426,21 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     // "Active" user proxy = unique users who created a booking in the
     // selected window. Closest thing we have to MAU/DAU without
     // tracking app sessions.
-    const [activeUsersRow]: any = await db.execute(drizzleSql`
+    const activeUsersResult: any = await db.execute(drizzleSql`
       SELECT COUNT(DISTINCT user_id)::int AS c
       FROM bookings
       WHERE created_at >= ${sinceIso}::timestamptz
         AND created_at <= ${untilIso}::timestamptz
     `);
+    const activeUsers = Number((Array.isArray(activeUsersResult) ? activeUsersResult : activeUsersResult.rows ?? [])[0]?.c ?? 0);
     // "Live" user proxy = users who currently have an in-flight booking
     // (REQUESTED through PICKED_UP).
-    const [liveUsersRow]: any = await db.execute(drizzleSql`
+    const liveUsersResult: any = await db.execute(drizzleSql`
       SELECT COUNT(DISTINCT user_id)::int AS c
       FROM bookings
       WHERE status IN ('REQUESTED','ACCEPTED','ARRIVED','PICKED_UP')
     `);
+    const liveUsers = Number((Array.isArray(liveUsersResult) ? liveUsersResult : liveUsersResult.rows ?? [])[0]?.c ?? 0);
 
     // ────────────────────────────────────────────────────────────────
     // Hour-of-day distribution (Asia/Kolkata)
@@ -460,9 +468,53 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     `);
 
     // ────────────────────────────────────────────────────────────────
+    // App traffic — per-day distinct active users (user-app) and
+    // distinct active drivers (driver-app), side by side. Proxy: a
+    // "session" counts as either creating a booking (user side) or
+    // accepting one (driver side). Closer to MAU/DAU than nothing,
+    // and uses only what's already in the bookings table.
+    // ────────────────────────────────────────────────────────────────
+    const appTrafficResult: any = await db.execute(drizzleSql`
+      SELECT
+        day,
+        SUM(user_active)::int   AS user_app,
+        SUM(driver_active)::int AS driver_app
+      FROM (
+        SELECT
+          to_char(date_trunc('day', created_at AT TIME ZONE 'Asia/Kolkata'), 'YYYY-MM-DD') AS day,
+          1 AS user_active,
+          0 AS driver_active,
+          user_id::text AS actor,
+          'u' AS side
+        FROM bookings
+        WHERE created_at >= ${sinceIso}::timestamptz
+          AND created_at <= ${untilIso}::timestamptz
+        GROUP BY 1, user_id
+
+        UNION ALL
+
+        SELECT
+          to_char(date_trunc('day', accepted_at AT TIME ZONE 'Asia/Kolkata'), 'YYYY-MM-DD') AS day,
+          0 AS user_active,
+          1 AS driver_active,
+          driver_id::text AS actor,
+          'd' AS side
+        FROM bookings
+        WHERE driver_id IS NOT NULL
+          AND accepted_at IS NOT NULL
+          AND accepted_at >= ${sinceIso}::timestamptz
+          AND accepted_at <= ${untilIso}::timestamptz
+        GROUP BY 1, driver_id
+      ) per_actor
+      GROUP BY day
+      ORDER BY day ASC
+    `);
+    const appTraffic = Array.isArray(appTrafficResult) ? appTrafficResult : appTrafficResult.rows ?? [];
+
+    // ────────────────────────────────────────────────────────────────
     // Trip averages — distance + duration for completed rides
     // ────────────────────────────────────────────────────────────────
-    const [tripAvgRow]: any = await db.execute(drizzleSql`
+    const tripAvgResult: any = await db.execute(drizzleSql`
       SELECT
         COALESCE(AVG(EXTRACT(EPOCH FROM (completed_at - accepted_at)) / 60), 0)::float AS avg_minutes,
         COALESCE(AVG(EXTRACT(EPOCH FROM (accepted_at - created_at)) / 60), 0)::float AS avg_response_min,
@@ -487,7 +539,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     // window (cohorts that started inside the window may not have
     // had time to retain past day 7).
     // ────────────────────────────────────────────────────────────────
-    const [retentionRow]: any = await db.execute(drizzleSql`
+    const retentionResult: any = await db.execute(drizzleSql`
       WITH first_booking AS (
         SELECT user_id, MIN(created_at) AS first_at
         FROM bookings
@@ -516,11 +568,14 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         ) THEN fb.user_id END)::int AS d7
       FROM first_booking fb
     `);
-    const r = (retentionRow.rows ?? retentionRow)[0] ?? {};
-    const cohort = Number(r.cohort_size ?? 0);
-    const d1 = Number(r.d1 ?? 0);
-    const d3 = Number(r.d3 ?? 0);
-    const d7 = Number(r.d7 ?? 0);
+    // Same shape-defensive unwrapping as money block — postgres.js arr
+    // vs drizzle's {rows} wrapper.
+    const unwrap = (r: any) => (Array.isArray(r) ? r : r?.rows ?? []);
+    const rt = unwrap(retentionResult)[0] ?? {};
+    const cohort = Number(rt.cohort_size ?? 0);
+    const d1 = Number(rt.d1 ?? 0);
+    const d3 = Number(rt.d3 ?? 0);
+    const d7 = Number(rt.d7 ?? 0);
     const pct = (n: number) => (cohort > 0 ? Math.round((n / cohort) * 100) : 0);
 
     const total = Number(totalRow?.c ?? 0);
@@ -528,15 +583,16 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const cancelled = Number(cancelledRow?.c ?? 0);
     const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
     const cancellationRate = total > 0 ? Math.round((cancelled / total) * 100) : 0;
-    const tripAvg = (tripAvgRow.rows ?? tripAvgRow)[0] ?? {};
+    const tripAvg = unwrap(tripAvgResult)[0] ?? {};
 
     return reply.send({
       since: since.toISOString(),
       until: until.toISOString(),
-      bookingsPerDay: perDay.rows ?? perDay ?? [],
-      emergencyMix: mix.rows ?? mix ?? [],
-      hourly: hourly.rows ?? hourly ?? [],
-      couponBreakdown: couponBreakdown.rows ?? couponBreakdown ?? [],
+      bookingsPerDay: unwrap(perDay),
+      emergencyMix: unwrap(mix),
+      hourly: unwrap(hourly),
+      couponBreakdown: unwrap(couponBreakdown),
+      appTraffic,
       stats: {
         // bookings
         totalBookings: total,
@@ -560,8 +616,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         onTripDrivers: Number(onTripRow?.c ?? 0),
         verifiedDrivers: Number(verifiedDriversRow?.c ?? 0),
         totalUsers: Number(totalUsersRow?.c ?? 0),
-        activeUsers: Number((activeUsersRow.rows ?? activeUsersRow)[0]?.c ?? 0),
-        liveUsers: Number((liveUsersRow.rows ?? liveUsersRow)[0]?.c ?? 0),
+        activeUsers,
+        liveUsers,
         // trips
         avgTripMin: Number((Number(tripAvg.avg_minutes ?? 0)).toFixed(1)),
         avgResponseMin: Number((Number(tripAvg.avg_response_min ?? 0)).toFixed(1)),
