@@ -337,48 +337,6 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     return reply.send({ events: rows, since: since.toISOString(), limit });
   });
 
-  // ⚠ ONE-SHOT WIPE — destructive. Truncates every transactional + account
-  // table to give the platform a clean-slate start. Removed in the very next
-  // commit; this endpoint exists only for the v1.0.11.3 → v1.0.12 pilot
-  // reset. Requires both the admin key AND a literal confirm body so it
-  // cannot fire by accident or via an unintended retry.
-  app.post("/api/v1/admin/wipe", adminGuard, async (req, reply) => {
-    const body = (req as any).body ?? {};
-    if (body.confirm !== "wipe-everything-i-am-sure") {
-      return reply.code(400).send({
-        error: "confirm_required",
-        message: 'Body must include { "confirm": "wipe-everything-i-am-sure" }'
-      });
-    }
-    // Pre-count for the audit trail in the response.
-    const counts: Record<string, number | string> = {};
-    async function before(tbl: string) {
-      const [r]: any = await db.execute(drizzleSql.raw(`SELECT COUNT(*)::int AS c FROM ${tbl}`));
-      counts[tbl] = Number(r?.c ?? 0);
-    }
-    for (const t of ["booking_events", "driver_locations", "system_events", "otp_codes", "bookings", "drivers", "users"]) {
-      try { await before(t); } catch { counts[t] = "count_failed"; }
-    }
-    // TRUNCATE with CASCADE on parents handles FK dependents implicitly.
-    // RESTART IDENTITY is a no-op for UUID PKs but harmless.
-    try {
-      await db.execute(drizzleSql.raw(`
-        TRUNCATE TABLE
-          booking_events,
-          driver_locations,
-          bookings,
-          otp_codes,
-          system_events,
-          drivers,
-          users
-        RESTART IDENTITY CASCADE
-      `));
-    } catch (err: any) {
-      return reply.code(500).send({ error: "wipe_failed", message: String(err?.message ?? err) });
-    }
-    return reply.send({ wiped: true, deletedCounts: counts });
-  });
-
   app.post("/api/v1/admin/events/cleanup", adminGuard, async (_req, reply) => {
     const cutoffIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const result = await (db as any).execute(
