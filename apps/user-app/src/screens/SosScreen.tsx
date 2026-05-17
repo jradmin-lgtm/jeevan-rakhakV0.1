@@ -1,17 +1,18 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, Animated, Pressable, StyleSheet, View } from "react-native";
+import { Alert, Animated, Linking, Pressable, StyleSheet, View } from "react-native";
 import * as Location from "expo-location";
 import { AppHeader, Button, Card, IconBadge, PulseDot, Screen, Text, colors, space } from "@jr/ui";
 import { Booking, bookings as bookingsApi } from "../api";
+import { SUPPORT_PHONE, SUPPORT_PHONE_DISPLAY } from "@jr/ui";
 
-// Fallback pickup if GPS denied / unavailable. Drivers can call the patient
-// to confirm in that case.
-const FALLBACK_PICKUP = { lat: 28.6139, lng: 77.209 };
-
-async function getPickup(): Promise<{ lat: number; lng: number }> {
+// v1.0.12: removed the Delhi-centroid fallback for SOS. Sending an
+// ambulance to the wrong city is worse than refusing to send one — if GPS
+// is unavailable we now show an alert pointing the user at the ops desk
+// landline so they can book over the phone.
+async function getPickup(): Promise<{ lat: number; lng: number } | null> {
   try {
     const perm = await Location.requestForegroundPermissionsAsync();
-    if (perm.status !== "granted") return FALLBACK_PICKUP;
+    if (perm.status !== "granted") return null;
     const fix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
     return { lat: fix.coords.latitude, lng: fix.coords.longitude };
   } catch {
@@ -21,7 +22,7 @@ async function getPickup(): Promise<{ lat: number; lng: number }> {
     } catch {
       /* ignored */
     }
-    return FALLBACK_PICKUP;
+    return null;
   }
 }
 
@@ -53,6 +54,18 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
             setBusy(true);
             try {
               const pickup = await getPickup();
+              if (!pickup) {
+                Alert.alert(
+                  "Location unavailable",
+                  `We can't send an ambulance without your location. Allow location access and try again, or call ops desk ${SUPPORT_PHONE_DISPLAY} to book by phone.`,
+                  [
+                    { text: "Allow location", onPress: () => Linking.openSettings().catch(() => {}) },
+                    { text: `Call ${SUPPORT_PHONE_DISPLAY}`, onPress: () => Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {}) },
+                    { text: "Cancel", style: "cancel" }
+                  ]
+                );
+                return;
+              }
               const r = await bookingsApi.create({
                 emergencyType: "CARDIAC",
                 pickupLat: pickup.lat,

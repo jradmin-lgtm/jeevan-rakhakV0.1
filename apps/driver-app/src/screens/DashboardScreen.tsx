@@ -21,7 +21,11 @@ import {
 import { Booking, bookings as bookingsApi, clearToken, driver as driverApi, me } from "../api";
 import { getSocket, disconnectSocket } from "../socket";
 
-const DRIVER_DEFAULT = { lat: 28.6139, lng: 77.209 };
+// v1.0.12: removed DRIVER_DEFAULT (Delhi centroid). When the driver
+// goes online without a GPS lock yet, we now send availability without
+// lat/lng — the server falls back to the driver's stored location and
+// will update on the next location push. No more "you appear in Delhi"
+// edge case for first-launch drivers anywhere outside Delhi.
 
 // Helper duplicated from TripScreen for self-containment.
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -112,13 +116,21 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
     return () => clearInterval(id);
   }, [refresh]);
 
-  // Subscribe to live booking offers via socket.
+  // Subscribe to live booking offers via socket. When we already have a
+  // GPS fix (`myPos`) we include it so dispatch's matching algorithm
+  // sees us in the right place; otherwise we omit lat/lng and the next
+  // location push will update it.
   useEffect(() => {
     let cancel = false;
     (async () => {
       if (!available || subscribed.current) return;
       const sock = await getSocket();
-      sock.emit("driver:availability", { available: true, lat: DRIVER_DEFAULT.lat, lng: DRIVER_DEFAULT.lng });
+      const payload: { available: true; lat?: number; lng?: number } = { available: true };
+      if (myPos) {
+        payload.lat = myPos.lat;
+        payload.lng = myPos.lng;
+      }
+      sock.emit("driver:availability", payload);
       sock.on("booking:offered", (msg: any) => {
         if (cancel) return;
         bookingsApi.get(msg.bookingId).then((r) => {
@@ -129,20 +141,25 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
       subscribed.current = true;
     })();
     return () => { cancel = true; };
-  }, [available]);
+  }, [available, myPos]);
 
   const toggleAvailable = useCallback(async () => {
     const next = !available;
     setAvailable(next);
     try {
-      await driverApi.setAvailability(next ? "AVAILABLE" : "OFFLINE", DRIVER_DEFAULT.lat, DRIVER_DEFAULT.lng);
+      await driverApi.setAvailability(next ? "AVAILABLE" : "OFFLINE", myPos?.lat, myPos?.lng);
       const sock = await getSocket();
-      sock.emit("driver:availability", { available: next, lat: DRIVER_DEFAULT.lat, lng: DRIVER_DEFAULT.lng });
+      const payload: { available: boolean; lat?: number; lng?: number } = { available: next };
+      if (myPos) {
+        payload.lat = myPos.lat;
+        payload.lng = myPos.lng;
+      }
+      sock.emit("driver:availability", payload);
     } catch (e: any) {
       Alert.alert("Could not update", e?.message ?? "Try again.");
       setAvailable(!next);
     }
-  }, [available]);
+  }, [available, myPos]);
 
   const accept = async (b: Booking) => {
     try {

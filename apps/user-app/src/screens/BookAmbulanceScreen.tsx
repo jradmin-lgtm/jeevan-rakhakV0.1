@@ -12,10 +12,10 @@ const EMERGENCIES: { key: EmergencyType; label: string; sub: string; emoji: stri
   { key: "GENERAL_CRITICAL_TRANSFER",  label: "Critical transfer",  sub: "Hospital to hospital",      emoji: "→" }
 ];
 
-// Fallback only fires if GPS permission is denied or fix times out.
-// Delhi centroid — drivers see this and can call the patient if the location
-// looks wrong.
-const FALLBACK_PICKUP = { lat: 28.6139, lng: 77.209 };
+// v1.0.12: removed the Delhi-centroid fallback. If we couldn't get a real
+// GPS fix we now leave pickupCoords null and surface a clear error — the
+// Confirm button stays disabled, so we never dispatch an ambulance to a
+// guessed Delhi address.
 
 // Base estimate. Once distance-aware pricing lands, replace with a real calc.
 const BASE_FARE_INR = 250;
@@ -45,11 +45,11 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
   const refreshLocation = useCallback(async () => {
     setLocating(true);
     setLocationNote("Detecting your live location…");
+    setPickupCoords(null);
     try {
       const perm = await Location.requestForegroundPermissionsAsync();
       if (perm.status !== "granted") {
-        setPickupCoords(FALLBACK_PICKUP);
-        setLocationNote("Location permission denied · using approximate fallback");
+        setLocationNote("Allow location access to book — we need it to send the ambulance to you.");
         return;
       }
       const fix = await Location.getCurrentPositionAsync({
@@ -64,14 +64,13 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
         const last = await Location.getLastKnownPositionAsync();
         if (last) {
           setPickupCoords({ lat: last.coords.latitude, lng: last.coords.longitude });
-          setLocationNote("Using your last known location (GPS lock failed)");
+          setLocationNote("Using your last known location (GPS lock failed) — tap Refresh to retry.");
           return;
         }
       } catch {
         /* ignored */
       }
-      setPickupCoords(FALLBACK_PICKUP);
-      setLocationNote("Couldn't detect location · using approximate fallback");
+      setLocationNote("Couldn't detect location · tap Refresh, or call support to book by phone.");
     } finally {
       setLocating(false);
     }

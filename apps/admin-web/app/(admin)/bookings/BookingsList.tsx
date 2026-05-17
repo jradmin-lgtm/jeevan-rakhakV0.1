@@ -5,6 +5,7 @@ import Link from "next/link";
 import { adminFetch } from "../../../lib/adminFetch";
 import { formatIST } from "../../../lib/dates";
 import { downloadCsv } from "../../../lib/csv";
+import { prettyStatus, prettyEmergency, assessmentBadge } from "../../../lib/status";
 import { DateRangePicker, DateRange, Preset, presetToRange } from "../DateRange";
 
 type Booking = {
@@ -19,6 +20,7 @@ type Booking = {
   rating?: number | null;
   createdAt: string;
   isDemo?: boolean;
+  paramedicAssessment?: Record<string, any> | null;
 };
 
 const STATUSES = ["all", "REQUESTED", "ACCEPTED", "ARRIVED", "PICKED_UP", "COMPLETED", "CANCELLED", "TIMED_OUT"];
@@ -76,7 +78,8 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
       { header: "Pickup", value: (b) => b.pickupAddress ?? "" },
       { header: "Drop", value: (b) => b.dropAddress ?? "" },
       { header: "Fare (₹)", value: (b) => b.fareFinalInr ?? b.fareEstimateInr ?? "" },
-      { header: "Rating", value: (b) => b.rating ?? "" }
+      { header: "Rating", value: (b) => b.rating ?? "" },
+      { header: "Paramedic assessment", value: (b) => assessmentBadge(b.status, b.paramedicAssessment).label }
     ], "jr-bookings");
   };
 
@@ -127,34 +130,45 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
                 <th>Fare</th>
                 <th>Rating</th>
                 <th>Status</th>
+                <th>Paramedic</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="muted" style={{ padding: 24, textAlign: "center" }}>
+                  <td colSpan={9} className="muted" style={{ padding: 24, textAlign: "center" }}>
                     No bookings match the current filters.
                   </td>
                 </tr>
               ) : (
-                filtered.map((b) => (
-                  <tr key={b.id}>
-                    <td className="mono"><strong>#{b.displayId ?? b.id.slice(0, 8) + "…"}</strong></td>
-                    <td className="mono muted">{formatIST(b.createdAt)}</td>
-                    <td>{prettyEmergency(b.emergencyType)}</td>
-                    <td>
-                      <div>{b.pickupAddress ?? "—"}</div>
-                      {b.dropAddress ? <div className="muted" style={{ fontSize: 12 }}>→ {b.dropAddress}</div> : null}
-                    </td>
-                    <td className="mono">₹{b.fareFinalInr ?? b.fareEstimateInr ?? "—"}</td>
-                    <td>{b.rating ? "★".repeat(b.rating) : <span className="muted">—</span>}</td>
-                    <td><span className={`pill ${b.status.toLowerCase()}`}>{prettyStatus(b.status)}</span></td>
-                    <td>
-                      <Link href={`/bookings/${b.id}`} style={{ color: "var(--accent)", fontSize: 12 }}>Open →</Link>
-                    </td>
-                  </tr>
-                ))
+                filtered.map((b) => {
+                  const badge = assessmentBadge(b.status, b.paramedicAssessment);
+                  return (
+                    <tr key={b.id}>
+                      <td className="mono"><strong>#{b.displayId ?? b.id.slice(0, 8) + "…"}</strong></td>
+                      <td className="mono muted">{formatIST(b.createdAt)}</td>
+                      <td>{prettyEmergency(b.emergencyType)}</td>
+                      <td>
+                        <div>{b.pickupAddress ?? "—"}</div>
+                        {b.dropAddress ? <div className="muted" style={{ fontSize: 12 }}>→ {b.dropAddress}</div> : null}
+                      </td>
+                      <td className="mono">₹{b.fareFinalInr ?? b.fareEstimateInr ?? "—"}</td>
+                      <td>{b.rating ? "★".repeat(b.rating) : <span className="muted">—</span>}</td>
+                      <td><span className={`pill ${b.status.toLowerCase()}`}>{prettyStatus(b.status)}</span></td>
+                      <td>
+                        {badge.variant === "na" ? (
+                          <span className="muted">—</span>
+                        ) : (
+                          <span style={assessmentChipStyle(badge.variant)}>{badge.label}</span>
+                        )}
+                      </td>
+                      <td>
+                        <Link href={`/bookings/${b.id}`} style={{ color: "var(--accent)", fontSize: 12 }}>Open →</Link>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -175,26 +189,18 @@ const csvBtnStyle: React.CSSProperties = {
   cursor: "pointer"
 };
 
-function prettyEmergency(t: string): string {
-  switch (t) {
-    case "ACCIDENT_TRAUMA": return "Accident / Trauma";
-    case "CARDIAC": return "Cardiac";
-    case "BREATHING_DISTRESS": return "Breathing distress";
-    case "PREGNANCY_NEONATAL": return "Pregnancy / Neonatal";
-    case "GENERAL_CRITICAL_TRANSFER": return "Critical transfer";
-    default: return t;
-  }
-}
-
-function prettyStatus(s: string): string {
-  switch (s) {
-    case "REQUESTED": return "Searching";
-    case "ACCEPTED": return "Driver assigned";
-    case "ARRIVED": return "Driver arrived";
-    case "PICKED_UP": return "On trip";
-    case "COMPLETED": return "Completed";
-    case "CANCELLED": return "Cancelled";
-    case "TIMED_OUT": return "No driver";
-    default: return s;
-  }
+function assessmentChipStyle(variant: "submitted" | "risk" | "awaiting" | "na"): React.CSSProperties {
+  const base: React.CSSProperties = {
+    display: "inline-block",
+    padding: "2px 8px",
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: 0.3,
+    whiteSpace: "nowrap"
+  };
+  if (variant === "submitted") return { ...base, background: "rgba(16,185,129,0.10)", color: "#059669" };
+  if (variant === "risk") return { ...base, background: "rgba(220,38,38,0.10)", color: "#DC2626" };
+  if (variant === "awaiting") return { ...base, background: "rgba(245,158,11,0.10)", color: "#B45309" };
+  return { ...base, color: "var(--muted)" };
 }

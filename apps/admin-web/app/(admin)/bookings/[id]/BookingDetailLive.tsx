@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { adminFetch } from "../../../../lib/adminFetch";
 import { formatIST, formatTimeIST } from "../../../../lib/dates";
+import { prettyStatus, prettyEmergency, assessmentBadge } from "../../../../lib/status";
 
 type BookingEvent = {
   id: string;
@@ -113,10 +114,15 @@ export function BookingDetailLive({
   const discount = booking.discountInr ?? 0;
   const payable = booking.payableInr ?? (booking.fareFinalInr ?? fareEstimate);
 
+  const assessment = assessmentBadge(booking.status, booking.paramedicAssessment);
+
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-        <span className={`pill ${booking.status.toLowerCase()}`}>{prettyStatus(booking.status)}</span>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span className={`pill ${booking.status.toLowerCase()}`}>{prettyStatus(booking.status)}</span>
+          <AssessmentPill badge={assessment} />
+        </div>
         <span className="muted" style={{ fontSize: 12 }}>
           <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "var(--success)", marginRight: 6 }} />
           Live · refreshed {formatTimeIST(new Date(lastFetch))}
@@ -228,8 +234,17 @@ export function BookingDetailLive({
           {booking.patientNotes ? <Field label="User notes" value={booking.patientNotes} /> : null}
           {booking.paramedicAssessment ? (
             <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
-              <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--muted)", marginBottom: 8 }}>
-                Paramedic assessment {booking.paramedicAssessment.recordedAt ? `· ${formatIST(String(booking.paramedicAssessment.recordedAt))}` : ""}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
+                <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--muted)" }}>
+                  Paramedic assessment {booking.paramedicAssessment.recordedAt ? `· ${formatIST(String(booking.paramedicAssessment.recordedAt))}` : ""}
+                </div>
+                <Link
+                  href={`/bookings/${booking.id}/assessment`}
+                  target="_blank"
+                  style={{ fontSize: 12, color: "var(--accent)", fontWeight: 600, padding: "4px 10px", border: "1px solid var(--accent, #1E5EFF)", borderRadius: 6, textDecoration: "none" }}
+                >
+                  📄 Print / save as PDF →
+                </Link>
               </div>
               {booking.paramedicAssessment.immediateRisk ? (
                 <div style={{ background: "rgba(220,38,38,0.08)", color: "var(--danger, #DC2626)", padding: 8, borderRadius: 6, fontWeight: 700, marginBottom: 8 }}>
@@ -410,26 +425,29 @@ function prettyAssessmentKey(k: string): string {
     .replace(/_/g, " ");
 }
 
-function prettyEmergency(t: string): string {
-  switch (t) {
-    case "ACCIDENT_TRAUMA": return "Accident / Trauma";
-    case "CARDIAC": return "Cardiac";
-    case "BREATHING_DISTRESS": return "Breathing distress";
-    case "PREGNANCY_NEONATAL": return "Pregnancy / Neonatal";
-    case "GENERAL_CRITICAL_TRANSFER": return "Critical transfer";
-    default: return t;
-  }
-}
-
-function prettyStatus(s: string): string {
-  switch (s) {
-    case "REQUESTED": return "Searching";
-    case "ACCEPTED": return "Driver assigned";
-    case "ARRIVED": return "Driver arrived";
-    case "PICKED_UP": return "On trip";
-    case "COMPLETED": return "Completed";
-    case "CANCELLED": return "Cancelled";
-    case "TIMED_OUT": return "No driver";
-    default: return s;
-  }
+function AssessmentPill({ badge }: { badge: { label: string; variant: "submitted" | "risk" | "awaiting" | "na" } }) {
+  if (badge.variant === "na") return null;
+  const styleByVariant: Record<"submitted" | "risk" | "awaiting", React.CSSProperties> = {
+    submitted: { background: "rgba(16,185,129,0.10)", color: "var(--success, #059669)", border: "1px solid rgba(16,185,129,0.30)" },
+    risk:      { background: "rgba(220,38,38,0.10)", color: "var(--danger, #DC2626)", border: "1px solid rgba(220,38,38,0.35)" },
+    awaiting:  { background: "rgba(245,158,11,0.10)", color: "#B45309", border: "1px solid rgba(245,158,11,0.30)" }
+  };
+  return (
+    <span
+      title="Paramedic assessment status"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "4px 10px",
+        borderRadius: 999,
+        fontSize: 11,
+        fontWeight: 700,
+        letterSpacing: 0.4,
+        textTransform: "uppercase",
+        ...styleByVariant[badge.variant]
+      }}
+    >
+      {badge.label}
+    </span>
+  );
 }

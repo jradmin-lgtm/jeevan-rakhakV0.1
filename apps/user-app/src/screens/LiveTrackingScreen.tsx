@@ -258,12 +258,37 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
               <Text variant="body">{booking.dropAddress}</Text>
             </>
           ) : null}
-          {booking.fareEstimateInr ? (
-            <>
-              <Text variant="label" tone="secondary">ESTIMATED FARE</Text>
-              <Text variant="heading" weight="bold">₹{booking.fareEstimateInr}</Text>
-            </>
-          ) : null}
+          {/* Fare block. Shows the *payable* amount as the headline so the
+            * patient never sees "₹250" when the coupon brings it to ₹0 — a
+            * recurring confusion in v1.0.11 testing. Estimate + coupon line
+            * stays as small print for transparency. */}
+          {booking.fareEstimateInr != null || booking.payableInr != null ? (() => {
+            const estimate = booking.fareEstimateInr ?? booking.fareFinalInr ?? 0;
+            const payable = booking.payableInr ?? booking.fareFinalInr ?? estimate;
+            const discounted = payable < estimate;
+            return (
+              <>
+                <Text variant="label" tone="secondary">YOU PAY</Text>
+                <View style={{ flexDirection: "row", alignItems: "baseline", gap: space.sm }}>
+                  <Text variant="heading" weight="bold" tone={payable === 0 ? "success" : undefined}>
+                    {payable === 0 ? "FREE" : `₹${payable}`}
+                  </Text>
+                  {discounted ? (
+                    <Text variant="small" tone="muted" style={{ textDecorationLine: "line-through" }}>
+                      ₹{estimate}
+                    </Text>
+                  ) : null}
+                </View>
+                {booking.couponCode ? (
+                  <Text variant="tiny" tone="success">
+                    Coupon {booking.couponCode} applied · saved ₹{Math.max(0, estimate - payable)}
+                  </Text>
+                ) : (
+                  <Text variant="tiny" tone="muted">Cashless · billed in-app on completion</Text>
+                )}
+              </>
+            );
+          })() : null}
         </View>
       </Card>
 

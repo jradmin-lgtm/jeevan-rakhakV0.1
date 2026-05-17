@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { adminFetch } from "../../lib/adminFetch";
 import { formatTimeIST, formatTimeShortIST } from "../../lib/dates";
+import { prettyStatus, prettyEmergency } from "../../lib/status";
 import { TrendsCard } from "./TrendsCard";
 
 type Stats = {
@@ -212,26 +213,3 @@ export function LiveDashboard({
   );
 }
 
-function prettyEmergency(t: string): string {
-  switch (t) {
-    case "ACCIDENT_TRAUMA": return "Accident / Trauma";
-    case "CARDIAC": return "Cardiac";
-    case "BREATHING_DISTRESS": return "Breathing distress";
-    case "PREGNANCY_NEONATAL": return "Pregnancy / Neonatal";
-    case "GENERAL_CRITICAL_TRANSFER": return "Critical transfer";
-    default: return t;
-  }
-}
-
-function prettyStatus(s: string): string {
-  switch (s) {
-    case "REQUESTED": return "Searching";
-    case "ACCEPTED": return "Driver assigned";
-    case "ARRIVED": return "Driver arrived";
-    case "PICKED_UP": return "On trip";
-    case "COMPLETED": return "Completed";
-    case "CANCELLED": return "Cancelled";
-    case "TIMED_OUT": return "No driver";
-    default: return s;
-  }
-}

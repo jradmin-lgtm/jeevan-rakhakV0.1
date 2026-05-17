@@ -30,8 +30,10 @@ type UserProfile = {
   phone: string;
 };
 
-// Fallback only used if GPS permission is denied or no fix yet.
-const FALLBACK_DRIVER = { lat: 28.6139, lng: 77.209 };
+// v1.0.12: removed FALLBACK_DRIVER. We no longer push Delhi centroid to the
+// patient when GPS hasn't locked — that was confusing testers ("why is the
+// ambulance suddenly in Delhi?"). Now we just skip the tick until we have a
+// real fix; the live-tracking UI shows "Locating ambulance…" in the gap.
 
 function openTurnByTurn(lat: number, lng: number) {
   // Opens native Google Maps app with directions to pickup. No Maps API key
@@ -97,15 +99,29 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
         if (!mounted) return;
         counter += 1;
 
-        let lat = FALLBACK_DRIVER.lat;
-        let lng = FALLBACK_DRIVER.lng;
+        // v1.0.12: only push when we have a *real* fix. If GPS is still
+        // warming up (denied / no signal / first-launch cold start) we
+        // skip the tick instead of broadcasting Delhi. Patient UI shows
+        // "Locating ambulance…" until the first real fix lands.
+        let lat: number | null = null;
+        let lng: number | null = null;
         try {
           const fix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
           lat = fix.coords.latitude;
           lng = fix.coords.longitude;
         } catch {
-          /* GPS unavailable on this tick — keep the previous fallback */
+          /* GPS unavailable on this tick — try last-known as a soft fallback */
+          try {
+            const last = await Location.getLastKnownPositionAsync();
+            if (last) {
+              lat = last.coords.latitude;
+              lng = last.coords.longitude;
+            }
+          } catch {
+            /* ignored */
+          }
         }
+        if (lat == null || lng == null) return;
 
         sock.emit("driver:location", { bookingId: booking.id, lat, lng, ts: Date.now() });
         setPushedAt(Date.now());
