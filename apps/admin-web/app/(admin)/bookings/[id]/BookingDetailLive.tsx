@@ -34,6 +34,8 @@ type Booking = {
   paramedicAssessment?: Record<string, any> | null;
   rating?: number | null;
   feedback?: string | null;
+  ratingByDriver?: number | null;
+  feedbackByDriver?: string | null;
   isDemo?: boolean;
 };
 
@@ -125,8 +127,22 @@ export function BookingDetailLive({
           <Field label="Pickup" value={booking.pickupAddress ?? `${booking.pickupLat}, ${booking.pickupLng}`} />
           <Field label="Drop" value={booking.dropAddress ?? "Not specified"} />
           <Field label="Ride OTP" value={booking.rideOtpCode ?? "—"} />
-          <Field label="Rating" value={booking.rating ? "★".repeat(booking.rating) : "Not rated"} />
-          {booking.feedback ? <Field label="Feedback" value={booking.feedback} /> : null}
+          {/* Both directions of the rating shown side-by-side. Stars styled
+            * gold so they stand out from the muted grey labels. */}
+          <Field
+            label="Patient → driver"
+            value={booking.rating
+              ? <span style={{ color: "#F59E0B", letterSpacing: 1 }}>{"★".repeat(booking.rating)}{"☆".repeat(5 - booking.rating)}</span>
+              : <span style={{ color: "var(--muted)" }}>Not rated</span>}
+          />
+          {booking.feedback ? <Field label="↳ feedback" value={`“${booking.feedback}”`} /> : null}
+          <Field
+            label="Driver → patient"
+            value={booking.ratingByDriver
+              ? <span style={{ color: "#F59E0B", letterSpacing: 1 }}>{"★".repeat(booking.ratingByDriver)}{"☆".repeat(5 - booking.ratingByDriver)}</span>
+              : <span style={{ color: "var(--muted)" }}>Not rated</span>}
+          />
+          {booking.feedbackByDriver ? <Field label="↳ feedback" value={`“${booking.feedbackByDriver}”`} /> : null}
         </div>
         <div className="card">
           <h3 style={{ margin: "0 0 12px" }}>Fare</h3>

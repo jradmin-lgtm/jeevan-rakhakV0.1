@@ -20,9 +20,10 @@ export default function AdminLayout({ children }: any) {
           <a href="/bookings">Bookings</a>
           <a href="/drivers">Drivers</a>
           <a href="/users">Users</a>
+          <a href="/feedback">Feedback</a>
           <a href="/alerts">Alerts</a>
         </nav>
-        <div className="footer">Jeevan Rakshak Operations · v1.0.10</div>
+        <div className="footer">Jeevan Rakshak Operations · v1.0.11.3</div>
       </aside>
       <main className="content">{children}</main>
     </div>

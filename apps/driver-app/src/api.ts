@@ -75,6 +75,10 @@ export type Booking = {
   // patientCondition + patientNotes are intentionally NOT included — driver
   // app must never display them (medical-privacy rule per team feedback).
   paramedicAssessment?: Record<string, unknown> | null;
+  rating?: number | null;
+  feedback?: string | null;
+  ratingByDriver?: number | null;
+  feedbackByDriver?: string | null;
   createdAt: string;
 };
 
@@ -146,5 +150,10 @@ export const bookings = {
   complete: (id: string) =>
     api<{ booking: Booking }>(`/api/v1/bookings/${id}/complete`, { method: "POST", body: {} }),
   paramedicAssessment: (id: string, assessment: Record<string, unknown>) =>
-    api<{ booking: Booking }>(`/api/v1/bookings/${id}/paramedic-assessment`, { method: "POST", body: assessment })
+    api<{ booking: Booking }>(`/api/v1/bookings/${id}/paramedic-assessment`, { method: "POST", body: assessment }),
+  rateByDriver: (id: string, rating: number, feedback?: string) =>
+    api<{ booking: Booking }>(`/api/v1/bookings/${id}/rate-by-driver`, {
+      method: "POST",
+      body: { rating, feedback }
+    })
 };

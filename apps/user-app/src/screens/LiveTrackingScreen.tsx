@@ -10,6 +10,7 @@ import {
   OtpToast,
   Pill,
   PulseDot,
+  RatingPrompt,
   Screen,
   StatusBadge,
   Text,
@@ -391,6 +392,28 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
             </Pressable>
           </View>
         </Card>
+      ) : null}
+
+      {/* Patient rates the driver after the trip completes. The card hides
+        * as soon as booking.rating is set so we don't double-prompt on
+        * re-poll. Reuses the shared RatingPrompt with driver-facing copy. */}
+      {booking.status === "COMPLETED" ? (
+        <RatingPrompt
+          title="How was your driver?"
+          subtitle="Your rating helps the next patient get the best ambulance team."
+          feedbackLabel="Anything our team should know? (optional)"
+          feedbackPlaceholder="What went well, what could improve"
+          submitLabel="Submit rating"
+          hidden={!!booking.rating}
+          onSubmit={async ({ rating, feedback }) => {
+            try {
+              const r = await bookingsApi.rate(initial.id, rating, feedback);
+              setBooking(r.booking);
+            } catch (e: any) {
+              Alert.alert("Could not submit", e?.message ?? "Try again.");
+            }
+          }}
+        />
       ) : null}
 
       {/* v1.0.11.2: always-on Need help section during an active trip. */}

@@ -12,7 +12,9 @@ const statusColor: Record<string, string> = {
   TIMED_OUT: colors.statusTimedOut
 };
 
-const statusLabel: Record<string, string> = {
+// Patient-perspective wording — what the *user* sees about their own trip.
+// "Driver assigned" reads naturally on the patient's live tracking screen.
+const statusLabelUser: Record<string, string> = {
   REQUESTED: "Searching",
   ACCEPTED: "Driver assigned",
   ARRIVED: "Driver arrived",
@@ -20,6 +22,19 @@ const statusLabel: Record<string, string> = {
   COMPLETED: "Completed",
   CANCELLED: "Cancelled",
   TIMED_OUT: "No driver found"
+};
+
+// Driver-perspective wording — drivers were reading "Driver assigned" on
+// their own TripScreen and getting confused (they ARE the driver). Each
+// label here describes the action from the driver's own point of view.
+const statusLabelDriver: Record<string, string> = {
+  REQUESTED: "Awaiting acceptance",
+  ACCEPTED: "Ride accepted",
+  ARRIVED: "Arrived at pickup",
+  PICKED_UP: "On trip",
+  COMPLETED: "Completed",
+  CANCELLED: "Cancelled by patient",
+  TIMED_OUT: "Request expired"
 };
 
 function withAlpha(hex: string, a = 0.15) {
@@ -31,9 +46,10 @@ function withAlpha(hex: string, a = 0.15) {
   return `rgba(${r},${g},${b},${a})`;
 }
 
-function StatusBadgeInner({ status }: { status: string }) {
+function StatusBadgeInner({ status, perspective = "user" }: { status: string; perspective?: "user" | "driver" }) {
   const c = statusColor[status] ?? colors.textMuted;
-  return <Pill label={statusLabel[status] ?? status} color={c} bg={withAlpha(c, 0.14)} />;
+  const label = perspective === "driver" ? statusLabelDriver[status] : statusLabelUser[status];
+  return <Pill label={label ?? status} color={c} bg={withAlpha(c, 0.14)} />;
 }
 
 export const StatusBadge = memo(StatusBadgeInner);

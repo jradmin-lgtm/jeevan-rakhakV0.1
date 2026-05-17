@@ -49,6 +49,12 @@ export const users = pgTable(
     // (they can still request an OTP — the SMS still goes out — but they
     // can't redeem it). Admins toggle this from the user detail page.
     disabled: boolean("disabled").default(false).notNull(),
+    // Reputation — running average of ratings the user has received from
+    // drivers. Starts at 5.0; recomputed by the rate-by-driver endpoint.
+    // ratingCount drives the running-average formula and is also displayed
+    // in admin so ops can spot 1-rating outliers vs many-rating patterns.
+    rating: doublePrecision("rating").default(5.0).notNull(),
+    ratingCount: integer("rating_count").default(0).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
   },
@@ -70,6 +76,10 @@ export const drivers = pgTable(
     status: driverStatusEnum("status").default("OFFLINE").notNull(),
     kycVerified: boolean("kyc_verified").default(false).notNull(),
     rating: doublePrecision("rating").default(5.0).notNull(),
+    // Count of ratings received from patients — drives the running-average
+    // formula and lets admin distinguish "5.0 from 1 rating" (new driver)
+    // from "4.9 from 200 ratings" (established).
+    ratingCount: integer("rating_count").default(0).notNull(),
     lastLat: doublePrecision("last_lat"),
     lastLng: doublePrecision("last_lng"),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
@@ -148,8 +158,13 @@ export const bookings = pgTable(
     // JSONB so we can iterate on field shape without a migration per change.
     // Admin-only visibility — the standard driver dashboard never shows this.
     paramedicAssessment: jsonb("paramedic_assessment"),
+    // Patient → driver: 1-5 stars + optional free-text feedback.
     rating: integer("rating"),
     feedback: text("feedback"),
+    // Driver → patient: same shape, separate columns so admin can show both
+    // perspectives without mixing them up. Either side rates once per trip.
+    ratingByDriver: integer("rating_by_driver"),
+    feedbackByDriver: text("feedback_by_driver"),
     isDemo: boolean("is_demo").default(false).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),

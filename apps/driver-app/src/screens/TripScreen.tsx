@@ -11,6 +11,7 @@ import {
   OtpInput,
   Pill,
   PulseDot,
+  RatingPrompt,
   Screen,
   StatusBadge,
   Stepper,
@@ -182,7 +183,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
         <View style={{ gap: space.md }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
             <Pill label={prettyEmergency(booking.emergencyType)} />
-            <StatusBadge status={booking.status} />
+            <StatusBadge status={booking.status} perspective="driver" />
           </View>
           <Stepper steps={STEPS} currentIndex={failed ? -1 : stepIndex} failed={failed} />
           <View style={{ gap: 4 }}>
@@ -401,6 +402,28 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
             />
           </View>
         </Card>
+      ) : null}
+
+      {/* Driver rates the patient after trip completes. Hides once the
+        * ratingByDriver column is set. Reuses the shared RatingPrompt card
+        * with patient-side copy. */}
+      {booking.status === "COMPLETED" ? (
+        <RatingPrompt
+          title="How was the patient?"
+          subtitle="Your rating helps other drivers know what to expect."
+          feedbackLabel="Notes for ops (optional)"
+          feedbackPlaceholder="e.g., very cooperative, or arrived late"
+          submitLabel="Submit rating"
+          hidden={!!booking.ratingByDriver}
+          onSubmit={async ({ rating, feedback }) => {
+            try {
+              const r = await bookingsApi.rateByDriver(booking.id, rating, feedback);
+              setBooking(r.booking);
+            } catch (e: any) {
+              Alert.alert("Could not submit", e?.message ?? "Try again.");
+            }
+          }}
+        />
       ) : null}
 
       {!finished ? (

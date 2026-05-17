@@ -550,8 +550,26 @@ export async function registerBookingRoutes(app: FastifyInstance) {
     }
   );
 
-  // Rating (user)
-  const rateSchema = z.object({ rating: z.number().min(1).max(5), feedback: z.string().max(500).optional() });
+  // Rating — user rates driver. Same body schema as the driver-rates-user
+  // endpoint below; the only difference is which booking column gets set
+  // and which side's running-average gets recomputed.
+  const rateSchema = z.object({
+    rating: z.number().int().min(1).max(5),
+    feedback: z.string().max(500).optional()
+  });
+
+  /**
+   * Recompute a running average rating given the previous (avg, count) and
+   * the newly-submitted value. Server-side so we don't trust client-sent
+   * averages and so partial network failures can't poison the average.
+   * Returns the new (avg, count).
+   */
+  function nextRunningAvg(prevAvg: number, prevCount: number, newRating: number): { avg: number; count: number } {
+    const count = prevCount + 1;
+    const avg = (prevAvg * prevCount + newRating) / count;
+    return { avg: Number(avg.toFixed(3)), count };
+  }
+
   app.post(
     "/api/v1/bookings/:id/rate",
     { preHandler: [(app as any).authenticate] },
@@ -562,12 +580,74 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       const parsed = rateSchema.safeParse(req.body);
       if (!parsed.success)
         return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+      // Read first so we know the driver to update.
+      const [existing] = await db
+        .select()
+        .from(bookings)
+        .where(and(eq(bookings.id, id), eq(bookings.userId, sub)))
+        .limit(1);
+      if (!existing) return reply.code(404).send({ error: "not_found_or_forbidden" });
+      if (existing.rating) {
+        return reply.code(409).send({ error: "already_rated", message: "You've already rated this trip." });
+      }
       const [b] = await db
         .update(bookings)
         .set({ rating: parsed.data.rating, feedback: parsed.data.feedback })
-        .where(and(eq(bookings.id, id), eq(bookings.userId, sub)))
+        .where(eq(bookings.id, id))
         .returning();
-      if (!b) return reply.code(404).send({ error: "not_found_or_forbidden" });
+      // Recompute driver's running average + bump count.
+      if (existing.driverId) {
+        const [d] = await db.select().from(drivers).where(eq(drivers.id, existing.driverId)).limit(1);
+        if (d) {
+          const { avg, count } = nextRunningAvg(d.rating ?? 5, d.ratingCount ?? 0, parsed.data.rating);
+          await db
+            .update(drivers)
+            .set({ rating: avg, ratingCount: count, updatedAt: new Date() })
+            .where(eq(drivers.id, d.id));
+        }
+      }
+      return reply.send({ booking: b });
+    }
+  );
+
+  // Driver rates the patient (v1.0.11.3). Mirror of /rate. Either side
+  // rates exactly once per trip; the 409 already_rated gate prevents
+  // double-counting in the running average.
+  app.post(
+    "/api/v1/bookings/:id/rate-by-driver",
+    { preHandler: [(app as any).authenticate] },
+    async (req: any, reply) => {
+      const { sub, role } = req.user;
+      if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
+      const id = req.params.id as string;
+      const parsed = rateSchema.safeParse(req.body);
+      if (!parsed.success)
+        return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+      const [existing] = await db
+        .select()
+        .from(bookings)
+        .where(and(eq(bookings.id, id), eq(bookings.driverId, sub)))
+        .limit(1);
+      if (!existing) return reply.code(404).send({ error: "not_found_or_forbidden" });
+      if (existing.ratingByDriver) {
+        return reply.code(409).send({ error: "already_rated", message: "You've already rated this patient." });
+      }
+      const [b] = await db
+        .update(bookings)
+        .set({ ratingByDriver: parsed.data.rating, feedbackByDriver: parsed.data.feedback })
+        .where(eq(bookings.id, id))
+        .returning();
+      // Recompute the patient's running average + count.
+      if (existing.userId) {
+        const [u] = await db.select().from(users).where(eq(users.id, existing.userId)).limit(1);
+        if (u) {
+          const { avg, count } = nextRunningAvg(u.rating ?? 5, u.ratingCount ?? 0, parsed.data.rating);
+          await db
+            .update(users)
+            .set({ rating: avg, ratingCount: count, updatedAt: new Date() })
+            .where(eq(users.id, u.id));
+        }
+      }
       return reply.send({ booking: b });
     }
   );

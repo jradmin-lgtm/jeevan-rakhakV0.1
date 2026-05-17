@@ -131,7 +131,15 @@ async function bootstrap() {
     await pgClient`ALTER TABLE drivers  ADD COLUMN IF NOT EXISTS insurance_number text`;
     await pgClient`ALTER TABLE drivers  ADD COLUMN IF NOT EXISTS hospital_id      text`;
     await pgClient`ALTER TABLE drivers  ADD COLUMN IF NOT EXISTS hospital_name    text`;
-    app.log.info("[migrate] schema v1.0.11 ready (patient + paramedic + KYC fields)");
+    // v1.0.11.3: two-way ratings + feedback. Users + drivers each carry an
+    // average rating (default 5.0) + rating count; bookings carry both
+    // directions of the rate.
+    await pgClient`ALTER TABLE users    ADD COLUMN IF NOT EXISTS rating       double precision NOT NULL DEFAULT 5.0`;
+    await pgClient`ALTER TABLE users    ADD COLUMN IF NOT EXISTS rating_count integer          NOT NULL DEFAULT 0`;
+    await pgClient`ALTER TABLE drivers  ADD COLUMN IF NOT EXISTS rating_count integer          NOT NULL DEFAULT 0`;
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS rating_by_driver   integer`;
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS feedback_by_driver text`;
+    app.log.info("[migrate] schema v1.0.11.3 ready (two-way ratings + feedback)");
   } catch (err) {
     // Thumb rule: migrations FATAL-EXIT on failure. Silent catch+warn here
     // previously let the service start with a broken schema (system_events

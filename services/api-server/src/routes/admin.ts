@@ -250,6 +250,28 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     return reply.send({ driver: updated });
   });
 
+  // Feedback inbox — all bookings with at least one piece of feedback
+  // (from user or from driver). Powers the admin /feedback tab.
+  app.get("/api/v1/admin/feedback", adminGuard, async (req, reply) => {
+    const source = pickSource(req);
+    const sideFilter = String((req as any)?.query?.side ?? "all").toLowerCase(); // all | user | driver
+    const conds: any[] = [sourceClause(source, bookings.isDemo)].filter(Boolean);
+    if (sideFilter === "user") {
+      conds.push(drizzleSql`${bookings.feedback} IS NOT NULL`);
+    } else if (sideFilter === "driver") {
+      conds.push(drizzleSql`${bookings.feedbackByDriver} IS NOT NULL`);
+    } else {
+      conds.push(drizzleSql`(${bookings.feedback} IS NOT NULL OR ${bookings.feedbackByDriver} IS NOT NULL)`);
+    }
+    const rows = await db
+      .select()
+      .from(bookings)
+      .where(and(...conds))
+      .orderBy(desc(bookings.completedAt))
+      .limit(200);
+    return reply.send({ source, side: sideFilter, bookings: rows });
+  });
+
   // ─── Observability ─────────────────────────────────────────────────────────
 
   app.get("/api/v1/admin/health", adminGuard, async (_req, reply) => {
