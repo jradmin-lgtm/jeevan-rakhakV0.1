@@ -5,6 +5,7 @@ import { adminFetch } from "../../../../lib/adminFetch";
 import { formatIST } from "../../../../lib/dates";
 import { DisableToggle } from "../../users/[id]/DisableToggle";
 import { KycVerifyToggle } from "./KycVerifyToggle";
+import { EditableField } from "../../EditableField";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
@@ -61,14 +62,18 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
       <div className="row">
         <div className="card">
           <h3 style={{ margin: "0 0 12px" }}>Profile</h3>
+          <p className="muted" style={{ fontSize: 11, margin: "0 0 10px" }}>
+            Click ✎ to edit any field. Changes reflect in the driver's app on next refresh.
+          </p>
           <Field label="Phone" value={driver.phone} />
-          <Field label="Name" value={driver.name ?? "—"} />
-          <Field label="Vehicle" value={`${driver.vehicleNumber ?? "—"} (${driver.vehicleType ?? "BLS"})`} />
-          <Field label="Licence #" value={driver.licenseNumber ?? "—"} />
-          <Field label="RC #" value={driver.rcNumber ?? "—"} />
-          <Field label="Insurance #" value={driver.insuranceNumber ?? "—"} />
-          <Field label="Hospital" value={driver.hospitalName ?? "—"} />
-          <Field label="Hospital ID" value={driver.hospitalId ?? "—"} />
+          <EditableField label="Name" value={driver.name} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="name" placeholder="Full name" />
+          <EditableField label="Vehicle #" value={driver.vehicleNumber} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="vehicleNumber" placeholder="DL07AB1234" />
+          <EditableField label="Vehicle type" value={driver.vehicleType} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="vehicleType" placeholder="BLS / ALS / ICU" />
+          <EditableField label="Licence #" value={driver.licenseNumber} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="licenseNumber" placeholder="DL number" />
+          <EditableField label="RC #" value={driver.rcNumber} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="rcNumber" placeholder="RC number" />
+          <EditableField label="Insurance #" value={driver.insuranceNumber} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="insuranceNumber" placeholder="Policy number" />
+          <EditableField label="Hospital" value={driver.hospitalName} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="hospitalName" placeholder="Hospital / org" />
+          <EditableField label="Hospital ID" value={driver.hospitalId} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="hospitalId" placeholder="Employee ID" />
           <Field label="Rating" value={`⭐ ${(driver.rating ?? 5).toFixed(1)}`} />
           <Field label="Last seen" value={driver.lastSeenAt ? formatIST(driver.lastSeenAt) : "—"} />
           <Field label="Joined" value={formatIST(driver.createdAt)} />

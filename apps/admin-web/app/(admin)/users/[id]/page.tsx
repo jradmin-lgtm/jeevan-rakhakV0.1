@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { adminFetch } from "../../../../lib/adminFetch";
 import { formatIST } from "../../../../lib/dates";
 import { DisableToggle } from "./DisableToggle";
+import { EditableField } from "../../EditableField";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
@@ -44,11 +45,14 @@ export default async function UserDetail({ params }: { params: Promise<{ id: str
       <div className="row">
         <div className="card">
           <h3 style={{ margin: "0 0 12px" }}>Profile</h3>
+          <p className="muted" style={{ fontSize: 11, margin: "0 0 10px" }}>
+            Click ✎ to edit any field. Changes reflect in the user's app on next refresh.
+          </p>
           <Field label="Phone" value={user.phone} />
-          <Field label="Name" value={user.name ?? "—"} />
-          <Field label="Blood group" value={user.bloodGroup ?? "—"} />
-          <Field label="Allergies" value={user.allergies ?? "—"} />
-          <Field label="Emergency contact" value={user.emergencyContact ?? "—"} />
+          <EditableField label="Name" value={user.name} apiBase={API_BASE} patchUrl={`/api/v1/admin/users/${user.id}`} fieldKey="name" placeholder="Full name" />
+          <EditableField label="Blood group" value={user.bloodGroup} apiBase={API_BASE} patchUrl={`/api/v1/admin/users/${user.id}`} fieldKey="bloodGroup" placeholder="e.g. O+" />
+          <EditableField label="Allergies" value={user.allergies} apiBase={API_BASE} patchUrl={`/api/v1/admin/users/${user.id}`} fieldKey="allergies" placeholder="None / list" multiline />
+          <EditableField label="Emergency contact" value={user.emergencyContact} apiBase={API_BASE} patchUrl={`/api/v1/admin/users/${user.id}`} fieldKey="emergencyContact" placeholder="+91…" />
           <Field label="Joined" value={formatIST(user.createdAt)} />
         </div>
         <div className="card">

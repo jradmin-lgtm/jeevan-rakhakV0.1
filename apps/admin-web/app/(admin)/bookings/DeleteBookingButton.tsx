@@ -80,13 +80,15 @@ export function DeleteBookingButton({
       {open ? (
         <div onClick={() => setOpen(false)} style={modalScrim}>
           <div onClick={(e) => e.stopPropagation()} style={modalBox}>
-            <div style={{ fontWeight: 700, fontSize: 15, color: "#0F172A" }}>Delete this booking?</div>
-            <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>
+            <div style={{ fontWeight: 700, fontSize: 16, color: "#0F172A" }}>Delete this booking?</div>
+            <p style={{ fontSize: 13, color: "var(--muted)", margin: "6px 0 16px", lineHeight: 1.5 }}>
               Permanently removes the booking, its event timeline, and adjusts analytics. Cannot be undone.
+            </p>
+            <div style={fieldLabel}>Booking</div>
+            <div className="mono" style={{ fontSize: 13, marginBottom: 16, wordBreak: "break-all", color: "#0F172A", background: "rgba(148,163,184,0.10)", padding: "8px 10px", borderRadius: 6 }}>
+              {bookingId}
             </div>
-            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 14, textTransform: "uppercase", letterSpacing: 0.4 }}>Booking</div>
-            <div className="mono" style={{ fontSize: 13, marginBottom: 14, wordBreak: "break-all" }}>{bookingId}</div>
-            <label style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.4 }}>Delete password</label>
+            <div style={fieldLabel}>Delete password</div>
             <input
               type="password"
               value={password}
@@ -97,9 +99,9 @@ export function DeleteBookingButton({
               style={modalInput}
             />
             {err ? <div style={{ color: "#DC2626", fontSize: 13, marginTop: 8 }}>{err}</div> : null}
-            <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
+            <div style={{ display: "flex", gap: 8, marginTop: 18, justifyContent: "flex-end" }}>
               <button onClick={() => { setOpen(false); setPassword(""); setErr(null); }} style={cancelBtn}>Cancel</button>
-              <button onClick={submit} disabled={busy || !password} style={{ ...confirmBtn, opacity: busy || !password ? 0.5 : 1 }}>
+              <button onClick={submit} disabled={busy || !password} style={{ ...confirmBtn, opacity: busy || !password ? 0.5 : 1, cursor: busy || !password ? "not-allowed" : "pointer" }}>
                 {busy ? "Deleting…" : "Delete"}
               </button>
             </div>
@@ -146,21 +148,38 @@ const modalScrim: React.CSSProperties = {
 const modalBox: React.CSSProperties = {
   background: "#fff",
   borderRadius: 14,
-  padding: 22,
-  width: 380,
+  padding: 24,
+  width: 440,
   maxWidth: "92vw",
-  boxShadow: "0 20px 60px rgba(0,0,0,0.30)"
+  boxShadow: "0 20px 60px rgba(0,0,0,0.30)",
+  // Explicit box-sizing — the global stylesheet sets `* { box-sizing:
+  // border-box }` but Next can hydrate before that's applied; pinning
+  // it here stops the password input from over-flowing on first paint.
+  boxSizing: "border-box",
+  display: "block"
+};
+
+const fieldLabel: React.CSSProperties = {
+  fontSize: 11,
+  color: "var(--muted)",
+  textTransform: "uppercase",
+  letterSpacing: 0.5,
+  fontWeight: 600,
+  marginBottom: 6,
+  display: "block"
 };
 
 const modalInput: React.CSSProperties = {
-  marginTop: 6,
+  display: "block",
   width: "100%",
   padding: "10px 12px",
   border: "1px solid #CBD5E1",
   borderRadius: 8,
   fontSize: 14,
   outline: "none",
-  fontFamily: "inherit"
+  fontFamily: "inherit",
+  color: "#0F172A",
+  boxSizing: "border-box"
 };
 
 const cancelBtn: React.CSSProperties = {

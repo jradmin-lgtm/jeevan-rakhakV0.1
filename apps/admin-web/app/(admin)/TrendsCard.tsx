@@ -118,8 +118,40 @@ export function TrendsCard({ apiBase }: { apiBase: string }) {
 
   return (
     <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 14 }}>
-      {/* Header + date range */}
-      <Section kind="overview" subtitle={data ? `${data.bookingsPerDay.length} active days · ${s?.totalBookings ?? 0} bookings in range` : "Loading…"} headerRight={<DateRangePicker preset={preset} range={range} onChange={(p, r) => { setPreset(p); setRange(r); }} />}>
+      {/* Sticky date range — stays visible as the operator scrolls through
+        * the 10 analytics sections so they never lose their filter
+        * context. */}
+      <div style={{
+        position: "sticky",
+        top: 0,
+        zIndex: 50,
+        background: "rgba(247,248,251,0.92)",
+        backdropFilter: "blur(8px)",
+        WebkitBackdropFilter: "blur(8px)",
+        padding: "10px 12px",
+        borderRadius: 12,
+        border: "1px solid var(--border)",
+        boxShadow: "0 2px 12px rgba(15,23,42,0.06)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        flexWrap: "wrap"
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 16 }}>📈</span>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)" }}>Analytics &amp; trends</div>
+            <div style={{ fontSize: 11, color: "var(--muted)" }}>
+              {data ? `${data.bookingsPerDay.length} active days · ${s?.totalBookings ?? 0} bookings in range` : "Loading…"}
+            </div>
+          </div>
+        </div>
+        <DateRangePicker preset={preset} range={range} onChange={(p, r) => { setPreset(p); setRange(r); }} />
+      </div>
+
+      {/* Overview headlines — first cards under the sticky bar */}
+      <Section kind="overview">
         <Grid cols={4}>
           <Stat label="Revenue (collected)" value={inr(s?.revenueInr)} tone="success" sub={`from ${s?.completed ?? 0} completed`} />
           <Stat label="GMV (gross fare)" value={inr(s?.gmvInr)} tone="primary" sub={s?.overriddenBookings ? `${s.overriddenBookings} fare-adjusted` : undefined} />

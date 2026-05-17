@@ -221,28 +221,47 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     return reply.send({ user: u, bookings: history, totals });
   });
 
-  // Toggle disabled flag on a user. Disabled users can't redeem an OTP and
-  // their booking POSTs return 403. Existing JWTs remain valid until their
-  // 30d expiry — admin should also call out to the user out-of-band if they
-  // need them off the platform immediately.
-  const patchDisabledSchema = z.object({ disabled: z.boolean() });
-  // Driver PATCH also accepts kycVerified toggle (v1.0.11 — team feedback 1.10).
+  // PATCH /admin/users/:id — admin can override profile fields the user
+  // entered themselves (typos, ops corrections) AND toggle disabled.
+  // Mobile apps re-read these from /me on next refresh; no APK rebuild
+  // needed. At least one field is required.
+  const patchUserSchema = z.object({
+    disabled: z.boolean().optional(),
+    name: z.string().min(1).max(120).optional(),
+    bloodGroup: z.string().max(8).optional(),
+    allergies: z.string().max(2000).optional(),
+    emergencyContact: z.string().max(40).optional()
+  }).refine((d) => Object.values(d).some((v) => v !== undefined), {
+    message: "at_least_one_field_required"
+  });
+
+  // PATCH /admin/drivers/:id — admin can override every editable driver
+  // profile field (corrected vehicle plate, hospital change, etc.) plus
+  // flip kycVerified + disabled.
   const patchDriverSchema = z.object({
     disabled: z.boolean().optional(),
-    kycVerified: z.boolean().optional()
-  }).refine((d) => d.disabled !== undefined || d.kycVerified !== undefined, {
+    kycVerified: z.boolean().optional(),
+    name: z.string().min(1).max(120).optional(),
+    vehicleNumber: z.string().min(4).max(20).optional(),
+    vehicleType: z.string().max(40).optional(),
+    licenseNumber: z.string().min(4).max(40).optional(),
+    rcNumber: z.string().min(4).max(40).optional(),
+    insuranceNumber: z.string().min(4).max(60).optional(),
+    hospitalId: z.string().max(60).optional(),
+    hospitalName: z.string().max(200).optional()
+  }).refine((d) => Object.values(d).some((v) => v !== undefined), {
     message: "at_least_one_field_required"
   });
 
   app.patch("/api/v1/admin/users/:id", adminGuard, async (req, reply) => {
     const id = (req.params as any).id as string;
-    const parsed = patchDisabledSchema.safeParse(req.body);
+    const parsed = patchUserSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
     }
     const [updated] = await db
       .update(users)
-      .set({ disabled: parsed.data.disabled, updatedAt: new Date() })
+      .set({ ...parsed.data, updatedAt: new Date() })
       .where(eq(users.id, id))
       .returning();
     if (!updated) return reply.code(404).send({ error: "not_found" });
@@ -283,12 +302,9 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
     }
-    const patch: any = { updatedAt: new Date() };
-    if (parsed.data.disabled !== undefined) patch.disabled = parsed.data.disabled;
-    if (parsed.data.kycVerified !== undefined) patch.kycVerified = parsed.data.kycVerified;
     const [updated] = await db
       .update(drivers)
-      .set(patch)
+      .set({ ...parsed.data, updatedAt: new Date() })
       .where(eq(drivers.id, id))
       .returning();
     if (!updated) return reply.code(404).send({ error: "not_found" });

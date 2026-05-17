@@ -6,7 +6,6 @@ import { adminFetch } from "../../../lib/adminFetch";
 import { formatIST } from "../../../lib/dates";
 import { downloadCsv } from "../../../lib/csv";
 import { DateRangePicker, DateRange, Preset, presetToRange } from "../DateRange";
-import { DeleteBookingButton } from "./DeleteBookingButton";
 
 type Booking = {
   id: string;
@@ -151,14 +150,8 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
                     <td className="mono">₹{b.fareFinalInr ?? b.fareEstimateInr ?? "—"}</td>
                     <td>{b.rating ? "★".repeat(b.rating) : <span className="muted">—</span>}</td>
                     <td><span className={`pill ${b.status.toLowerCase()}`}>{prettyStatus(b.status)}</span></td>
-                    <td style={{ whiteSpace: "nowrap" }}>
-                      <Link href={`/bookings/${b.id}`} style={{ color: "var(--accent)", fontSize: 12, marginRight: 8 }}>Open →</Link>
-                      <DeleteBookingButton
-                        bookingId={b.id}
-                        apiBase={apiBase}
-                        short
-                        onDeleted={() => setRows((curr) => curr.filter((r) => r.id !== b.id))}
-                      />
+                    <td>
+                      <Link href={`/bookings/${b.id}`} style={{ color: "var(--accent)", fontSize: 12 }}>Open →</Link>
                     </td>
                   </tr>
                 ))
