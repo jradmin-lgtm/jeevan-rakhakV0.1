@@ -4,6 +4,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { adminFetch } from "../../../lib/adminFetch";
 import { formatIST } from "../../../lib/dates";
+import { downloadCsv } from "../../../lib/csv";
+import { DateRangePicker, DateRange, Preset, presetToRange } from "../DateRange";
 
 type Driver = {
   id: string;
@@ -24,12 +26,18 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
   const [status, setStatus] = useState<string>("all");
   const [query, setQuery] = useState<string>("");
   const [rows, setRows] = useState<Driver[]>(initialDrivers);
+  const [preset, setPreset] = useState<Preset>("30d");
+  const [range, setRange] = useState<DateRange>(presetToRange("30d"));
 
   useEffect(() => {
     let alive = true;
     const fetchRows = async () => {
       try {
-        const res = await adminFetch(`${apiBase}/api/v1/admin/drivers`);
+        const params = new URLSearchParams();
+        if (range.since) params.set("since", range.since);
+        if (range.until) params.set("until", range.until);
+        const qs = params.toString();
+        const res = await adminFetch(`${apiBase}/api/v1/admin/drivers${qs ? "?" + qs : ""}`);
         const data = await res.json();
         if (!alive) return;
         setRows(data.drivers ?? []);
@@ -43,7 +51,7 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
       alive = false;
       clearInterval(id);
     };
-  }, [apiBase]);
+  }, [apiBase, range.since, range.until]);
 
   const filtered = useMemo(() => {
     let out = rows;
@@ -63,13 +71,32 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
   const onlineCount = rows.filter((d) => d.status !== "OFFLINE").length;
   const onTripCount = rows.filter((d) => d.status === "ON_TRIP").length;
 
+  const exportCsv = () => {
+    downloadCsv(filtered, [
+      { header: "Driver ID", value: (d) => d.id },
+      { header: "Phone", value: (d) => d.phone },
+      { header: "Name", value: (d) => d.name ?? "" },
+      { header: "Vehicle", value: (d) => d.vehicleNumber ?? "" },
+      { header: "Type", value: (d) => d.vehicleType ?? "" },
+      { header: "Licence", value: (d) => d.licenseNumber ?? "" },
+      { header: "Status", value: (d) => d.status },
+      { header: "KYC", value: (d) => d.kycVerified ? "Verified" : "Pending" },
+      { header: "Rating", value: (d) => d.rating?.toFixed(1) ?? "" },
+      { header: "Last seen (IST)", value: (d) => d.lastSeenAt ? formatIST(d.lastSeenAt) : "" }
+    ], "jr-drivers");
+  };
+
   return (
     <>
       <div className="page-header">
         <div>
           <h1>Drivers</h1>
-          <p>{rows.length} total · {onlineCount} online · {onTripCount} on trip</p>
+          <p>{rows.length} in range · {onlineCount} online · {onTripCount} on trip</p>
         </div>
+        <button onClick={exportCsv} style={{ background: "transparent", border: "1px solid var(--border, #E2E8F0)", color: "var(--ink, #0F172A)", padding: "8px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>⬇ Download CSV</button>
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <DateRangePicker preset={preset} range={range} onChange={(p, r) => { setPreset(p); setRange(r); }} />
       </div>
 
       <div className="filter-bar">

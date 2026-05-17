@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { adminFetch } from "../../lib/adminFetch";
 import { formatTimeIST, formatTimeShortIST } from "../../lib/dates";
+import { TrendsCard } from "./TrendsCard";
 
 type Stats = {
   activeTrips: number;
@@ -195,6 +196,9 @@ export function LiveDashboard({
           </div>
         </div>
       </div>
+
+      {/* Analytics + trends — date-filtered, polled every 30s. */}
+      <TrendsCard apiBase={apiBase} />
     </>
   );
 }

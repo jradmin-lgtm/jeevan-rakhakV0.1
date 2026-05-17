@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { and, count, desc, eq, gte, sql as drizzleSql } from "drizzle-orm";
+import { and, count, desc, eq, gte, lte, sql as drizzleSql } from "drizzle-orm";
 import { bookingEvents, bookings, drivers, db, users, systemEvents } from "@jr/db";
 
 type Source = "all" | "real" | "demo";
@@ -15,6 +15,41 @@ function pickSource(req: any): Source {
   const s = String(req?.query?.source ?? "all").toLowerCase();
   if (s === "real" || s === "demo") return s;
   return "all";
+}
+
+/**
+ * Parse since/until query params into a [start, end] range. Accepts:
+ *   ?since=2026-05-10           → 2026-05-10T00:00:00Z
+ *   ?until=2026-05-17           → 2026-05-17T23:59:59.999Z (end-of-day)
+ *   ?since=2026-05-10T08:30:00  → exact timestamp
+ * Returns null bounds if the param is missing/invalid (caller treats as
+ * "no filter on that side"). Always allows the caller to opt out of either
+ * side independently.
+ */
+function pickDateRange(req: any): { since: Date | null; until: Date | null } {
+  const q = (req as any)?.query ?? {};
+  const parse = (s: string | undefined, endOfDay: boolean): Date | null => {
+    if (!s) return null;
+    let raw = String(s).trim();
+    if (!raw) return null;
+    // Bare YYYY-MM-DD → fill in time component.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      raw = endOfDay ? `${raw}T23:59:59.999Z` : `${raw}T00:00:00.000Z`;
+    }
+    const d = new Date(raw);
+    return isNaN(d.getTime()) ? null : d;
+  };
+  return {
+    since: parse(q.since, false),
+    until: parse(q.until, true)
+  };
+}
+
+function dateRangeClause(col: any, range: { since: Date | null; until: Date | null }) {
+  const parts: any[] = [];
+  if (range.since) parts.push(gte(col, range.since));
+  if (range.until) parts.push(lte(col, range.until));
+  return parts.length === 0 ? undefined : and(...parts);
 }
 
 export async function registerAdminRoutes(app: FastifyInstance) {
@@ -86,11 +121,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   app.get("/api/v1/admin/bookings", adminGuard, async (req, reply) => {
     const source = pickSource(req);
     const status = String((req as any)?.query?.status ?? "all").toUpperCase();
+    const range = pickDateRange(req);
     const filter = and(
       sourceClause(source, bookings.isDemo),
       status !== "ALL"
         ? drizzleSql`${bookings.status}::text = ${status}`
-        : undefined
+        : undefined,
+      dateRangeClause(bookings.createdAt, range)
     );
 
     const rows = await db
@@ -98,7 +135,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       .from(bookings)
       .where(filter)
       .orderBy(desc(bookings.createdAt))
-      .limit(200);
+      .limit(500);
     return reply.send({ source, status, bookings: rows });
   });
 
@@ -125,27 +162,35 @@ export async function registerAdminRoutes(app: FastifyInstance) {
 
   app.get("/api/v1/admin/drivers", adminGuard, async (req, reply) => {
     const source = pickSource(req);
-    const filter = sourceClause(source, drivers.isDemo);
+    const range = pickDateRange(req);
+    const filter = and(
+      sourceClause(source, drivers.isDemo),
+      dateRangeClause(drivers.createdAt, range)
+    );
 
     const rows = await db
       .select()
       .from(drivers)
       .where(filter)
       .orderBy(desc(drivers.lastSeenAt))
-      .limit(200);
+      .limit(500);
     return reply.send({ source, drivers: rows });
   });
 
   app.get("/api/v1/admin/users", adminGuard, async (req, reply) => {
     const source = pickSource(req);
-    const filter = sourceClause(source, users.isDemo);
+    const range = pickDateRange(req);
+    const filter = and(
+      sourceClause(source, users.isDemo),
+      dateRangeClause(users.createdAt, range)
+    );
 
     const rows = await db
       .select()
       .from(users)
       .where(filter)
       .orderBy(desc(users.createdAt))
-      .limit(200);
+      .limit(500);
     return reply.send({ source, users: rows });
   });
 
@@ -255,6 +300,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   app.get("/api/v1/admin/feedback", adminGuard, async (req, reply) => {
     const source = pickSource(req);
     const sideFilter = String((req as any)?.query?.side ?? "all").toLowerCase(); // all | user | driver
+    const range = pickDateRange(req);
     const conds: any[] = [sourceClause(source, bookings.isDemo)].filter(Boolean);
     if (sideFilter === "user") {
       conds.push(drizzleSql`${bookings.feedback} IS NOT NULL`);
@@ -263,13 +309,85 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     } else {
       conds.push(drizzleSql`(${bookings.feedback} IS NOT NULL OR ${bookings.feedbackByDriver} IS NOT NULL)`);
     }
+    const dr = dateRangeClause(bookings.completedAt, range);
+    if (dr) conds.push(dr);
     const rows = await db
       .select()
       .from(bookings)
       .where(and(...conds))
       .orderBy(desc(bookings.completedAt))
-      .limit(200);
+      .limit(500);
     return reply.send({ source, side: sideFilter, bookings: rows });
+  });
+
+  /**
+   * Analytics — per-day breakdown + rollups for the home Trends card.
+   * Default window: last 30 days. Caller may pass ?since= & ?until=.
+   * Returns:
+   *   bookingsPerDay: [{ day: 'YYYY-MM-DD', count: N, completed: M }]
+   *   stats: totals + rates
+   *   emergencyMix: [{ type, count }] — top categories
+   */
+  app.get("/api/v1/admin/analytics", adminGuard, async (req, reply) => {
+    const range = pickDateRange(req);
+    const since = range.since ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const until = range.until ?? new Date();
+
+    const dateClause = and(gte(bookings.createdAt, since), lte(bookings.createdAt, until));
+
+    // Per-day bookings + per-day completed.
+    const perDay = await db.execute<{ day: string; count: number; completed: number }>(drizzleSql`
+      SELECT
+        to_char(date_trunc('day', created_at AT TIME ZONE 'Asia/Kolkata'), 'YYYY-MM-DD') AS day,
+        COUNT(*)::int AS count,
+        SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END)::int AS completed
+      FROM bookings
+      WHERE created_at >= ${since} AND created_at <= ${until}
+      GROUP BY 1
+      ORDER BY 1 ASC
+    `);
+
+    // Headline numbers.
+    const [totalRow] = await db.select({ c: count() }).from(bookings).where(dateClause);
+    const [completedRow] = await db.select({ c: count() }).from(bookings).where(and(dateClause, eq(bookings.status, "COMPLETED")));
+    const [cancelledRow] = await db.select({ c: count() }).from(bookings).where(and(dateClause, eq(bookings.status, "CANCELLED")));
+    const [avgFareRow] = await db.select({
+      avg: drizzleSql<number>`COALESCE(AVG(${bookings.fareFinalInr}), 0)`
+    }).from(bookings).where(and(dateClause, eq(bookings.status, "COMPLETED")));
+    const [avgRatingRow] = await db.select({
+      avg: drizzleSql<number>`COALESCE(AVG(${bookings.rating}::float), 0)`
+    }).from(bookings).where(and(dateClause, drizzleSql`${bookings.rating} IS NOT NULL`));
+
+    // Emergency-type mix.
+    const mix = await db.execute<{ type: string; count: number }>(drizzleSql`
+      SELECT emergency_type::text AS type, COUNT(*)::int AS count
+      FROM bookings
+      WHERE created_at >= ${since} AND created_at <= ${until}
+      GROUP BY 1
+      ORDER BY 2 DESC
+    `);
+
+    const total = Number(totalRow?.c ?? 0);
+    const completed = Number(completedRow?.c ?? 0);
+    const cancelled = Number(cancelledRow?.c ?? 0);
+    const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
+    const cancellationRate = total > 0 ? Math.round((cancelled / total) * 100) : 0;
+
+    return reply.send({
+      since: since.toISOString(),
+      until: until.toISOString(),
+      bookingsPerDay: (perDay as any).rows ?? perDay ?? [],
+      emergencyMix: (mix as any).rows ?? mix ?? [],
+      stats: {
+        totalBookings: total,
+        completed,
+        cancelled,
+        completionRate,
+        cancellationRate,
+        avgFareInr: Math.round(Number(avgFareRow?.avg ?? 0)),
+        avgRating: Number((Number(avgRatingRow?.avg ?? 0)).toFixed(2))
+      }
+    });
   });
 
   // ─── Observability ─────────────────────────────────────────────────────────

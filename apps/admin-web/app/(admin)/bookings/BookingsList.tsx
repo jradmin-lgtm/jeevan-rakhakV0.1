@@ -4,6 +4,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { adminFetch } from "../../../lib/adminFetch";
 import { formatIST } from "../../../lib/dates";
+import { downloadCsv } from "../../../lib/csv";
+import { DateRangePicker, DateRange, Preset, presetToRange } from "../DateRange";
 
 type Booking = {
   id: string;
@@ -24,6 +26,8 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
   const [status, setStatus] = useState<string>("all");
   const [query, setQuery] = useState<string>("");
   const [rows, setRows] = useState<Booking[]>(initialBookings);
+  const [preset, setPreset] = useState<Preset>("30d");
+  const [range, setRange] = useState<DateRange>(presetToRange("30d"));
 
   useEffect(() => {
     let alive = true;
@@ -31,6 +35,8 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
       try {
         const params = new URLSearchParams();
         if (status !== "all") params.set("status", status);
+        if (range.since) params.set("since", range.since);
+        if (range.until) params.set("until", range.until);
         const qs = params.toString();
         const res = await adminFetch(`${apiBase}/api/v1/admin/bookings${qs ? "?" + qs : ""}`);
         const data = await res.json();
@@ -46,7 +52,7 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
       alive = false;
       clearInterval(id);
     };
-  }, [apiBase, status]);
+  }, [apiBase, status, range.since, range.until]);
 
   const filtered = useMemo(() => {
     if (!query) return rows;
@@ -59,13 +65,34 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
     );
   }, [rows, query]);
 
+  const exportCsv = () => {
+    downloadCsv(filtered, [
+      { header: "Booking ID", value: (b) => b.id },
+      { header: "Created (IST)", value: (b) => formatIST(b.createdAt) },
+      { header: "Emergency", value: (b) => prettyEmergency(b.emergencyType) },
+      { header: "Status", value: (b) => prettyStatus(b.status) },
+      { header: "Pickup", value: (b) => b.pickupAddress ?? "" },
+      { header: "Drop", value: (b) => b.dropAddress ?? "" },
+      { header: "Fare (₹)", value: (b) => b.fareFinalInr ?? b.fareEstimateInr ?? "" },
+      { header: "Rating", value: (b) => b.rating ?? "" }
+    ], "jr-bookings");
+  };
+
   return (
     <>
       <div className="page-header">
         <div>
           <h1>Bookings</h1>
-          <p>{rows.length} total</p>
+          <p>{rows.length} in range</p>
         </div>
+        <button onClick={exportCsv} style={csvBtnStyle}>⬇ Download CSV</button>
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <DateRangePicker
+          preset={preset}
+          range={range}
+          onChange={(p, r) => { setPreset(p); setRange(r); }}
+        />
       </div>
 
       <div className="filter-bar">
@@ -134,6 +161,17 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
     </>
   );
 }
+
+const csvBtnStyle: React.CSSProperties = {
+  background: "transparent",
+  border: "1px solid var(--border, #E2E8F0)",
+  color: "var(--ink, #0F172A)",
+  padding: "8px 14px",
+  borderRadius: 8,
+  fontSize: 13,
+  fontWeight: 600,
+  cursor: "pointer"
+};
 
 function prettyEmergency(t: string): string {
   switch (t) {

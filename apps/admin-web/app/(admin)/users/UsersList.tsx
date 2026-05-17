@@ -4,6 +4,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { adminFetch } from "../../../lib/adminFetch";
 import { formatIST } from "../../../lib/dates";
+import { downloadCsv } from "../../../lib/csv";
+import { DateRangePicker, DateRange, Preset, presetToRange } from "../DateRange";
 
 type User = {
   id: string;
@@ -20,12 +22,18 @@ type User = {
 export function UsersList({ initialUsers, apiBase }: { initialUsers: User[]; apiBase: string }) {
   const [query, setQuery] = useState<string>("");
   const [rows, setRows] = useState<User[]>(initialUsers);
+  const [preset, setPreset] = useState<Preset>("30d");
+  const [range, setRange] = useState<DateRange>(presetToRange("30d"));
 
   useEffect(() => {
     let alive = true;
     const fetchRows = async () => {
       try {
-        const res = await adminFetch(`${apiBase}/api/v1/admin/users`);
+        const params = new URLSearchParams();
+        if (range.since) params.set("since", range.since);
+        if (range.until) params.set("until", range.until);
+        const qs = params.toString();
+        const res = await adminFetch(`${apiBase}/api/v1/admin/users${qs ? "?" + qs : ""}`);
         const data = await res.json();
         if (!alive) return;
         setRows(data.users ?? []);
@@ -39,7 +47,7 @@ export function UsersList({ initialUsers, apiBase }: { initialUsers: User[]; api
       alive = false;
       clearInterval(id);
     };
-  }, [apiBase]);
+  }, [apiBase, range.since, range.until]);
 
   const filtered = useMemo(() => {
     if (!query) return rows;
@@ -53,13 +61,30 @@ export function UsersList({ initialUsers, apiBase }: { initialUsers: User[]; api
 
   const disabledCount = rows.filter((r) => r.disabled).length;
 
+  const exportCsv = () => {
+    downloadCsv(filtered, [
+      { header: "User ID", value: (u) => u.id },
+      { header: "Phone", value: (u) => u.phone },
+      { header: "Name", value: (u) => u.name ?? "" },
+      { header: "Blood group", value: (u) => u.bloodGroup ?? "" },
+      { header: "Allergies", value: (u) => u.allergies ?? "" },
+      { header: "Emergency contact", value: (u) => u.emergencyContact ?? "" },
+      { header: "Joined (IST)", value: (u) => formatIST(u.createdAt) },
+      { header: "Disabled", value: (u) => u.disabled ? "Yes" : "No" }
+    ], "jr-users");
+  };
+
   return (
     <>
       <div className="page-header">
         <div>
           <h1>Users</h1>
-          <p>{rows.length} total{disabledCount > 0 ? ` · ${disabledCount} disabled` : ""}</p>
+          <p>{rows.length} in range{disabledCount > 0 ? ` · ${disabledCount} disabled` : ""}</p>
         </div>
+        <button onClick={exportCsv} style={{ background: "transparent", border: "1px solid var(--border, #E2E8F0)", color: "var(--ink, #0F172A)", padding: "8px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>⬇ Download CSV</button>
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <DateRangePicker preset={preset} range={range} onChange={(p, r) => { setPreset(p); setRange(r); }} />
       </div>
 
       <div className="filter-bar">

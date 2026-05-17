@@ -4,6 +4,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { adminFetch } from "../../../lib/adminFetch";
 import { formatIST } from "../../../lib/dates";
+import { downloadCsv } from "../../../lib/csv";
+import { DateRangePicker, DateRange, Preset, presetToRange } from "../DateRange";
 
 type Booking = {
   id: string;
@@ -27,12 +29,16 @@ export function FeedbackList({ initialBookings, apiBase }: { initialBookings: Bo
   const [side, setSide] = useState<Side>("all");
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<Booking[]>(initialBookings);
+  const [preset, setPreset] = useState<Preset>("30d");
+  const [range, setRange] = useState<DateRange>(presetToRange("30d"));
 
   useEffect(() => {
     let alive = true;
     const tick = async () => {
       try {
         const params = new URLSearchParams({ side });
+        if (range.since) params.set("since", range.since);
+        if (range.until) params.set("until", range.until);
         const res = await adminFetch(`${apiBase}/api/v1/admin/feedback?${params.toString()}`);
         const data = await res.json();
         if (!alive) return;
@@ -44,7 +50,7 @@ export function FeedbackList({ initialBookings, apiBase }: { initialBookings: Bo
     void tick();
     const id = setInterval(tick, 10000);
     return () => { alive = false; clearInterval(id); };
-  }, [apiBase, side]);
+  }, [apiBase, side, range.since, range.until]);
 
   const filtered = useMemo(() => {
     if (!query) return rows;
@@ -59,13 +65,30 @@ export function FeedbackList({ initialBookings, apiBase }: { initialBookings: Bo
   const fromUsers = rows.filter((r) => r.feedback).length;
   const fromDrivers = rows.filter((r) => r.feedbackByDriver).length;
 
+  const exportCsv = () => {
+    downloadCsv(filtered, [
+      { header: "Booking ID", value: (b) => b.id },
+      { header: "Emergency", value: (b) => prettyEmergency(b.emergencyType) },
+      { header: "Completed (IST)", value: (b) => b.completedAt ? formatIST(b.completedAt) : "" },
+      { header: "Pickup", value: (b) => b.pickupAddress ?? "" },
+      { header: "Patient rating", value: (b) => b.rating ?? "" },
+      { header: "Patient feedback", value: (b) => b.feedback ?? "" },
+      { header: "Driver rating", value: (b) => b.ratingByDriver ?? "" },
+      { header: "Driver feedback", value: (b) => b.feedbackByDriver ?? "" }
+    ], "jr-feedback");
+  };
+
   return (
     <>
       <div className="page-header">
         <div>
           <h1>Feedback</h1>
-          <p>{rows.length} bookings with feedback · {fromUsers} from patients · {fromDrivers} from drivers</p>
+          <p>{rows.length} in range · {fromUsers} from patients · {fromDrivers} from drivers</p>
         </div>
+        <button onClick={exportCsv} style={{ background: "transparent", border: "1px solid var(--border, #E2E8F0)", color: "var(--ink, #0F172A)", padding: "8px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>⬇ Download CSV</button>
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <DateRangePicker preset={preset} range={range} onChange={(p, r) => { setPreset(p); setRange(r); }} />
       </div>
 
       <div className="filter-bar">
