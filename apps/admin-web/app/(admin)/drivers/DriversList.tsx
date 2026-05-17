@@ -10,6 +10,9 @@ import { DateRangePicker, DateRange, Preset, presetToRange } from "../DateRange"
 type Driver = {
   id: string;
   phone: string;
+  email?: string | null;
+  authProvider?: string | null;
+  pictureUrl?: string | null;
   name?: string | null;
   licenseNumber?: string | null;
   vehicleNumber?: string | null;
@@ -62,7 +65,8 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
         (d) =>
           (d.name ?? "").toLowerCase().includes(q) ||
           d.phone.includes(q) ||
-          (d.vehicleNumber ?? "").toLowerCase().includes(q)
+          (d.vehicleNumber ?? "").toLowerCase().includes(q) ||
+          (d.email ?? "").toLowerCase().includes(q)
       );
     }
     return out;
@@ -75,6 +79,8 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
     downloadCsv(filtered, [
       { header: "Driver ID", value: (d) => d.id },
       { header: "Phone", value: (d) => d.phone },
+      { header: "Email", value: (d) => d.email ?? "" },
+      { header: "Auth provider", value: (d) => d.authProvider ?? "" },
       { header: "Name", value: (d) => d.name ?? "" },
       { header: "Vehicle", value: (d) => d.vehicleNumber ?? "" },
       { header: "Type", value: (d) => d.vehicleType ?? "" },
@@ -108,7 +114,7 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
         </select>
         <input
           type="text"
-          placeholder="Search name, phone, vehicle…"
+          placeholder="Search name, phone, vehicle, email…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           style={{ flex: 1, minWidth: 240 }}
@@ -122,7 +128,7 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Phone</th>
+                <th>Email · Phone</th>
                 <th>Vehicle</th>
                 <th>KYC</th>
                 <th>Rating</th>
@@ -142,14 +148,24 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
                 filtered.map((d) => (
                   <tr key={d.id}>
                     <td>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         {!d.disabled ? <span className={`dot ${d.status === "OFFLINE" ? "down" : "up"}`} /> : null}
+                        {d.pictureUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={d.pictureUrl} alt="" width={24} height={24} style={{ borderRadius: 12, border: "1px solid var(--border)" }} />
+                        ) : null}
                         <strong style={d.disabled ? { color: "var(--muted)", textDecoration: "line-through" } : undefined}>
                           {d.name ?? "Unnamed"}
                         </strong>
+                        {d.authProvider === "google" ? (
+                          <span title="Signed in with Google" style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: "rgba(66, 133, 244, 0.10)", color: "#1A73E8", fontWeight: 700, letterSpacing: 0.3 }}>G</span>
+                        ) : null}
                       </div>
                     </td>
-                    <td className="mono muted">{d.phone}</td>
+                    <td>
+                      {d.email ? <div style={{ fontSize: 13 }}>{d.email}</div> : null}
+                      <div className="mono muted" style={{ fontSize: 12 }}>{d.phone}</div>
+                    </td>
                     <td>
                       <div>{d.vehicleNumber ?? "—"}</div>
                       <div className="muted" style={{ fontSize: 11 }}>{d.vehicleType ?? "BLS"}</div>

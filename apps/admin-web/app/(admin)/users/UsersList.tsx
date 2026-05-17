@@ -11,6 +11,9 @@ type User = {
   id: string;
   phone: string;
   name?: string | null;
+  email?: string | null;
+  pictureUrl?: string | null;
+  authProvider?: string | null;
   bloodGroup?: string | null;
   allergies?: string | null;
   emergencyContact?: string | null;
@@ -55,7 +58,8 @@ export function UsersList({ initialUsers, apiBase }: { initialUsers: User[]; api
     return rows.filter(
       (u) =>
         (u.name ?? "").toLowerCase().includes(q) ||
-        u.phone.includes(q)
+        u.phone.includes(q) ||
+        (u.email ?? "").toLowerCase().includes(q)
     );
   }, [rows, query]);
 
@@ -65,6 +69,8 @@ export function UsersList({ initialUsers, apiBase }: { initialUsers: User[]; api
     downloadCsv(filtered, [
       { header: "User ID", value: (u) => u.id },
       { header: "Phone", value: (u) => u.phone },
+      { header: "Email", value: (u) => u.email ?? "" },
+      { header: "Auth provider", value: (u) => u.authProvider ?? "" },
       { header: "Name", value: (u) => u.name ?? "" },
       { header: "Blood group", value: (u) => u.bloodGroup ?? "" },
       { header: "Allergies", value: (u) => u.allergies ?? "" },
@@ -90,7 +96,7 @@ export function UsersList({ initialUsers, apiBase }: { initialUsers: User[]; api
       <div className="filter-bar">
         <input
           type="text"
-          placeholder="Search name or phone…"
+          placeholder="Search name, phone, or email…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           style={{ flex: 1, minWidth: 240 }}
@@ -104,7 +110,7 @@ export function UsersList({ initialUsers, apiBase }: { initialUsers: User[]; api
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Phone</th>
+                <th>Email · Phone</th>
                 <th>Blood group</th>
                 <th>Joined</th>
                 <th>State</th>
@@ -121,8 +127,24 @@ export function UsersList({ initialUsers, apiBase }: { initialUsers: User[]; api
               ) : (
                 filtered.map((u) => (
                   <tr key={u.id}>
-                    <td><strong>{u.name ?? "Unnamed"}</strong></td>
-                    <td className="mono muted">{u.phone}</td>
+                    <td>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        {u.pictureUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={u.pictureUrl} alt="" width={24} height={24} style={{ borderRadius: 12, border: "1px solid var(--border)" }} />
+                        ) : null}
+                        <strong>{u.name ?? "Unnamed"}</strong>
+                        {u.authProvider === "google" ? (
+                          <span title="Signed in with Google" style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: "rgba(66, 133, 244, 0.10)", color: "#1A73E8", fontWeight: 700, letterSpacing: 0.3 }}>G</span>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td>
+                      {u.email ? (
+                        <div style={{ fontSize: 13 }}>{u.email}</div>
+                      ) : null}
+                      <div className="mono muted" style={{ fontSize: 12 }}>{u.phone}</div>
+                    </td>
                     <td>{u.bloodGroup ?? <span className="muted">—</span>}</td>
                     <td className="mono muted">{formatIST(u.createdAt)}</td>
                     <td>
