@@ -9,6 +9,7 @@ import { DateRangePicker, DateRange, Preset, presetToRange } from "../DateRange"
 
 type Booking = {
   id: string;
+  displayId?: string | null;
   emergencyType: string;
   status: string;
   pickupAddress?: string | null;
@@ -67,7 +68,8 @@ export function FeedbackList({ initialBookings, apiBase }: { initialBookings: Bo
 
   const exportCsv = () => {
     downloadCsv(filtered, [
-      { header: "Booking ID", value: (b) => b.id },
+      { header: "Booking #", value: (b) => b.displayId ?? "" },
+      { header: "Booking UUID", value: (b) => b.id },
       { header: "Emergency", value: (b) => prettyEmergency(b.emergencyType) },
       { header: "Completed (IST)", value: (b) => b.completedAt ? formatIST(b.completedAt) : "" },
       { header: "Pickup", value: (b) => b.pickupAddress ?? "" },
@@ -118,7 +120,7 @@ export function FeedbackList({ initialBookings, apiBase }: { initialBookings: Bo
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                 <div>
                   <Link href={`/bookings/${b.id}`} style={{ color: "var(--accent)", fontWeight: 600, fontSize: 14 }}>
-                    {b.id.slice(0, 8)}… · {prettyEmergency(b.emergencyType)}
+                    #{b.displayId ?? b.id.slice(0, 8) + "…"} · {prettyEmergency(b.emergencyType)}
                   </Link>
                   <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
                     {b.pickupAddress ?? "—"} · completed {b.completedAt ? formatIST(b.completedAt) : "—"}

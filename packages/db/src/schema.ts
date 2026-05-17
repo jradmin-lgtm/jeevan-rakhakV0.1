@@ -120,6 +120,11 @@ export const bookings = pgTable(
   "bookings",
   {
     id: uuid("id").defaultRandom().primaryKey(),
+    // Short, human-readable booking number for ops + customer support.
+    // Sequential from 100000 via the `jr_booking_display_seq` Postgres
+    // sequence (defined in api-server bootstrap). Mobile apps still use
+    // the UUID `id` for routing / API calls — display_id is admin-facing.
+    displayId: text("display_id").unique(),
     userId: uuid("user_id")
       .references(() => users.id, { onDelete: "set null" })
       .notNull(),
@@ -145,6 +150,13 @@ export const bookings = pgTable(
     // Payable = fareFinalInr − discountInr (capped at 0). Recomputed at
     // /complete. Stored so admin doesn't have to re-derive on every read.
     payableInr: integer("payable_inr"),
+    // Admin-only fare override — used for off-app billing (e.g. when ops
+    // charges a hospital differently from the patient-facing app fare).
+    // Mobile apps NEVER read this; user-app + driver-app stay on
+    // fareEstimate / fareFinal / payable for their UI. Analytics GMV +
+    // Revenue use COALESCE(admin_fare_override_inr, fare_final_inr).
+    adminFareOverrideInr: integer("admin_fare_override_inr"),
+    adminFareOverrideNote: text("admin_fare_override_note"),
     // Patient details collected by the user app after booking confirmation.
     // patientName / patientAge / patientGender are visible to the driver in
     // the trip card; patientCondition / patientNotes are admin-only (driver

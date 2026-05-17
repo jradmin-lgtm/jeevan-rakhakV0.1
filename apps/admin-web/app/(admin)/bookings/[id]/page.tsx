@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { adminFetch } from "../../../../lib/adminFetch";
 import { BookingDetailLive } from "./BookingDetailLive";
+import { DeleteBookingButton } from "../DeleteBookingButton";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
@@ -25,11 +26,13 @@ export default async function BookingDetail({ params }: { params: Promise<{ id: 
     <>
       <div className="page-header">
         <div>
-          <h1>Booking {data.booking.id.slice(0, 8)}…</h1>
+          <h1>Booking #{data.booking.displayId ?? data.booking.id.slice(0, 8) + "…"}</h1>
           <p>
             <Link href="/bookings" style={{ color: "var(--accent)" }}>← Back to bookings</Link>
+            <span className="muted mono" style={{ marginLeft: 12, fontSize: 11 }}>{data.booking.id}</span>
           </p>
         </div>
+        <DeleteBookingButton bookingId={id} apiBase={API_BASE} />
       </div>
       <BookingDetailLive bookingId={id} initialData={data} apiBase={API_BASE} />
     </>

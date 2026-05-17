@@ -6,9 +6,11 @@ import { adminFetch } from "../../../lib/adminFetch";
 import { formatIST } from "../../../lib/dates";
 import { downloadCsv } from "../../../lib/csv";
 import { DateRangePicker, DateRange, Preset, presetToRange } from "../DateRange";
+import { DeleteBookingButton } from "./DeleteBookingButton";
 
 type Booking = {
   id: string;
+  displayId?: string | null;
   emergencyType: string;
   status: string;
   pickupAddress?: string | null;
@@ -67,7 +69,8 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
 
   const exportCsv = () => {
     downloadCsv(filtered, [
-      { header: "Booking ID", value: (b) => b.id },
+      { header: "Booking #", value: (b) => b.displayId ?? "" },
+      { header: "Booking UUID", value: (b) => b.id },
       { header: "Created (IST)", value: (b) => formatIST(b.createdAt) },
       { header: "Emergency", value: (b) => prettyEmergency(b.emergencyType) },
       { header: "Status", value: (b) => prettyStatus(b.status) },
@@ -138,7 +141,7 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
               ) : (
                 filtered.map((b) => (
                   <tr key={b.id}>
-                    <td className="mono">{b.id.slice(0, 8)}…</td>
+                    <td className="mono"><strong>#{b.displayId ?? b.id.slice(0, 8) + "…"}</strong></td>
                     <td className="mono muted">{formatIST(b.createdAt)}</td>
                     <td>{prettyEmergency(b.emergencyType)}</td>
                     <td>
@@ -148,8 +151,14 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
                     <td className="mono">₹{b.fareFinalInr ?? b.fareEstimateInr ?? "—"}</td>
                     <td>{b.rating ? "★".repeat(b.rating) : <span className="muted">—</span>}</td>
                     <td><span className={`pill ${b.status.toLowerCase()}`}>{prettyStatus(b.status)}</span></td>
-                    <td>
-                      <Link href={`/bookings/${b.id}`} style={{ color: "var(--accent)", fontSize: 12 }}>Open →</Link>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <Link href={`/bookings/${b.id}`} style={{ color: "var(--accent)", fontSize: 12, marginRight: 8 }}>Open →</Link>
+                      <DeleteBookingButton
+                        bookingId={b.id}
+                        apiBase={apiBase}
+                        short
+                        onDeleted={() => setRows((curr) => curr.filter((r) => r.id !== b.id))}
+                      />
                     </td>
                   </tr>
                 ))

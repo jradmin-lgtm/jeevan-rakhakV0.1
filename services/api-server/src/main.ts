@@ -139,7 +139,21 @@ async function bootstrap() {
     await pgClient`ALTER TABLE drivers  ADD COLUMN IF NOT EXISTS rating_count integer          NOT NULL DEFAULT 0`;
     await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS rating_by_driver   integer`;
     await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS feedback_by_driver text`;
-    app.log.info("[migrate] schema v1.0.11.3 ready (two-way ratings + feedback)");
+    // Admin fare override — admin-only column, mobile apps never read it.
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS admin_fare_override_inr  integer`;
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS admin_fare_override_note text`;
+    // v1.0.11.5: human-readable booking number (6-digit sequential).
+    // Sequence drives the default; column gets unique constraint so two
+    // rows can never share a number. Existing rows (none — DB was wiped)
+    // would need a backfill before adding NOT NULL.
+    await pgClient`CREATE SEQUENCE IF NOT EXISTS jr_booking_display_seq START 100000 MINVALUE 100000`;
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS display_id text`;
+    await pgClient`ALTER TABLE bookings ALTER COLUMN display_id SET DEFAULT nextval('jr_booking_display_seq')::text`;
+    // Backfill any rows that pre-date the column. After DB wipe this is
+    // a no-op; the UPDATE is here for resilience across re-deploys.
+    await pgClient`UPDATE bookings SET display_id = nextval('jr_booking_display_seq')::text WHERE display_id IS NULL`;
+    await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS bookings_display_id_uniq ON bookings(display_id)`;
+    app.log.info("[migrate] schema v1.0.11.5 ready (two-way ratings + feedback + admin fare override + display_id)");
   } catch (err) {
     // Thumb rule: migrations FATAL-EXIT on failure. Silent catch+warn here
     // previously let the service start with a broken schema (system_events

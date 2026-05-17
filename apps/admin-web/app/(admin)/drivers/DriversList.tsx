@@ -143,9 +143,10 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
                   <tr key={d.id}>
                     <td>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span className={`dot ${d.status === "OFFLINE" ? "down" : "up"}`} />
-                        <strong>{d.name ?? "Unnamed"}</strong>
-                        {d.disabled ? <span className="pill cancelled" style={{ marginLeft: 4 }}>Disabled</span> : null}
+                        {!d.disabled ? <span className={`dot ${d.status === "OFFLINE" ? "down" : "up"}`} /> : null}
+                        <strong style={d.disabled ? { color: "var(--muted)", textDecoration: "line-through" } : undefined}>
+                          {d.name ?? "Unnamed"}
+                        </strong>
                       </div>
                     </td>
                     <td className="mono muted">{d.phone}</td>
@@ -161,9 +162,20 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
                     <td>⭐ {d.rating?.toFixed(1) ?? "5.0"}</td>
                     <td className="mono muted">{d.lastSeenAt ? formatIST(d.lastSeenAt) : "—"}</td>
                     <td>
-                      <span className={`pill ${d.status.toLowerCase() === "on_trip" ? "accepted" : d.status === "AVAILABLE" ? "completed" : "cancelled"}`}>
-                        {d.status === "ON_TRIP" ? "On trip" : d.status === "AVAILABLE" ? "Available" : "Offline"}
-                      </span>
+                      {d.disabled ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                          <span style={{ display: "inline-block", padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700, letterSpacing: 0.5, background: "#DC2626", color: "#fff", textTransform: "uppercase" }}>
+                            Disabled
+                          </span>
+                          <span style={{ fontSize: 10, color: "var(--muted)" }}>
+                            {d.status === "ON_TRIP" ? "was on trip" : d.status === "AVAILABLE" ? "was online" : "was offline"}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className={`pill ${d.status.toLowerCase() === "on_trip" ? "accepted" : d.status === "AVAILABLE" ? "completed" : "cancelled"}`}>
+                          {d.status === "ON_TRIP" ? "On trip" : d.status === "AVAILABLE" ? "Available" : "Offline"}
+                        </span>
+                      )}
                     </td>
                     <td>
                       <Link href={`/drivers/${d.id}`} style={{ color: "var(--accent)", fontSize: 12 }}>Open →</Link>

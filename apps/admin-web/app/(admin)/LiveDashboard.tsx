@@ -34,6 +34,7 @@ type Driver = {
   rating: number;
   lastSeenAt?: string | null;
   isDemo?: boolean;
+  disabled?: boolean;
 };
 
 const REFRESH_MS = 5000;
@@ -179,17 +180,25 @@ export function LiveDashboard({
                 >
                   <div>
                     <div className="flex center gap-sm">
-                      <span className={`dot ${d.status === "OFFLINE" ? "down" : "up"}`} />
-                      <strong>{d.name ?? "Driver"}</strong>
+                      {!d.disabled ? <span className={`dot ${d.status === "OFFLINE" ? "down" : "up"}`} /> : null}
+                      <strong style={d.disabled ? { color: "var(--muted)", textDecoration: "line-through" } : undefined}>
+                        {d.name ?? "Driver"}
+                      </strong>
                       <span className="muted" style={{ fontSize: 12 }}>{d.phone}</span>
                     </div>
                     <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
                       {d.vehicleNumber ?? "Vehicle pending"} · ⭐ {d.rating?.toFixed(1) ?? "5.0"}
                     </div>
                   </div>
-                  <span className={`pill ${d.status.toLowerCase() === "on_trip" ? "accepted" : d.status === "AVAILABLE" ? "completed" : "cancelled"}`}>
-                    {d.status === "ON_TRIP" ? "On trip" : d.status === "AVAILABLE" ? "Available" : "Offline"}
-                  </span>
+                  {d.disabled ? (
+                    <span style={{ display: "inline-block", padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700, letterSpacing: 0.5, background: "#DC2626", color: "#fff", textTransform: "uppercase" }}>
+                      Disabled
+                    </span>
+                  ) : (
+                    <span className={`pill ${d.status.toLowerCase() === "on_trip" ? "accepted" : d.status === "AVAILABLE" ? "completed" : "cancelled"}`}>
+                      {d.status === "ON_TRIP" ? "On trip" : d.status === "AVAILABLE" ? "Available" : "Offline"}
+                    </span>
+                  )}
                 </div>
               ))
             )}

@@ -31,12 +31,23 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
           <h1>{driver.name ?? "Unnamed driver"}</h1>
           <p>
             <Link href="/drivers" style={{ color: "var(--accent)" }}>← Back to drivers</Link>
-            {driver.disabled
-              ? <span className="pill cancelled" style={{ marginLeft: 8 }}>Disabled</span>
-              : <span className="pill completed" style={{ marginLeft: 8 }}>Active</span>}
-            <span className={`pill ${driver.status.toLowerCase() === "on_trip" ? "accepted" : driver.status === "AVAILABLE" ? "completed" : "cancelled"}`} style={{ marginLeft: 8 }}>
-              {driver.status === "ON_TRIP" ? "On trip" : driver.status === "AVAILABLE" ? "Available" : "Offline"}
-            </span>
+            {driver.disabled ? (
+              <>
+                <span style={{ display: "inline-block", padding: "4px 12px", borderRadius: 999, fontSize: 11, fontWeight: 700, letterSpacing: 0.6, background: "#DC2626", color: "#fff", textTransform: "uppercase", marginLeft: 8 }}>
+                  Disabled
+                </span>
+                <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>
+                  (was {driver.status === "ON_TRIP" ? "on trip" : driver.status === "AVAILABLE" ? "available" : "offline"})
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="pill completed" style={{ marginLeft: 8 }}>Active</span>
+                <span className={`pill ${driver.status.toLowerCase() === "on_trip" ? "accepted" : driver.status === "AVAILABLE" ? "completed" : "cancelled"}`} style={{ marginLeft: 8 }}>
+                  {driver.status === "ON_TRIP" ? "On trip" : driver.status === "AVAILABLE" ? "Available" : "Offline"}
+                </span>
+              </>
+            )}
           </p>
         </div>
         <DisableToggle

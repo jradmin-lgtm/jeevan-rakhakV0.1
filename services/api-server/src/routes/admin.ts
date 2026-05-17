@@ -349,7 +349,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         to_char(date_trunc('day', created_at AT TIME ZONE 'Asia/Kolkata'), 'YYYY-MM-DD') AS day,
         COUNT(*)::int AS count,
         SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END)::int AS completed,
-        COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN fare_final_inr END), 0)::int AS gmv,
+        COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN COALESCE(admin_fare_override_inr, fare_final_inr) END), 0)::int AS gmv,
         COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN payable_inr END), 0)::int AS revenue
       FROM bookings
       WHERE created_at >= ${sinceIso}::timestamptz AND created_at <= ${untilIso}::timestamptz
@@ -376,10 +376,11 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     // ────────────────────────────────────────────────────────────────
     const moneyResult: any = await db.execute(drizzleSql`
       SELECT
-        COALESCE(SUM(fare_final_inr), 0)::int AS gmv,
+        COALESCE(SUM(COALESCE(admin_fare_override_inr, fare_final_inr)), 0)::int AS gmv,
         COALESCE(SUM(payable_inr), 0)::int     AS revenue,
         COALESCE(SUM(discount_inr), 0)::int    AS discount_given,
-        COUNT(*) FILTER (WHERE coupon_code IS NOT NULL)::int AS coupon_bookings
+        COUNT(*) FILTER (WHERE coupon_code IS NOT NULL)::int AS coupon_bookings,
+        COUNT(*) FILTER (WHERE admin_fare_override_inr IS NOT NULL)::int AS overridden_bookings
       FROM bookings
       WHERE status = 'COMPLETED'
         AND created_at >= ${sinceIso}::timestamptz
@@ -395,6 +396,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const revenue = Number(moneyRow.revenue ?? 0);
     const discountGiven = Number(moneyRow.discount_given ?? 0);
     const couponBookings = Number(moneyRow.coupon_bookings ?? 0);
+    const overriddenBookings = Number(moneyRow.overridden_bookings ?? 0);
     // Profit estimate. JR doesn't have a real driver-payout model yet —
     // for the pilot we assume a 20% platform margin on revenue. Show as
     // an *estimate*; the team can override when a real payout schedule
@@ -443,17 +445,47 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const liveUsers = Number((Array.isArray(liveUsersResult) ? liveUsersResult : liveUsersResult.rows ?? [])[0]?.c ?? 0);
 
     // ────────────────────────────────────────────────────────────────
-    // Hour-of-day distribution (Asia/Kolkata)
+    // Hour-of-day distribution (Asia/Kolkata) — split by side so the
+    // dashboard can render a 2-line trend (user app booked / driver
+    // accepted at hour H).
     // ────────────────────────────────────────────────────────────────
     const hourly: any = await db.execute(drizzleSql`
+      WITH all_hours AS (SELECT generate_series(0,23) AS hour),
+      user_hourly AS (
+        SELECT EXTRACT(HOUR FROM created_at AT TIME ZONE 'Asia/Kolkata')::int AS hour,
+               COUNT(DISTINCT user_id)::int AS user_app
+        FROM bookings
+        WHERE created_at >= ${sinceIso}::timestamptz
+          AND created_at <= ${untilIso}::timestamptz
+        GROUP BY 1
+      ),
+      driver_hourly AS (
+        SELECT EXTRACT(HOUR FROM accepted_at AT TIME ZONE 'Asia/Kolkata')::int AS hour,
+               COUNT(DISTINCT driver_id)::int AS driver_app
+        FROM bookings
+        WHERE driver_id IS NOT NULL AND accepted_at IS NOT NULL
+          AND accepted_at >= ${sinceIso}::timestamptz
+          AND accepted_at <= ${untilIso}::timestamptz
+        GROUP BY 1
+      ),
+      total_hourly AS (
+        SELECT EXTRACT(HOUR FROM created_at AT TIME ZONE 'Asia/Kolkata')::int AS hour,
+               COUNT(*)::int AS count
+        FROM bookings
+        WHERE created_at >= ${sinceIso}::timestamptz
+          AND created_at <= ${untilIso}::timestamptz
+        GROUP BY 1
+      )
       SELECT
-        EXTRACT(HOUR FROM created_at AT TIME ZONE 'Asia/Kolkata')::int AS hour,
-        COUNT(*)::int AS count
-      FROM bookings
-      WHERE created_at >= ${sinceIso}::timestamptz
-        AND created_at <= ${untilIso}::timestamptz
-      GROUP BY 1
-      ORDER BY 1
+        h.hour,
+        COALESCE(t.count, 0) AS count,
+        COALESCE(u.user_app, 0) AS user_app,
+        COALESCE(d.driver_app, 0) AS driver_app
+      FROM all_hours h
+      LEFT JOIN total_hourly t USING (hour)
+      LEFT JOIN user_hourly u USING (hour)
+      LEFT JOIN driver_hourly d USING (hour)
+      ORDER BY h.hour
     `);
 
     // ────────────────────────────────────────────────────────────────
@@ -608,6 +640,11 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         revenueInr: revenue,
         discountGivenInr: discountGiven,
         couponBookings,
+        overriddenBookings,
+        // Per-completed-ride averages (cancelled rides shouldn't dilute these).
+        avgGmvPerCompletedInr: completed > 0 ? Math.round(gmv / completed) : 0,
+        avgRevenuePerCompletedInr: completed > 0 ? Math.round(revenue / completed) : 0,
+        avgDiscountPerCompletedInr: completed > 0 ? Math.round(discountGiven / completed) : 0,
         profitEstimateInr: profitEstimate,
         profitMarginPct: PROFIT_MARGIN_PCT,
         // counts
@@ -695,6 +732,68 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       .orderBy(desc(systemEvents.ts))
       .limit(limit);
     return reply.send({ events: rows, since: since.toISOString(), limit });
+  });
+
+  // Admin fare override — ops can record what was actually billed
+  // (e.g. to a hospital, off-platform). Optional note for audit trail.
+  // Mobile apps NEVER receive this field; they keep showing the
+  // user-facing fareEstimate / fareFinal / payable per their own logic.
+  const adminFareSchema = z.object({
+    fareOverrideInr: z.number().int().min(0).max(1_000_000).nullable().optional(),
+    fareOverrideNote: z.string().max(500).nullable().optional()
+  });
+  app.patch("/api/v1/admin/bookings/:id", adminGuard, async (req, reply) => {
+    const id = (req.params as any).id as string;
+    const parsed = adminFareSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+    }
+    const patch: any = {};
+    if (parsed.data.fareOverrideInr !== undefined) patch.adminFareOverrideInr = parsed.data.fareOverrideInr;
+    if (parsed.data.fareOverrideNote !== undefined) patch.adminFareOverrideNote = parsed.data.fareOverrideNote;
+    if (Object.keys(patch).length === 0) {
+      return reply.code(400).send({ error: "no_fields" });
+    }
+    const [updated] = await db
+      .update(bookings)
+      .set(patch)
+      .where(eq(bookings.id, id))
+      .returning();
+    if (!updated) return reply.code(404).send({ error: "not_found" });
+    return reply.send({ booking: updated });
+  });
+
+  /**
+   * Destructive: delete a single booking + its events + its driver locations.
+   * Used by ops to clean test bookings out of the analytics dataset.
+   *
+   * Auth: admin key (proxied through Vercel session) AND a separate
+   * password sent in the body (JR_BOOKING_DELETE_PASSWORD env var on
+   * Render). The double gate exists so an attacker who somehow gets a
+   * valid admin session still can't wipe individual rides — and the
+   * password is distinct from the dashboard login so it doesn't get
+   * stored in the browser session.
+   */
+  app.post("/api/v1/admin/bookings/:id/delete", adminGuard, async (req, reply) => {
+    const id = (req.params as any).id as string;
+    const body = (req as any).body ?? {};
+    const expected = process.env.JR_BOOKING_DELETE_PASSWORD ?? "dev-delete-password-change-in-prod";
+    if (body.password !== expected) {
+      return reply.code(401).send({ error: "delete_password_required" });
+    }
+    // CASCADE on the FK means booking_events go with the row; driver_locations
+    // FK is ON DELETE SET NULL so they stay but lose the back-pointer (fine —
+    // they're per-driver-per-second telemetry, no value to keep linked).
+    try {
+      const [removed] = await db
+        .delete(bookings)
+        .where(eq(bookings.id, id))
+        .returning({ id: bookings.id, status: bookings.status });
+      if (!removed) return reply.code(404).send({ error: "not_found" });
+      return reply.send({ deleted: true, id: removed.id, lastStatus: removed.status });
+    } catch (err: any) {
+      return reply.code(500).send({ error: "delete_failed", message: String(err?.message ?? err) });
+    }
   });
 
   app.post("/api/v1/admin/events/cleanup", adminGuard, async (_req, reply) => {

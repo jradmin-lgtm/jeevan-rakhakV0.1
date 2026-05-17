@@ -14,6 +14,7 @@ type BookingEvent = {
 
 type Booking = {
   id: string;
+  displayId?: string | null;
   status: string;
   emergencyType: string;
   pickupLat: number;
@@ -23,6 +24,8 @@ type Booking = {
   rideOtpCode?: string | null;
   fareEstimateInr?: number | null;
   fareFinalInr?: number | null;
+  adminFareOverrideInr?: number | null;
+  adminFareOverrideNote?: string | null;
   couponCode?: string | null;
   discountInr?: number | null;
   payableInr?: number | null;
@@ -153,7 +156,7 @@ export function BookingDetailLive({
           />
           {discount > 0 ? <Field label="Discount" value={<span style={{ color: "var(--success)" }}>− ₹{discount}</span>} /> : null}
           <Field
-            label="Final"
+            label="App final"
             value={booking.fareFinalInr ? `₹${booking.fareFinalInr}` : <span style={{ color: "var(--muted)" }}>Not closed yet</span>}
           />
           <div style={{
@@ -164,11 +167,20 @@ export function BookingDetailLive({
             borderTop: "1px solid var(--border)",
             marginTop: 6
           }}>
-            <span style={{ fontSize: 13, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4 }}>Payable</span>
+            <span style={{ fontSize: 13, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4 }}>Payable in app</span>
             <span style={{ fontSize: 18, fontWeight: 700, color: payable === 0 ? "var(--success)" : "var(--ink)" }}>
               ₹{payable}
             </span>
           </div>
+          {/* Admin fare override — for off-app billing (e.g. hospital invoices).
+            * Mobile apps never see this. Analytics GMV uses this when set. */}
+          <FareOverride
+            bookingId={booking.id}
+            apiBase={apiBase}
+            initialAmount={booking.adminFareOverrideInr ?? null}
+            initialNote={booking.adminFareOverrideNote ?? ""}
+            onSaved={(b) => setData((curr) => ({ ...curr, booking: { ...curr.booking, ...b } }))}
+          />
         </div>
         <div className="card">
           <h3 style={{ margin: "0 0 12px" }}>Parties</h3>
@@ -268,6 +280,117 @@ export function BookingDetailLive({
         </div>
       </div>
     </>
+  );
+}
+
+/**
+ * Inline editor for the admin-only fare override. Edits never reach the
+ * mobile apps — they keep showing the original fareEstimate/fareFinal/
+ * payable. Analytics GMV uses the override when set. Empty clears.
+ */
+function FareOverride({
+  bookingId,
+  apiBase,
+  initialAmount,
+  initialNote,
+  onSaved
+}: {
+  bookingId: string;
+  apiBase: string;
+  initialAmount: number | null;
+  initialNote: string;
+  onSaved: (b: Partial<Booking>) => void;
+}) {
+  const [amount, setAmount] = React.useState(initialAmount != null ? String(initialAmount) : "");
+  const [note, setNote] = React.useState(initialNote);
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+  const [saved, setSaved] = React.useState(false);
+
+  // Sync when the booking polls and the override changes externally.
+  React.useEffect(() => {
+    setAmount(initialAmount != null ? String(initialAmount) : "");
+    setNote(initialNote);
+  }, [initialAmount, initialNote]);
+
+  const submit = async () => {
+    setBusy(true);
+    setErr(null);
+    setSaved(false);
+    try {
+      const body: any = {
+        fareOverrideInr: amount.trim() === "" ? null : parseInt(amount, 10),
+        fareOverrideNote: note.trim() === "" ? null : note
+      };
+      const res = await adminFetch(`${apiBase}/api/v1/admin/bookings/${bookingId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? `Save failed (${res.status})`);
+      }
+      const { booking: updated } = await res.json();
+      onSaved(updated);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e: any) {
+      setErr(e?.message ?? "Save failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const isDirty = (amount.trim() === "" ? null : parseInt(amount, 10)) !== initialAmount || note !== initialNote;
+
+  return (
+    <div style={{ marginTop: 14, padding: "12px 0 0", borderTop: "1px dashed var(--border)" }}>
+      <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 600, marginBottom: 6 }}>
+        Admin fare override <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 400 }}>(off-app billing · invisible to users)</span>
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <span style={{ color: "var(--muted)" }}>₹</span>
+        <input
+          type="number"
+          inputMode="numeric"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="leave blank to clear"
+          style={{ flex: 1, padding: "6px 10px", border: "1px solid var(--border)", borderRadius: 6, fontSize: 14, fontFamily: "inherit", color: "var(--ink)" }}
+        />
+      </div>
+      <input
+        type="text"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Note (optional, e.g. invoice #/hospital)"
+        style={{ marginTop: 6, width: "100%", padding: "6px 10px", border: "1px solid var(--border)", borderRadius: 6, fontSize: 13, fontFamily: "inherit", color: "var(--ink)" }}
+      />
+      {err ? <div style={{ color: "var(--danger, #DC2626)", fontSize: 12, marginTop: 4 }}>{err}</div> : null}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+        <span style={{ fontSize: 11, color: saved ? "var(--success, #10B981)" : "var(--muted)" }}>
+          {saved ? "✓ Saved" : initialAmount != null ? `Currently overriding to ₹${initialAmount}` : "Not overridden"}
+        </span>
+        <button
+          onClick={submit}
+          disabled={busy || !isDirty}
+          style={{
+            background: isDirty ? "var(--ink, #0F172A)" : "transparent",
+            color: isDirty ? "#fff" : "var(--muted)",
+            border: isDirty ? "none" : "1px solid var(--border)",
+            padding: "6px 14px",
+            borderRadius: 6,
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: isDirty && !busy ? "pointer" : "default",
+            opacity: busy ? 0.6 : 1
+          }}
+        >
+          {busy ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </div>
   );
 }
 
