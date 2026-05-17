@@ -2,7 +2,6 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Source, SourceFilter } from "../SourceFilter";
 import { adminFetch } from "../../../lib/adminFetch";
 import { formatIST } from "../../../lib/dates";
 
@@ -22,7 +21,6 @@ type Driver = {
 };
 
 export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Driver[]; apiBase: string }) {
-  const [source, setSource] = useState<Source>("all");
   const [status, setStatus] = useState<string>("all");
   const [query, setQuery] = useState<string>("");
   const [rows, setRows] = useState<Driver[]>(initialDrivers);
@@ -31,7 +29,7 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
     let alive = true;
     const fetchRows = async () => {
       try {
-        const res = await adminFetch(`${apiBase}/api/v1/admin/drivers?source=${source}`);
+        const res = await adminFetch(`${apiBase}/api/v1/admin/drivers`);
         const data = await res.json();
         if (!alive) return;
         setRows(data.drivers ?? []);
@@ -45,7 +43,7 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
       alive = false;
       clearInterval(id);
     };
-  }, [apiBase, source]);
+  }, [apiBase]);
 
   const filtered = useMemo(() => {
     let out = rows;
@@ -64,17 +62,14 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
 
   const onlineCount = rows.filter((d) => d.status !== "OFFLINE").length;
   const onTripCount = rows.filter((d) => d.status === "ON_TRIP").length;
-  const realCount = rows.filter((d) => !d.isDemo).length;
-  const demoCount = rows.filter((d) => d.isDemo).length;
 
   return (
     <>
       <div className="page-header">
         <div>
           <h1>Drivers</h1>
-          <p>{rows.length} total · {onlineCount} online · {onTripCount} on trip · {realCount} real · {demoCount} demo</p>
+          <p>{rows.length} total · {onlineCount} online · {onTripCount} on trip</p>
         </div>
-        <SourceFilter value={source} onChange={setSource} />
       </div>
 
       <div className="filter-bar">
@@ -106,14 +101,13 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
                 <th>Rating</th>
                 <th>Last seen</th>
                 <th>Status</th>
-                <th>Source</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="muted" style={{ padding: 24, textAlign: "center" }}>
+                  <td colSpan={8} className="muted" style={{ padding: 24, textAlign: "center" }}>
                     No drivers match the current filters.
                   </td>
                 </tr>
@@ -143,9 +137,6 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
                       <span className={`pill ${d.status.toLowerCase() === "on_trip" ? "accepted" : d.status === "AVAILABLE" ? "completed" : "cancelled"}`}>
                         {d.status === "ON_TRIP" ? "On trip" : d.status === "AVAILABLE" ? "Available" : "Offline"}
                       </span>
-                    </td>
-                    <td>
-                      {d.isDemo ? <span className="demo-flag">DEMO</span> : <span style={{ fontSize: 11, color: "var(--success)", fontWeight: 600, letterSpacing: 0.4 }}>REAL</span>}
                     </td>
                     <td>
                       <Link href={`/drivers/${d.id}`} style={{ color: "var(--accent)", fontSize: 12 }}>Open →</Link>

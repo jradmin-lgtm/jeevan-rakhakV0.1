@@ -2,7 +2,6 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Source, SourceFilter } from "../SourceFilter";
 import { adminFetch } from "../../../lib/adminFetch";
 import { formatIST } from "../../../lib/dates";
 
@@ -25,7 +24,6 @@ type Side = "all" | "user" | "driver";
 const STARS = (n?: number | null) => n ? "★".repeat(n) + "☆".repeat(5 - n) : "—";
 
 export function FeedbackList({ initialBookings, apiBase }: { initialBookings: Booking[]; apiBase: string }) {
-  const [source, setSource] = useState<Source>("all");
   const [side, setSide] = useState<Side>("all");
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<Booking[]>(initialBookings);
@@ -34,7 +32,7 @@ export function FeedbackList({ initialBookings, apiBase }: { initialBookings: Bo
     let alive = true;
     const tick = async () => {
       try {
-        const params = new URLSearchParams({ source, side });
+        const params = new URLSearchParams({ side });
         const res = await adminFetch(`${apiBase}/api/v1/admin/feedback?${params.toString()}`);
         const data = await res.json();
         if (!alive) return;
@@ -46,7 +44,7 @@ export function FeedbackList({ initialBookings, apiBase }: { initialBookings: Bo
     void tick();
     const id = setInterval(tick, 10000);
     return () => { alive = false; clearInterval(id); };
-  }, [apiBase, source, side]);
+  }, [apiBase, side]);
 
   const filtered = useMemo(() => {
     if (!query) return rows;
@@ -68,7 +66,6 @@ export function FeedbackList({ initialBookings, apiBase }: { initialBookings: Bo
           <h1>Feedback</h1>
           <p>{rows.length} bookings with feedback · {fromUsers} from patients · {fromDrivers} from drivers</p>
         </div>
-        <SourceFilter value={source} onChange={setSource} />
       </div>
 
       <div className="filter-bar">
@@ -104,7 +101,6 @@ export function FeedbackList({ initialBookings, apiBase }: { initialBookings: Bo
                     {b.pickupAddress ?? "—"} · completed {b.completedAt ? formatIST(b.completedAt) : "—"}
                   </div>
                 </div>
-                {b.isDemo ? <span className="demo-flag">DEMO</span> : null}
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>

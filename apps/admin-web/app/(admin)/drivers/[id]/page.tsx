@@ -31,7 +31,6 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
           <h1>{driver.name ?? "Unnamed driver"}</h1>
           <p>
             <Link href="/drivers" style={{ color: "var(--accent)" }}>← Back to drivers</Link>
-            {driver.isDemo ? <span className="demo-flag" style={{ marginLeft: 12 }}>DEMO</span> : null}
             {driver.disabled
               ? <span className="pill cancelled" style={{ marginLeft: 8 }}>Disabled</span>
               : <span className="pill completed" style={{ marginLeft: 8 }}>Active</span>}

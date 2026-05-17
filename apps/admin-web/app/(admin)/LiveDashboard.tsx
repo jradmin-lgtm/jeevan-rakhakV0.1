@@ -1,12 +1,10 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Source, SourceFilter } from "./SourceFilter";
 import { adminFetch } from "../../lib/adminFetch";
 import { formatTimeIST, formatTimeShortIST } from "../../lib/dates";
 
 type Stats = {
-  source: Source;
   activeTrips: number;
   onlineDrivers: number;
   bookingsToday: number;
@@ -50,7 +48,6 @@ export function LiveDashboard({
   initialDrivers: Driver[];
   apiBase: string;
 }) {
-  const [source, setSource] = useState<Source>("all");
   const [stats, setStats] = useState<Stats>(initialStats);
   const [bookings, setBookings] = useState<Booking[]>(initialBookings);
   const [drivers, setDrivers] = useState<Driver[]>(initialDrivers);
@@ -62,11 +59,10 @@ export function LiveDashboard({
     let alive = true;
     const tick = async () => {
       try {
-        const q = `?source=${source}`;
         const [s, b, d] = await Promise.all([
-          adminFetch(`${apiBase}/api/v1/admin/dashboard${q}`).then((r) => r.json()),
-          adminFetch(`${apiBase}/api/v1/admin/bookings${q}`).then((r) => r.json()),
-          adminFetch(`${apiBase}/api/v1/admin/drivers${q}`).then((r) => r.json())
+          adminFetch(`${apiBase}/api/v1/admin/dashboard`).then((r) => r.json()),
+          adminFetch(`${apiBase}/api/v1/admin/bookings`).then((r) => r.json()),
+          adminFetch(`${apiBase}/api/v1/admin/drivers`).then((r) => r.json())
         ]);
         if (!alive) return;
         setStats(s);
@@ -83,7 +79,7 @@ export function LiveDashboard({
       alive = false;
       clearInterval(id);
     };
-  }, [apiBase, source]);
+  }, [apiBase]);
 
   return (
     <>
@@ -92,10 +88,7 @@ export function LiveDashboard({
           <h1>Live operations</h1>
           <p>Auto-refreshing every 5 seconds{updatedAt ? ` · last updated ${updatedAt}` : ""}</p>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
-          <SourceFilter value={source} onChange={setSource} />
-          <div className="muted" style={{ fontSize: 11 }}>API: {apiBase}</div>
-        </div>
+        <div className="muted" style={{ fontSize: 11 }}>API: {apiBase}</div>
       </div>
 
       <div className="kpi-row">
@@ -145,10 +138,7 @@ export function LiveDashboard({
                   bookings.slice(0, 8).map((b) => (
                     <tr key={b.id}>
                       <td className="mono muted" suppressHydrationWarning>{formatTimeShortIST(b.createdAt)}</td>
-                      <td>
-                        {prettyEmergency(b.emergencyType)}
-                        {b.isDemo ? <span className="demo-flag">DEMO</span> : null}
-                      </td>
+                      <td>{prettyEmergency(b.emergencyType)}</td>
                       <td>
                         <div>{b.pickupAddress ?? "—"}</div>
                         {b.dropAddress ? <div className="muted" style={{ fontSize: 12 }}>→ {b.dropAddress}</div> : null}
@@ -191,7 +181,6 @@ export function LiveDashboard({
                       <span className={`dot ${d.status === "OFFLINE" ? "down" : "up"}`} />
                       <strong>{d.name ?? "Driver"}</strong>
                       <span className="muted" style={{ fontSize: 12 }}>{d.phone}</span>
-                      {d.isDemo ? <span className="demo-flag">DEMO</span> : null}
                     </div>
                     <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
                       {d.vehicleNumber ?? "Vehicle pending"} · ⭐ {d.rating?.toFixed(1) ?? "5.0"}

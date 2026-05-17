@@ -28,7 +28,6 @@ export default async function BookingDetail({ params }: { params: Promise<{ id: 
           <h1>Booking {data.booking.id.slice(0, 8)}…</h1>
           <p>
             <Link href="/bookings" style={{ color: "var(--accent)" }}>← Back to bookings</Link>
-            {data.booking.isDemo ? <span className="demo-flag" style={{ marginLeft: 12 }}>DEMO</span> : null}
           </p>
         </div>
       </div>

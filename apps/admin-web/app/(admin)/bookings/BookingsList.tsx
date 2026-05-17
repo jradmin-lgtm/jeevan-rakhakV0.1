@@ -2,7 +2,6 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Source, SourceFilter } from "../SourceFilter";
 import { adminFetch } from "../../../lib/adminFetch";
 import { formatIST } from "../../../lib/dates";
 
@@ -22,7 +21,6 @@ type Booking = {
 const STATUSES = ["all", "REQUESTED", "ACCEPTED", "ARRIVED", "PICKED_UP", "COMPLETED", "CANCELLED", "TIMED_OUT"];
 
 export function BookingsList({ initialBookings, apiBase }: { initialBookings: Booking[]; apiBase: string }) {
-  const [source, setSource] = useState<Source>("all");
   const [status, setStatus] = useState<string>("all");
   const [query, setQuery] = useState<string>("");
   const [rows, setRows] = useState<Booking[]>(initialBookings);
@@ -31,9 +29,10 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
     let alive = true;
     const fetchRows = async () => {
       try {
-        const params = new URLSearchParams({ source });
+        const params = new URLSearchParams();
         if (status !== "all") params.set("status", status);
-        const res = await adminFetch(`${apiBase}/api/v1/admin/bookings?${params.toString()}`);
+        const qs = params.toString();
+        const res = await adminFetch(`${apiBase}/api/v1/admin/bookings${qs ? "?" + qs : ""}`);
         const data = await res.json();
         if (!alive) return;
         setRows(data.bookings ?? []);
@@ -47,7 +46,7 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
       alive = false;
       clearInterval(id);
     };
-  }, [apiBase, source, status]);
+  }, [apiBase, status]);
 
   const filtered = useMemo(() => {
     if (!query) return rows;
@@ -60,17 +59,13 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
     );
   }, [rows, query]);
 
-  const realCount = rows.filter((r) => !r.isDemo).length;
-  const demoCount = rows.filter((r) => r.isDemo).length;
-
   return (
     <>
       <div className="page-header">
         <div>
           <h1>Bookings</h1>
-          <p>{rows.length} total · {realCount} real · {demoCount} demo</p>
+          <p>{rows.length} total</p>
         </div>
-        <SourceFilter value={source} onChange={setSource} />
       </div>
 
       <div className="filter-bar">
@@ -103,14 +98,13 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
                 <th>Fare</th>
                 <th>Rating</th>
                 <th>Status</th>
-                <th>Source</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="muted" style={{ padding: 24, textAlign: "center" }}>
+                  <td colSpan={8} className="muted" style={{ padding: 24, textAlign: "center" }}>
                     No bookings match the current filters.
                   </td>
                 </tr>
@@ -127,9 +121,6 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
                     <td className="mono">₹{b.fareFinalInr ?? b.fareEstimateInr ?? "—"}</td>
                     <td>{b.rating ? "★".repeat(b.rating) : <span className="muted">—</span>}</td>
                     <td><span className={`pill ${b.status.toLowerCase()}`}>{prettyStatus(b.status)}</span></td>
-                    <td>
-                      {b.isDemo ? <span className="demo-flag">DEMO</span> : <span style={{ fontSize: 11, color: "var(--success)", fontWeight: 600, letterSpacing: 0.4 }}>REAL</span>}
-                    </td>
                     <td>
                       <Link href={`/bookings/${b.id}`} style={{ color: "var(--accent)", fontSize: 12 }}>Open →</Link>
                     </td>

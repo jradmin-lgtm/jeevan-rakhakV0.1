@@ -30,7 +30,6 @@ export default async function UserDetail({ params }: { params: Promise<{ id: str
           <h1>{user.name ?? "Unnamed user"}</h1>
           <p>
             <Link href="/users" style={{ color: "var(--accent)" }}>← Back to users</Link>
-            {user.isDemo ? <span className="demo-flag" style={{ marginLeft: 12 }}>DEMO</span> : null}
             {user.disabled ? <span className="pill cancelled" style={{ marginLeft: 8 }}>Disabled</span> : <span className="pill completed" style={{ marginLeft: 8 }}>Active</span>}
           </p>
         </div>
