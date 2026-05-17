@@ -200,10 +200,10 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
   const cancellable = ["REQUESTED", "ACCEPTED", "ARRIVED"].includes(booking.status);
 
   // ── Timer / ETA derivation ───────────────────────────────────────────────
-  // createdMs serves double duty: the elapsed/ETA timer + the 90-min help
-  // banner threshold.
+  // v1.0.11.2: removed 90-min gate on the help banner — testers wanted
+  // support one tap away from the moment the trip begins, not buried until
+  // 90 min in. Banner is now always-on during an active trip.
   const createdMs = booking.createdAt ? new Date(booking.createdAt).getTime() : Date.now();
-  const showHelpBanner = !finished && (nowTs - createdMs) > 90 * 60 * 1000;
   const elapsedSec = Math.max(0, Math.floor((nowTs - createdMs) / 1000));
   let timerLabel = "";
   let timerValue = "";
@@ -393,14 +393,14 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
         </Card>
       ) : null}
 
-      {showHelpBanner ? (
+      {/* v1.0.11.2: always-on Need help section during an active trip. */}
+      {!finished ? (
         <Card>
           <View style={{ gap: space.sm }}>
             <Text variant="label" tone="danger">NEED HELP?</Text>
-            <Text variant="body" weight="semi">This trip has been active for over 90 minutes.</Text>
             <Text variant="small" tone="secondary">
-              Contact our support team if you need assistance — we&apos;ll reach
-              the driver and coordinate.
+              Contact our support team any time — we&apos;ll reach the driver
+              and coordinate.
             </Text>
             <ContactSupport bookingId={booking.id} compact />
           </View>

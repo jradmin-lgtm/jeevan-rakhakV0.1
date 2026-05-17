@@ -23,6 +23,12 @@ import { Booking, bookings as bookingsApi, driver as driverApi } from "../api";
 import { getSocket } from "../socket";
 import { prettyEmergency } from "./DashboardScreen";
 
+type UserProfile = {
+  id: string;
+  name?: string | null;
+  phone: string;
+};
+
 // Fallback only used if GPS permission is denied or no fix yet.
 const FALLBACK_DRIVER = { lat: 28.6139, lng: 77.209 };
 
@@ -65,6 +71,7 @@ function statusToIndex(status: string): number {
 
 export function TripScreen({ booking: initial, onClose }: { booking: Booking; onClose: () => void }) {
   const [booking, setBooking] = useState<Booking>(initial);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [busy, setBusy] = useState(false);
   const [pushedAt, setPushedAt] = useState<number | null>(null);
   const [myPos, setMyPos] = useState<{ lat: number; lng: number } | null>(null);
@@ -119,10 +126,17 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
   // OTP input keyboard on ARRIVED (focus loss reported by testers). 12s
   // is fast enough to catch a user cancel within the response window and
   // slow enough to let the OtpInput stay focused while the driver types.
+  // v1.0.11.2: also pulls userProfile so the patient card + call button
+  // stay populated.
   useEffect(() => {
-    const id = setInterval(() => {
-      bookingsApi.get(booking.id).then((r) => setBooking(r.booking)).catch(() => {});
-    }, 12000);
+    const tick = () => {
+      bookingsApi.get(booking.id).then((r: any) => {
+        setBooking(r.booking);
+        if (r.userProfile) setUserProfile(r.userProfile);
+      }).catch(() => {});
+    };
+    tick();
+    const id = setInterval(tick, 12000);
     return () => clearInterval(id);
   }, [booking.id]);
 
@@ -156,12 +170,9 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
   const sharing = !finished && ["ACCEPTED", "ARRIVED", "PICKED_UP"].includes(booking.status);
   const stepIndex = statusToIndex(booking.status);
 
-  // 90-min "Need help?" check. Same shape as user-app: if the trip is still
-  // active 90 min after it was created, show a support-contact banner so the
-  // driver can flag anything going wrong (vehicle issue, patient changed mind,
-  // can't reach drop, etc).
-  const createdMs = booking.createdAt ? new Date(booking.createdAt).getTime() : Date.now();
-  const showHelpBanner = !finished && Date.now() - createdMs > 90 * 60 * 1000;
+  // v1.0.11.2: removed 90-min gate. Need help banner is always-on during
+  // an active trip — testers wanted it one tap away from the moment the
+  // ride starts, not buried until 90 min in.
 
   return (
     <Screen>
@@ -286,32 +297,52 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
         </View>
       </Card>
 
-      {showHelpBanner ? (
+      {/* v1.0.11.2: Need help section is always-on during an active trip,
+        * no 90-min gate. Drivers asked for one-tap support access at any
+        * point of the ride, not just after 90 minutes. Hidden only when
+        * the trip terminates. */}
+      {!finished ? (
         <Card>
           <View style={{ gap: space.sm }}>
             <Text variant="label" tone="danger">NEED HELP?</Text>
-            <Text variant="body" weight="semi">This trip has been active for over 90 minutes.</Text>
             <Text variant="small" tone="secondary">
-              If something has gone wrong, contact support — we&apos;ll
-              coordinate with the patient and ops.
+              Contact support any time during the trip — vehicle issue,
+              patient change, can&apos;t reach drop, anything.
             </Text>
             <ContactSupport bookingId={booking.id} compact />
           </View>
         </Card>
       ) : null}
 
-      {/* Patient snippet — driver only sees name/age/gender. Condition /
-        * notes / paramedic assessment stay admin-only (team feedback 1.6 +
-        * 1.7 explicit visibility rules). */}
-      {(booking.patientName || booking.patientAge || booking.patientGender) ? (
-        <Card>
-          <View style={{ gap: space.sm }}>
-            <Text variant="label" tone="secondary">PATIENT</Text>
-            <Text variant="body" weight="semi">
-              {booking.patientName ?? "—"}
-              {booking.patientAge ? `, ${booking.patientAge}y` : ""}
-              {booking.patientGender ? ` · ${booking.patientGender === "M" ? "Male" : booking.patientGender === "F" ? "Female" : "Other"}` : ""}
-            </Text>
+      {/* Patient info card — appears the moment the trip is assigned, mirrors
+        * the driver card on the patient side. Driver only sees name + age +
+        * gender + phone (one-tap call). Condition / notes / paramedic
+        * assessment stay admin-only (team feedback 1.6 + 1.7 explicit
+        * visibility rules — driver never reads them back). */}
+      {!finished && userProfile ? (
+        <Card padding="md">
+          <View style={patientCardStyles.row}>
+            <View style={patientCardStyles.avatar}>
+              <Text variant="heading" weight="bold" style={{ color: colors.primary }}>
+                {(booking.patientName ?? userProfile.name ?? "P").slice(0, 1).toUpperCase()}
+              </Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text variant="label" tone="secondary">PATIENT</Text>
+              <Text variant="body" weight="semi">
+                {booking.patientName ?? userProfile.name ?? "Patient"}
+                {booking.patientAge ? `, ${booking.patientAge}y` : ""}
+                {booking.patientGender ? ` · ${booking.patientGender === "M" ? "Male" : booking.patientGender === "F" ? "Female" : "Other"}` : ""}
+              </Text>
+              <Text variant="tiny" tone="muted">{userProfile.phone}</Text>
+            </View>
+            <Pressable
+              onPress={() => Linking.openURL(`tel:${userProfile.phone}`).catch(() => {})}
+              style={patientCardStyles.callBtn}
+              accessibilityLabel={`Call ${booking.patientName ?? userProfile.name ?? "patient"}`}
+            >
+              <Text style={patientCardStyles.callIcon}>📞</Text>
+            </Pressable>
           </View>
         </Card>
       ) : null}
@@ -679,6 +710,27 @@ const paramedicStyles = StyleSheet.create({
     borderColor: colors.border
   },
   riskOn: { backgroundColor: colors.danger, borderColor: colors.danger }
+});
+
+const patientCardStyles = StyleSheet.create({
+  row: { flexDirection: "row", alignItems: "center", gap: space.md },
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.primaryFaint,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  callBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.success,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  callIcon: { fontSize: 22 }
 });
 
 function stepHeadline(status: string): string {

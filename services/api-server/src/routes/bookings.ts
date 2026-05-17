@@ -200,7 +200,27 @@ export async function registerBookingRoutes(app: FastifyInstance) {
           }
         }
       }
-      return reply.send({ booking: b, driverProfile, driverPosition });
+
+      // userProfile carries the patient-facing contact info the *driver* needs
+      // (name + phone for one-tap calling). Returned for both sides; the user
+      // app already has its own profile so this is mostly noise there, but
+      // including it unconditionally keeps the response shape consistent.
+      // Note: this exposes patient *contact*, NOT medical fields — those
+      // (patientCondition, patientNotes, paramedicAssessment) are returned
+      // separately on the booking row and the driver app filters them out
+      // per the visibility rule.
+      let userProfile = null;
+      if (b.userId) {
+        const [u] = await db.select().from(users).where(eq(users.id, b.userId)).limit(1);
+        if (u) {
+          userProfile = {
+            id: u.id,
+            name: u.name,
+            phone: u.phone
+          };
+        }
+      }
+      return reply.send({ booking: b, driverProfile, driverPosition, userProfile });
     }
   );
 
