@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Linking, Pressable, View } from "react-native";
 import { AppHeader, Button, Card, Input, OtpInput, OtpToast, Screen, Text, colors, space } from "@jr/ui";
 import { auth as authApi, setToken } from "../api";
+import { useT } from "../i18n";
 
 // Metro inlines `process.env.EXPO_PUBLIC_*` at bundle time only on direct
 // access. Indirect access leaves the value undefined on native Android.
@@ -12,6 +13,7 @@ const PRIVACY_POLICY_URL =
 const OTP_LENGTH = 4;
 
 export function LoginScreen({ onAuthenticated }: { onAuthenticated: (profile: any) => void }) {
+  const { t, lang, setLang } = useT();
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [stage, setStage] = useState<"phone" | "code">("phone");
@@ -25,9 +27,6 @@ export function LoginScreen({ onAuthenticated }: { onAuthenticated: (profile: an
     try {
       const r = await authApi.requestOtp(phone);
       const otp = (r.demoOtp ?? "").slice(0, OTP_LENGTH);
-      // Hold on the phone screen for ~2.5s with the button-spinner showing so
-      // it feels like a real "we're sending an SMS" beat before the toast
-      // appears. Drop this delay when real SMS goes live.
       await new Promise((res) => setTimeout(res, 2500));
       setCode("");
       setStage("code");
@@ -62,16 +61,27 @@ export function LoginScreen({ onAuthenticated }: { onAuthenticated: (profile: an
     <View style={{ flex: 1 }}>
       <Screen>
         <AppHeader
-          title={stage === "phone" ? "Driver sign in" : "Verify OTP"}
-          subtitle={stage === "phone" ? "Enter your registered mobile" : `Sent to ${phone}`}
+          title={stage === "phone" ? t("login.title") : t("otp.title")}
+          subtitle={stage === "phone" ? t("login.subtitle") : `${t("otp.subtitle")} ${phone}`}
           onBack={stage === "code" ? () => { setCode(""); setErr(null); setStage("phone"); } : undefined}
+          right={stage === "phone" ? (
+            <Pressable
+              onPress={() => void setLang(lang === "en" ? "hi" : "en")}
+              accessibilityLabel="Switch language"
+              style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "rgba(30,94,255,0.10)", borderRadius: 999 }}
+            >
+              <Text variant="small" weight="bold" style={{ color: lang === "en" ? colors.accent : "#94A3B8" }}>EN</Text>
+              <Text variant="small" tone="muted">|</Text>
+              <Text variant="small" weight="bold" style={{ color: lang === "hi" ? colors.accent : "#94A3B8" }}>हि</Text>
+            </Pressable>
+          ) : undefined}
         />
         <Card>
           <View style={{ gap: space.md }}>
             {stage === "phone" ? (
               <>
                 <Input
-                  label="Mobile number"
+                  label={t("login.mobile")}
                   keyboardType="phone-pad"
                   autoFocus
                   value={phone}
@@ -80,22 +90,24 @@ export function LoginScreen({ onAuthenticated }: { onAuthenticated: (profile: an
                   error={err ?? undefined}
                 />
                 <Button
-                  label="Send OTP"
+                  label={t("login.send_otp")}
                   onPress={requestOtp}
                   loading={busy}
                   disabled={phone.replace(/\D/g, "").length < 10}
                   fullWidth
                   testID="send-otp"
                 />
-                <Text variant="tiny" tone="muted" align="center">
-                  By continuing you agree to our{" "}
+                {/* Privacy policy on its own line — see user-app for rationale */}
+                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 4 }}>
+                  <Text variant="tiny" tone="muted" align="center">
+                    {t("login.agree")}
+                  </Text>
                   <Pressable onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>
                     <Text variant="tiny" weight="bold" style={{ color: colors.primary }}>
-                      privacy policy
+                      {t("login.privacy")}
                     </Text>
                   </Pressable>
-                  .
-                </Text>
+                </View>
               </>
             ) : (
               <View style={{ gap: space.lg }}>
@@ -110,14 +122,14 @@ export function LoginScreen({ onAuthenticated }: { onAuthenticated: (profile: an
                   error={err ?? undefined}
                 />
                 <Button
-                  label="Verify & continue"
+                  label={t("otp.verify")}
                   onPress={verifyOtp}
                   loading={busy}
                   disabled={code.length < OTP_LENGTH}
                   fullWidth
                   testID="verify-otp"
                 />
-                <Button label="Resend OTP" variant="ghost" onPress={requestOtp} disabled={busy} />
+                <Button label={t("otp.resend")} variant="ghost" onPress={requestOtp} disabled={busy} />
               </View>
             )}
           </View>
@@ -125,10 +137,10 @@ export function LoginScreen({ onAuthenticated }: { onAuthenticated: (profile: an
 
         <View style={{ marginTop: space.xl, gap: space.xs, alignItems: "center" }}>
           <Text variant="tiny" tone="muted" align="center">
-            Created with care · Jeevan Rakshak
+            {t("login.footer_care")}
           </Text>
           <Text variant="tiny" tone="muted" align="center">
-            Booking an ambulance? Use the Jeevan Rakshak patient app.
+            {t("login.patient_hint")}
           </Text>
         </View>
       </Screen>

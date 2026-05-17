@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { Alert, ScrollView, View } from "react-native";
+import { Alert, Pressable, ScrollView, View } from "react-native";
 import { AppHeader, Button, Card, Input, Screen, Text, colors, space } from "@jr/ui";
 import { driver as driverApi } from "../api";
+import { useT } from "../i18n";
 
 type Props = {
   initial: any;
@@ -21,6 +22,7 @@ type Props = {
  * before reviewing.
  */
 export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
+  const { t, lang, setLang } = useT();
   const [licenseNumber, setLicenseNumber] = useState<string>(initial?.licenseNumber ?? "");
   const [vehicleNumber, setVehicleNumber] = useState<string>(initial?.vehicleNumber ?? "");
   const [vehicleType, setVehicleType] = useState<string>(initial?.vehicleType ?? "BLS");
@@ -53,10 +55,7 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
         hospitalName: hospitalName.trim()
       });
       onSubmitted(r.driver);
-      Alert.alert(
-        "Profile submitted",
-        "Our team will verify your details. You'll start receiving requests once approved — usually within a few hours during pilot."
-      );
+      Alert.alert(t("kyc.success.title"), t("kyc.success.body"));
     } catch (e: any) {
       setErr(e?.message ?? "Could not submit. Please try again.");
     } finally {
@@ -66,34 +65,48 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
 
   return (
     <Screen>
-      <AppHeader title="Driver profile" subtitle="Submit your details for verification" />
+      <AppHeader
+        title={t("kyc.header.title")}
+        subtitle={t("kyc.header.subtitle")}
+        right={
+          <Pressable
+            onPress={() => void setLang(lang === "en" ? "hi" : "en")}
+            accessibilityLabel="Switch language"
+            style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "rgba(30,94,255,0.10)", borderRadius: 999 }}
+          >
+            <Text variant="small" weight="bold" style={{ color: lang === "en" ? colors.accent : "#94A3B8" }}>EN</Text>
+            <Text variant="small" tone="muted">|</Text>
+            <Text variant="small" weight="bold" style={{ color: lang === "hi" ? colors.accent : "#94A3B8" }}>हि</Text>
+          </Pressable>
+        }
+      />
 
       <ScrollView contentContainerStyle={{ gap: space.md, paddingBottom: space.xl }}>
         <Card>
           <View style={{ gap: space.md }}>
-            <Text variant="label" tone="primary">VEHICLE</Text>
+            <Text variant="label" tone="primary">{t("kyc.section.vehicle")}</Text>
             <Input
-              label="Ambulance vehicle number"
+              label={t("kyc.field.vehicle_number")}
               value={vehicleNumber}
               onChangeText={setVehicleNumber}
               placeholder="UP32 AB 4587"
               autoCapitalize="characters"
             />
             <Input
-              label="Vehicle type"
+              label={t("kyc.field.vehicle_type")}
               value={vehicleType}
               onChangeText={setVehicleType}
               placeholder="BLS / ALS / ICU"
               autoCapitalize="characters"
             />
             <Input
-              label="RC number (Vehicle registration certificate)"
+              label={t("kyc.field.rc")}
               value={rcNumber}
               onChangeText={setRcNumber}
               placeholder="As printed on RC"
             />
             <Input
-              label="Insurance policy number"
+              label={t("kyc.field.insurance")}
               value={insuranceNumber}
               onChangeText={setInsuranceNumber}
               placeholder="Active policy number"
@@ -103,31 +116,29 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
 
         <Card>
           <View style={{ gap: space.md }}>
-            <Text variant="label" tone="primary">DRIVER &amp; LICENCE</Text>
+            <Text variant="label" tone="primary">{t("kyc.section.driver")}</Text>
             <Input
-              label="Driving licence number"
+              label={t("kyc.field.license")}
               value={licenseNumber}
               onChangeText={setLicenseNumber}
               placeholder="As printed on DL"
               autoCapitalize="characters"
             />
-            <Text variant="tiny" tone="muted">
-              Document photo upload arrives in v1.0.12. For now, our ops team will verify your details against physical copies during onboarding.
-            </Text>
+            <Text variant="tiny" tone="muted">{t("kyc.note.photos")}</Text>
           </View>
         </Card>
 
         <Card>
           <View style={{ gap: space.md }}>
-            <Text variant="label" tone="primary">HOSPITAL / ORGANISATION</Text>
+            <Text variant="label" tone="primary">{t("kyc.section.hospital")}</Text>
             <Input
-              label="Hospital / organisation name"
+              label={t("kyc.field.hospital_name")}
               value={hospitalName}
               onChangeText={setHospitalName}
               placeholder="e.g., Apollo Indraprastha"
             />
             <Input
-              label="Your hospital employee ID"
+              label={t("kyc.field.hospital_id")}
               value={hospitalId}
               onChangeText={setHospitalId}
               placeholder="Employee ID / staff number"
@@ -142,7 +153,7 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
         ) : null}
 
         <Button
-          label={busy ? "Submitting…" : "Submit for verification"}
+          label={busy ? t("kyc.submit.busy") : t("kyc.submit")}
           onPress={submit}
           loading={busy}
           disabled={!canSubmit}
@@ -151,8 +162,7 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
         />
 
         <Text variant="tiny" tone="muted" align="center">
-          Once verified, you'll receive ambulance requests automatically.{"\n"}
-          Verification usually takes a few hours.
+          {t("kyc.footer")}
         </Text>
       </ScrollView>
     </Screen>
@@ -165,6 +175,7 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
  * the moment admin verifies, the driver lands on the dashboard automatically.
  */
 export function KycPendingScreen({ onProfileRefresh }: { onProfileRefresh: () => void }) {
+  const { t } = useT();
   React.useEffect(() => {
     const id = setInterval(onProfileRefresh, 15000);
     return () => clearInterval(id);
@@ -172,23 +183,23 @@ export function KycPendingScreen({ onProfileRefresh }: { onProfileRefresh: () =>
 
   return (
     <Screen>
-      <AppHeader title="Profile under review" subtitle="You'll start receiving requests once approved" />
+      <AppHeader title={t("kyc_pending.title")} subtitle={t("kyc_pending.subtitle")} />
       <Card>
         <View style={{ gap: space.md, alignItems: "center", paddingVertical: space.lg }}>
           <Text variant="title" align="center">⏳</Text>
           <Text variant="heading" weight="bold" align="center">
-            Verification in progress
+            {t("kyc_pending.heading")}
           </Text>
           <Text variant="body" tone="secondary" align="center">
-            Our team is reviewing your documents and vehicle details. This usually takes a few hours during pilot.
+            {t("kyc_pending.body")}
           </Text>
           <Text variant="small" tone="muted" align="center">
-            We'll move you to the dashboard automatically the moment you're approved.
+            {t("kyc_pending.auto_route")}
           </Text>
         </View>
       </Card>
 
-      <Button label="Refresh status" variant="outline" onPress={onProfileRefresh} fullWidth />
+      <Button label={t("kyc_pending.refresh")} variant="outline" onPress={onProfileRefresh} fullWidth />
     </Screen>
   );
 }

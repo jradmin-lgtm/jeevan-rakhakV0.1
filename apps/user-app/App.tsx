@@ -15,6 +15,7 @@ import { HistoryScreen } from "./src/screens/HistoryScreen";
 import { MedicalProfileScreen } from "./src/screens/MedicalProfileScreen";
 import { SosScreen } from "./src/screens/SosScreen";
 import { NameCaptureScreen } from "./src/screens/NameCaptureScreen";
+import { hydrateLang } from "./src/i18n";
 
 type RootStackParamList = {
   Splash: undefined;
@@ -36,6 +37,10 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
+      // Load persisted language preference before anything renders so the
+      // splash + login already speak the user's language. ~5ms AsyncStorage
+      // read; doesn't extend perceived boot time.
+      await hydrateLang();
       const token = await getToken();
       if (token) {
         // Render free-tier dynos cold-start in ~30s. Cap the wait at 4s so the

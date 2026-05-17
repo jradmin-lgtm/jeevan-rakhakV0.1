@@ -14,6 +14,7 @@ import {
   space
 } from "@jr/ui";
 import { Booking, bookings as bookingsApi, me, clearToken } from "../api";
+import { useT } from "../i18n";
 
 type Props = {
   profile: any;
@@ -31,6 +32,7 @@ type Props = {
 const MAX_ACTIVE_BOOKINGS = 1;
 
 export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfile, onHistory }: Props) {
+  const { t, lang, setLang } = useT();
   const [active, setActive] = useState<Booking | null>(null);
   const [activeCount, setActiveCount] = useState<number>(0);
   const [refreshing, setRefreshing] = useState(false);
@@ -72,23 +74,26 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
 
   const greet = (() => {
     const h = new Date().getHours();
-    if (h < 12) return "Good morning";
-    if (h < 17) return "Good afternoon";
-    return "Good evening";
+    if (h < 12) return t("home.greet.morning");
+    if (h < 17) return t("home.greet.afternoon");
+    return t("home.greet.evening");
   })();
 
   return (
     <Screen refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}>
       <AppHeader
         title={`${greet}${name ? `, ${name.split(" ")[0]}` : ""}`}
-        subtitle="What do you need today?"
+        subtitle={t("home.subtitle")}
         right={
-          <Pill
-            label="Profile"
-            color={colors.accent}
-            bg="rgba(30,94,255,0.10)"
-            style={{ paddingHorizontal: 12, paddingVertical: 6 }}
-          />
+          <Pressable
+            onPress={() => void setLang(lang === "en" ? "hi" : "en")}
+            accessibilityLabel="Switch language"
+            style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "rgba(30,94,255,0.10)", borderRadius: 999 }}
+          >
+            <Text variant="small" weight="bold" style={{ color: lang === "en" ? colors.accent : "#94A3B8" }}>EN</Text>
+            <Text variant="small" tone="muted">|</Text>
+            <Text variant="small" weight="bold" style={{ color: lang === "hi" ? colors.accent : "#94A3B8" }}>हि</Text>
+          </Pressable>
         }
       />
 
@@ -96,14 +101,14 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
         <Card style={{ borderColor: colors.primary, borderWidth: 1.5 }} onPress={() => onTrack(active)}>
           <View style={{ gap: space.sm }}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <Text variant="label" tone="secondary">ACTIVE TRIP</Text>
+              <Text variant="label" tone="secondary">{t("home.active_trip")}</Text>
               <StatusBadge status={active.status} />
             </View>
             <Text variant="heading">{prettyEmergency(active.emergencyType)}</Text>
             <Text variant="small" tone="secondary">
               Pickup: {active.pickupAddress ?? `${active.pickupLat.toFixed(4)}, ${active.pickupLng.toFixed(4)}`}
             </Text>
-            <Button label="Open live tracking" onPress={() => onTrack(active)} fullWidth />
+            <Button label={t("home.open_tracking")} onPress={() => onTrack(active)} fullWidth />
           </View>
         </Card>
       ) : (
@@ -113,9 +118,9 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
             * emergency action. The big circle is unmistakable and works for
             * elderly / panicked / unfamiliar users. */}
           <View style={sosStyles.heroWrap}>
-            <Text variant="title" weight="bold" align="center">Need help right now?</Text>
+            <Text variant="title" weight="bold" align="center">{t("home.need_ambulance")}</Text>
             <Text variant="small" tone="secondary" align="center" style={{ marginTop: 4 }}>
-              Tap the red button for an emergency. The closest ambulance will be dispatched.
+              {t("home.need_ambulance.sub")}
             </Text>
 
             <View style={sosStyles.ringWrap}>
@@ -130,15 +135,15 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
                   accessibilityLabel="Emergency SOS — dispatch ambulance now"
                 >
                   <Text variant="title" tone="inverse" weight="bold" style={{ fontSize: 48, letterSpacing: 3 }}>SOS</Text>
-                  <Text variant="small" tone="inverse" style={{ opacity: 0.95, marginTop: 2 }}>Tap to dispatch</Text>
+                  <Text variant="small" tone="inverse" style={{ opacity: 0.95, marginTop: 2 }}>{t("home.sos.tap")}</Text>
                 </Pressable>
               </Animated.View>
             </View>
 
             <Pressable onPress={onBook} style={sosStyles.bookTile} testID="book-cta" android_ripple={{ color: "rgba(0,0,0,0.04)" }}>
               <View style={{ flex: 1 }}>
-                <Text variant="body" weight="semi">Book ambulance</Text>
-                <Text variant="tiny" tone="secondary">Non-emergency or scheduled · choose category</Text>
+                <Text variant="body" weight="semi">{t("home.book_card.title")}</Text>
+                <Text variant="tiny" tone="secondary">{t("home.book_card.sub")}</Text>
               </View>
               <Text variant="heading" tone="primary" weight="bold">→</Text>
             </Pressable>
@@ -150,33 +155,33 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
         <Card flat>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <View>
-              <Text variant="label" tone="secondary">ACTIVE RIDE</Text>
-              <Text variant="body">In progress · book again after completion</Text>
+              <Text variant="label" tone="secondary">{t("home.active_ride")}</Text>
+              <Text variant="body">{t("home.active_ride.sub")}</Text>
             </View>
-            <Pill label="ACTIVE" color={colors.danger} bg={colors.primaryFaint} />
+            <Pill label={t("home.active.pill")} color={colors.danger} bg={colors.primaryFaint} />
           </View>
         </Card>
       ) : null}
 
       <Card flat>
         <View style={{ gap: space.md }}>
-          <Text variant="label" tone="secondary">QUICK ACTIONS</Text>
+          <Text variant="label" tone="secondary">{t("home.quick_actions")}</Text>
           <View style={{ flexDirection: "row", gap: space.md }}>
             <View style={{ flex: 1 }}>
-              <Button label="Trip history" variant="outline" onPress={onHistory} fullWidth />
+              <Button label={t("home.trip_history")} variant="outline" onPress={onHistory} fullWidth />
             </View>
             <View style={{ flex: 1 }}>
-              <Button label="Medical profile" variant="outline" onPress={onProfile} fullWidth />
+              <Button label={t("home.medical_profile")} variant="outline" onPress={onProfile} fullWidth />
             </View>
           </View>
-          <Button label="Sign out" variant="ghost" onPress={async () => { await clearToken(); onLogout(); }} />
+          <Button label={t("home.sign_out")} variant="ghost" onPress={async () => { await clearToken(); onLogout(); }} />
         </View>
       </Card>
 
       <ContactSupport />
 
       <Text variant="tiny" tone="muted" align="center">
-        Made with care for India&apos;s emergency response.
+        {t("home.made_with_care")}
       </Text>
     </Screen>
   );

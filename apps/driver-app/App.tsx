@@ -14,6 +14,7 @@ import { EarningsScreen } from "./src/screens/EarningsScreen";
 import { ProfileScreen } from "./src/screens/ProfileScreen";
 import { NameCaptureScreen } from "./src/screens/NameCaptureScreen";
 import { KycOnboardingScreen, KycPendingScreen } from "./src/screens/KycOnboardingScreen";
+import { hydrateLang } from "./src/i18n";
 
 type RootStackParamList = {
   Splash: undefined;
@@ -56,6 +57,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
+      await hydrateLang();
       const token = await getToken();
       if (token) {
         // 4s cap — see user-app App.tsx for the rationale (Render cold-starts).

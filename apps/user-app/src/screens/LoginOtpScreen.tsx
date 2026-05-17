@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Animated, Linking, Pressable, View } from "react-native";
 import { AppHeader, Button, Card, IconBadge, Input, OtpInput, OtpToast, PulseDot, Screen, Text, colors, space, useFadeIn } from "@jr/ui";
 import { auth as authApi, setToken } from "../api";
+import { useT } from "../i18n";
 
 // Metro inlines `process.env.EXPO_PUBLIC_*` at bundle time only on direct
 // access. Indirect access leaves the value undefined on native Android.
@@ -12,6 +13,7 @@ const PRIVACY_POLICY_URL =
 const OTP_LENGTH = 4;
 
 export function LoginOtpScreen({ onAuthenticated }: { onAuthenticated: (profile: any) => void }) {
+  const { t, lang, setLang } = useT();
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [stage, setStage] = useState<"phone" | "code">("phone");
@@ -68,9 +70,20 @@ export function LoginOtpScreen({ onAuthenticated }: { onAuthenticated: (profile:
     <View style={{ flex: 1 }}>
       <Screen>
         <AppHeader
-          title={stage === "phone" ? "Sign in" : "Verify OTP"}
-          subtitle={stage === "phone" ? "Enter your mobile number" : `Sent to ${phone}`}
+          title={stage === "phone" ? t("login.title") : t("otp.title")}
+          subtitle={stage === "phone" ? t("login.subtitle") : `${t("otp.subtitle")} ${phone}`}
           onBack={stage === "code" ? () => { setCode(""); setErr(null); setStage("phone"); } : undefined}
+          right={stage === "phone" ? (
+            <Pressable
+              onPress={() => void setLang(lang === "en" ? "hi" : "en")}
+              accessibilityLabel="Switch language"
+              style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "rgba(30,94,255,0.10)", borderRadius: 999 }}
+            >
+              <Text variant="small" weight="bold" style={{ color: lang === "en" ? colors.accent : "#94A3B8" }}>EN</Text>
+              <Text variant="small" tone="muted">|</Text>
+              <Text variant="small" weight="bold" style={{ color: lang === "hi" ? colors.accent : "#94A3B8" }}>हि</Text>
+            </Pressable>
+          ) : undefined}
         />
 
         <Animated.View style={[fade, { alignItems: "center", paddingVertical: space.md }]}>
@@ -87,7 +100,7 @@ export function LoginOtpScreen({ onAuthenticated }: { onAuthenticated: (profile:
           {stage === "phone" ? (
             <View style={{ gap: space.md }}>
               <Input
-                label="Mobile number"
+                label={t("login.mobile")}
                 keyboardType="phone-pad"
                 autoFocus
                 value={phone}
@@ -96,7 +109,7 @@ export function LoginOtpScreen({ onAuthenticated }: { onAuthenticated: (profile:
                 error={err ?? undefined}
               />
               <Button
-                label="Send OTP"
+                label={t("login.send_otp")}
                 onPress={requestOtp}
                 loading={busy}
                 disabled={phone.replace(/\D/g, "").length < 10}
@@ -104,15 +117,21 @@ export function LoginOtpScreen({ onAuthenticated }: { onAuthenticated: (profile:
                 size="lg"
                 testID="send-otp"
               />
-              <Text variant="tiny" tone="muted" align="center">
-                By continuing you agree to our{" "}
+              {/* Privacy policy on its own line so Hindi text doesn't wrap
+                * mid-link — inline `<Pressable>` inside `<Text>` on Android
+                * renders strikethrough artifacts when the parent wraps over
+                * multiple lines (visible in Hindi where the agreement text
+                * is longer than English). */}
+              <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 4 }}>
+                <Text variant="tiny" tone="muted" align="center">
+                  {t("login.agree")}
+                </Text>
                 <Pressable onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>
                   <Text variant="tiny" weight="bold" style={{ color: colors.primary }}>
-                    privacy policy
+                    {t("login.privacy")}
                   </Text>
                 </Pressable>
-                .
-              </Text>
+              </View>
             </View>
           ) : (
             <View style={{ gap: space.lg }}>
@@ -135,17 +154,17 @@ export function LoginOtpScreen({ onAuthenticated }: { onAuthenticated: (profile:
                 size="lg"
                 testID="verify-otp"
               />
-              <Button label="Resend OTP" variant="ghost" onPress={requestOtp} disabled={busy} />
+              <Button label={t("otp.resend")} variant="ghost" onPress={requestOtp} disabled={busy} />
             </View>
           )}
         </Card>
 
         <View style={{ marginTop: space.xl, gap: space.xs, alignItems: "center" }}>
           <Text variant="tiny" tone="muted" align="center">
-            Created with care · Jeevan Rakshak
+            {t("login.footer_care")}
           </Text>
           <Text variant="tiny" tone="muted" align="center">
-            Are you a driver? Sign in via the Jeevan Rakshak Driver app.
+            {t("login.driver_hint")}
           </Text>
         </View>
       </Screen>
