@@ -32,7 +32,17 @@ export default async function BookingDetail({ params }: { params: Promise<{ id: 
             <span className="muted mono" style={{ marginLeft: 12, fontSize: 11 }}>{data.booking.id}</span>
           </p>
         </div>
-        <DeleteBookingButton bookingId={id} apiBase={API_BASE} />
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <Link
+            href={`/bookings/${id}/receipt`}
+            target="_blank"
+            title="Open printable trip receipt"
+            style={{ fontSize: 13, color: "var(--ink)", fontWeight: 600, padding: "8px 12px", border: "1px solid var(--border)", borderRadius: 6, textDecoration: "none", background: "#fff" }}
+          >
+            📄 Receipt
+          </Link>
+          <DeleteBookingButton bookingId={id} apiBase={API_BASE} />
+        </div>
       </div>
       <BookingDetailLive bookingId={id} initialData={data} apiBase={API_BASE} />
     </>

@@ -6,6 +6,7 @@ import { adminFetch } from "../../../lib/adminFetch";
 import { formatIST } from "../../../lib/dates";
 import { downloadCsv } from "../../../lib/csv";
 import { prettyStatus, prettyEmergency, assessmentBadge } from "../../../lib/status";
+import { resolveAmountPaid, formatAmountPaid } from "../../../lib/fare";
 import { DateRangePicker, DateRange, Preset, presetToRange } from "../DateRange";
 
 type Booking = {
@@ -17,6 +18,10 @@ type Booking = {
   dropAddress?: string | null;
   fareEstimateInr?: number | null;
   fareFinalInr?: number | null;
+  adminFareOverrideInr?: number | null;
+  payableInr?: number | null;
+  discountInr?: number | null;
+  couponCode?: string | null;
   rating?: number | null;
   createdAt: string;
   isDemo?: boolean;
@@ -77,7 +82,11 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
       { header: "Status", value: (b) => prettyStatus(b.status) },
       { header: "Pickup", value: (b) => b.pickupAddress ?? "" },
       { header: "Drop", value: (b) => b.dropAddress ?? "" },
-      { header: "Fare (₹)", value: (b) => b.fareFinalInr ?? b.fareEstimateInr ?? "" },
+      { header: "Fare (₹)", value: (b) => b.fareEstimateInr ?? "" },
+      { header: "Coupon", value: (b) => b.couponCode ?? "" },
+      { header: "Discount (₹)", value: (b) => b.discountInr ?? "" },
+      { header: "Net Pay (₹)", value: (b) => resolveAmountPaid(b).amount ?? "" },
+      { header: "Override active", value: (b) => (resolveAmountPaid(b).overridden ? "yes" : "") },
       { header: "Rating", value: (b) => b.rating ?? "" },
       { header: "Paramedic assessment", value: (b) => assessmentBadge(b.status, b.paramedicAssessment).label }
     ], "jr-bookings");
@@ -127,7 +136,7 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
                 <th>Created</th>
                 <th>Emergency</th>
                 <th>Pickup → Drop</th>
-                <th>Fare</th>
+                <th>Amount Paid</th>
                 <th>Rating</th>
                 <th>Status</th>
                 <th>Paramedic</th>
@@ -144,6 +153,8 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
               ) : (
                 filtered.map((b) => {
                   const badge = assessmentBadge(b.status, b.paramedicAssessment);
+                  const paid = resolveAmountPaid(b);
+                  const isCompleted = b.status === "COMPLETED";
                   return (
                     <tr key={b.id}>
                       <td className="mono"><strong>#{b.displayId ?? b.id.slice(0, 8) + "…"}</strong></td>
@@ -153,7 +164,15 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
                         <div>{b.pickupAddress ?? "—"}</div>
                         {b.dropAddress ? <div className="muted" style={{ fontSize: 12 }}>→ {b.dropAddress}</div> : null}
                       </td>
-                      <td className="mono">₹{b.fareFinalInr ?? b.fareEstimateInr ?? "—"}</td>
+                      <td className="mono">
+                        {formatAmountPaid(b)}
+                        {paid.overridden ? (
+                          <span title="Admin override" style={{ marginLeft: 6, fontSize: 9, padding: "1px 4px", borderRadius: 3, background: "rgba(245, 158, 11, 0.15)", color: "#B45309", fontWeight: 700 }}>OR</span>
+                        ) : null}
+                        {b.couponCode && !paid.overridden ? (
+                          <div className="muted" style={{ fontSize: 11 }}>{b.couponCode}</div>
+                        ) : null}
+                      </td>
                       <td>{b.rating ? "★".repeat(b.rating) : <span className="muted">—</span>}</td>
                       <td><span className={`pill ${b.status.toLowerCase()}`}>{prettyStatus(b.status)}</span></td>
                       <td>
@@ -164,7 +183,19 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
                         )}
                       </td>
                       <td>
-                        <Link href={`/bookings/${b.id}`} style={{ color: "var(--accent)", fontSize: 12 }}>Open →</Link>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          <Link href={`/bookings/${b.id}`} style={{ color: "var(--accent)", fontSize: 12 }}>Open →</Link>
+                          {isCompleted ? (
+                            <Link
+                              href={`/bookings/${b.id}/receipt`}
+                              target="_blank"
+                              title="Open trip receipt — print or save as PDF"
+                              style={{ color: "var(--ink)", fontSize: 11, fontWeight: 600 }}
+                            >
+                              📄 Receipt
+                            </Link>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   );

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { adminFetch } from "../../../../lib/adminFetch";
 import { formatIST } from "../../../../lib/dates";
 import { prettyStatus, prettyEmergency } from "../../../../lib/status";
+import { resolveAmountPaid } from "../../../../lib/fare";
 import { DisableToggle } from "./DisableToggle";
 import { EditableField } from "../../EditableField";
 
@@ -94,9 +95,18 @@ export default async function UserDetail({ params }: { params: Promise<{ id: str
                       {b.dropAddress ? <div className="muted" style={{ fontSize: 12 }}>→ {b.dropAddress}</div> : null}
                     </td>
                     <td className="mono">
-                      ₹{b.fareFinalInr ?? b.fareEstimateInr ?? "—"}
-                      {b.couponCode ? <span className="muted" style={{ fontSize: 11 }}> · {b.couponCode}</span> : null}
-                      {b.payableInr != null ? <div className="mono" style={{ color: "var(--success)" }}>₹{b.payableInr}</div> : null}
+                      {(() => {
+                        const paid = resolveAmountPaid(b);
+                        return (
+                          <>
+                            <div style={{ fontWeight: 600 }}>
+                              {paid.amount == null ? "—" : `₹${paid.amount}`}
+                              {paid.overridden ? <span style={{ marginLeft: 6, fontSize: 9, padding: "1px 4px", borderRadius: 3, background: "rgba(245,158,11,0.15)", color: "#B45309", fontWeight: 700 }}>OR</span> : null}
+                            </div>
+                            {b.couponCode ? <div className="muted" style={{ fontSize: 11 }}>{b.couponCode}</div> : null}
+                          </>
+                        );
+                      })()}
                     </td>
                     <td><span className={`pill ${b.status.toLowerCase()}`}>{prettyStatus(b.status)}</span></td>
                     <td><Link href={`/bookings/${b.id}`} style={{ color: "var(--accent)", fontSize: 12 }}>Open →</Link></td>

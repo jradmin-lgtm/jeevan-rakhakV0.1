@@ -5,6 +5,7 @@ import Link from "next/link";
 import { adminFetch } from "../../../../lib/adminFetch";
 import { formatIST, formatTimeIST } from "../../../../lib/dates";
 import { prettyStatus, prettyEmergency, assessmentBadge } from "../../../../lib/status";
+import { resolveAmountPaid } from "../../../../lib/fare";
 
 type BookingEvent = {
   id: string;
@@ -112,7 +113,10 @@ export function BookingDetailLive({
   const { booking, events, user, driver } = data;
   const fareEstimate = booking.fareEstimateInr ?? 0;
   const discount = booking.discountInr ?? 0;
-  const payable = booking.payableInr ?? (booking.fareFinalInr ?? fareEstimate);
+  // Headline "Net Pay" — single source of truth used here + in the bookings
+  // list + dashboard. See lib/fare.ts for the resolution priority (override
+  // > payable > final − discount > estimate − discount).
+  const netPay = resolveAmountPaid(booking);
 
   const assessment = assessmentBadge(booking.status, booking.paramedicAssessment);
 
@@ -155,15 +159,29 @@ export function BookingDetailLive({
         </div>
         <div className="card">
           <h3 style={{ margin: "0 0 12px" }}>Fare</h3>
-          <Field label="Estimate" value={`₹${fareEstimate}`} />
+          {/* v1.0.13: card restructured to read as a receipt — Fare, Coupon,
+            * Discount, App-final → Net Pay (headline). The admin override
+            * directly drives Net Pay (resolveAmountPaid prioritises it) so
+            * what's saved here is what gets counted in analytics + shown on
+            * the bookings list. */}
+          <Field label="Fare" value={`₹${fareEstimate}`} />
           <Field
-            label="Coupon"
-            value={booking.couponCode ?? <span style={{ color: "var(--muted)" }}>None</span>}
+            label="Coupon used"
+            value={booking.couponCode
+              ? <span style={{ color: "var(--success)", fontWeight: 600 }}>{booking.couponCode}</span>
+              : <span style={{ color: "var(--muted)" }}>None</span>}
           />
-          {discount > 0 ? <Field label="Discount" value={<span style={{ color: "var(--success)" }}>− ₹{discount}</span>} /> : null}
+          <Field
+            label="Discount"
+            value={discount > 0
+              ? <span style={{ color: "var(--success)" }}>− ₹{discount}</span>
+              : <span style={{ color: "var(--muted)" }}>₹0</span>}
+          />
           <Field
             label="App final"
-            value={booking.fareFinalInr ? `₹${booking.fareFinalInr}` : <span style={{ color: "var(--muted)" }}>Not closed yet</span>}
+            value={booking.fareFinalInr != null
+              ? `₹${booking.fareFinalInr}`
+              : <span style={{ color: "var(--muted)" }}>Not closed yet</span>}
           />
           <div style={{
             display: "flex",
@@ -173,13 +191,22 @@ export function BookingDetailLive({
             borderTop: "1px solid var(--border)",
             marginTop: 6
           }}>
-            <span style={{ fontSize: 13, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4 }}>Payable in app</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: payable === 0 ? "var(--success)" : "var(--ink)" }}>
-              ₹{payable}
+            <span style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6 }}>
+              Net Pay
+              {netPay.overridden ? (
+                <span title="Admin override active" style={{ marginLeft: 6, padding: "2px 6px", borderRadius: 4, fontSize: 10, background: "rgba(245, 158, 11, 0.15)", color: "#B45309" }}>OVERRIDE</span>
+              ) : null}
+            </span>
+            <span style={{ fontSize: 20, fontWeight: 700, color: netPay.amount === 0 ? "var(--success)" : "var(--ink)" }}>
+              {netPay.amount == null ? "—" : `₹${netPay.amount}`}
             </span>
           </div>
-          {/* Admin fare override — for off-app billing (e.g. hospital invoices).
-            * Mobile apps never see this. Analytics GMV uses this when set. */}
+          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+            {sourceExplanation(netPay.source)}
+          </div>
+          {/* Override Net Pay — for off-app billing (hospital invoices, ops
+            * adjustments). Mobile apps never see this; the user keeps seeing
+            * the original `payableInr`. Analytics GMV picks up this value. */}
           <FareOverride
             bookingId={booking.id}
             apiBase={apiBase}
@@ -423,6 +450,16 @@ function prettyAssessmentKey(k: string): string {
     .replace(/([A-Z])/g, " $1")
     .replace(/^./, (c) => c.toUpperCase())
     .replace(/_/g, " ");
+}
+
+function sourceExplanation(source: "override" | "payable" | "final" | "estimate" | "none"): string {
+  switch (source) {
+    case "override": return "Admin override active — this value is also what analytics records.";
+    case "payable":  return "From in-app payment (fare − discount).";
+    case "final":    return "Fare closed at completion (less any coupon discount).";
+    case "estimate": return "Quoted fare; trip not yet closed.";
+    case "none":     return "No fare data captured yet.";
+  }
 }
 
 function AssessmentPill({ badge }: { badge: { label: string; variant: "submitted" | "risk" | "awaiting" | "na" } }) {

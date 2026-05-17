@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { adminFetch } from "../../lib/adminFetch";
 import { formatTimeIST, formatTimeShortIST } from "../../lib/dates";
 import { prettyStatus, prettyEmergency } from "../../lib/status";
+import { formatAmountPaid } from "../../lib/fare";
 import { TrendsCard } from "./TrendsCard";
 
 type Stats = {
@@ -22,6 +23,9 @@ type Booking = {
   dropAddress?: string | null;
   fareEstimateInr?: number | null;
   fareFinalInr?: number | null;
+  adminFareOverrideInr?: number | null;
+  payableInr?: number | null;
+  discountInr?: number | null;
   createdAt: string;
   isDemo?: boolean;
 };
@@ -146,7 +150,7 @@ export function LiveDashboard({
                         <div>{b.pickupAddress ?? "—"}</div>
                         {b.dropAddress ? <div className="muted" style={{ fontSize: 12 }}>→ {b.dropAddress}</div> : null}
                       </td>
-                      <td className="mono">₹{b.fareFinalInr ?? b.fareEstimateInr ?? "—"}</td>
+                      <td className="mono">{formatAmountPaid(b)}</td>
                       <td>
                         <span className={`pill ${b.status.toLowerCase()}`}>{prettyStatus(b.status)}</span>
                       </td>
