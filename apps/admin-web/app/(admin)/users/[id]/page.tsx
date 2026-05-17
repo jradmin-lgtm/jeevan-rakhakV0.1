@@ -29,12 +29,22 @@ export default async function UserDetail({ params }: { params: Promise<{ id: str
   return (
     <>
       <div className="page-header">
-        <div>
-          <h1>{user.name ?? "Unnamed user"}</h1>
-          <p>
-            <Link href="/users" style={{ color: "var(--accent)" }}>← Back to users</Link>
-            {user.disabled ? <span className="pill cancelled" style={{ marginLeft: 8 }}>Disabled</span> : <span className="pill completed" style={{ marginLeft: 8 }}>Active</span>}
-          </p>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          {user.pictureUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={user.pictureUrl} alt={user.name ?? "User avatar"} width={56} height={56} style={{ borderRadius: 28, border: "1px solid var(--border)" }} />
+          ) : null}
+          <div>
+            <h1>{user.name ?? "Unnamed user"}</h1>
+            <p style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <Link href="/users" style={{ color: "var(--accent)" }}>← Back to users</Link>
+              {user.disabled ? <span className="pill cancelled">Disabled</span> : <span className="pill completed">Active</span>}
+              {user.authProvider === "google" ? (
+                <span title="Signed in with Google" style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "rgba(66, 133, 244, 0.10)", color: "#1A73E8", fontWeight: 600 }}>Google</span>
+              ) : null}
+              {user.email ? <span className="muted" style={{ fontSize: 12 }}>{user.email}</span> : null}
+            </p>
+          </div>
         </div>
         <DisableToggle
           kind="user"
@@ -51,6 +61,8 @@ export default async function UserDetail({ params }: { params: Promise<{ id: str
             Click ✎ to edit any field. Changes reflect in the user's app on next refresh.
           </p>
           <Field label="Phone" value={user.phone} />
+          <Field label="Email" value={user.email ?? <span style={{ color: "var(--muted)" }}>—</span>} />
+          <Field label="Auth provider" value={user.authProvider === "google" ? "Google Sign-In" : <span style={{ color: "var(--muted)" }}>OTP (legacy)</span>} />
           <EditableField label="Name" value={user.name} apiBase={API_BASE} patchUrl={`/api/v1/admin/users/${user.id}`} fieldKey="name" placeholder="Full name" />
           <EditableField label="Blood group" value={user.bloodGroup} apiBase={API_BASE} patchUrl={`/api/v1/admin/users/${user.id}`} fieldKey="bloodGroup" placeholder="e.g. O+" />
           <EditableField label="Allergies" value={user.allergies} apiBase={API_BASE} patchUrl={`/api/v1/admin/users/${user.id}`} fieldKey="allergies" placeholder="None / list" multiline />
@@ -121,7 +133,7 @@ export default async function UserDetail({ params }: { params: Promise<{ id: str
   );
 }
 
-function Field({ label, value }: { label: string; value: string }) {
+function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
       <span className="muted" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>{label}</span>

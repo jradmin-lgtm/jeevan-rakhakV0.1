@@ -4,22 +4,27 @@ import { ActivityIndicator, View } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { colors, ErrorBoundary } from "@jr/ui";
-import { Booking, getToken, me } from "./src/api";
+import { colors, ErrorBoundary, configureGoogleSignIn, signOutFromGoogle } from "@jr/ui";
+import { Booking, getToken, me, clearToken } from "./src/api";
 import { SplashScreen } from "./src/screens/SplashScreen";
-import { LoginScreen } from "./src/screens/LoginScreen";
+import { GoogleLoginScreen } from "./src/screens/GoogleLoginScreen";
+import { ProfileSetupScreen } from "./src/screens/ProfileSetupScreen";
 import { DashboardScreen } from "./src/screens/DashboardScreen";
 import { TripScreen } from "./src/screens/TripScreen";
 import { EarningsScreen } from "./src/screens/EarningsScreen";
 import { ProfileScreen } from "./src/screens/ProfileScreen";
-import { NameCaptureScreen } from "./src/screens/NameCaptureScreen";
 import { KycOnboardingScreen, KycPendingScreen } from "./src/screens/KycOnboardingScreen";
 import { hydrateLang } from "./src/i18n";
+
+type GooglePending = {
+  idToken: string;
+  google: { email: string; name: string | null; picture: string | null; sub: string };
+};
 
 type RootStackParamList = {
   Splash: undefined;
   Login: undefined;
-  NameCapture: undefined;
+  ProfileSetup: undefined;
   KycOnboarding: undefined;
   KycPending: undefined;
   Dashboard: undefined;
@@ -54,10 +59,12 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export default function App() {
   const [hydrated, setHydrated] = useState(false);
   const [profile, setProfile] = useState<any>(null);
+  const [googlePending, setGooglePending] = useState<GooglePending | null>(null);
 
   useEffect(() => {
     (async () => {
       await hydrateLang();
+      try { configureGoogleSignIn(); } catch { /* dev-only — see user-app for rationale */ }
       const token = await getToken();
       if (token) {
         // 4s cap — see user-app App.tsx for the rationale (Render cold-starts).
@@ -91,21 +98,31 @@ export default function App() {
       <SafeAreaProvider>
         <NavigationContainer>
           <Stack.Navigator screenOptions={{ headerShown: false, animation: "slide_from_right" }}>
-        {!profile ? (
+        {!profile && !googlePending ? (
           <>
             <Stack.Screen name="Splash">
               {({ navigation }) => <SplashScreen onDone={() => navigation.replace("Login")} />}
             </Stack.Screen>
             <Stack.Screen name="Login">
-              {() => <LoginScreen onAuthenticated={(p) => setProfile(p)} />}
+              {() => (
+                <GoogleLoginScreen
+                  onAuthenticated={(p) => setProfile(p)}
+                  onProfileSetupRequired={(input) => setGooglePending(input)}
+                />
+              )}
             </Stack.Screen>
           </>
-        ) : !profile.name || String(profile.name).trim().length < 2 ? (
-          <Stack.Screen name="NameCapture">
+        ) : googlePending ? (
+          <Stack.Screen name="ProfileSetup">
             {() => (
-              <NameCaptureScreen
-                initialName={profile.name}
-                onSaved={(p) => setProfile(p)}
+              <ProfileSetupScreen
+                idToken={googlePending.idToken}
+                google={googlePending.google}
+                onSetupComplete={(p) => {
+                  setProfile(p);
+                  setGooglePending(null);
+                }}
+                onBack={() => setGooglePending(null)}
               />
             )}
           </Stack.Screen>
@@ -128,7 +145,11 @@ export default function App() {
               {({ navigation }) => (
                 <DashboardScreen
                   profile={profile}
-                  onLogout={() => setProfile(null)}
+                  onLogout={async () => {
+                    await clearToken();
+                    await signOutFromGoogle();
+                    setProfile(null);
+                  }}
                   onTrip={(b) => navigation.navigate("Trip", { booking: b })}
                   onProfile={() => navigation.navigate("Profile")}
                   onEarnings={() => navigation.navigate("Earnings")}

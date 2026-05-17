@@ -113,7 +113,14 @@ export type Booking = {
   cancelledAt?: string | null;
 };
 
+export type GoogleSignInResult =
+  | { kind: "signedIn"; accessToken: string; profile: any }
+  | { kind: "needsProfile"; googleProfile: { email: string; name: string | null; picture: string | null; sub: string } };
+
 export const auth = {
+  // Legacy OTP path — kept while the rollout is in progress so we can A/B
+  // and to give ops a fallback if Google Sign-In ever has an outage. Both
+  // endpoints will be removed in v1.1.1 once the entire pilot has migrated.
   requestOtp: (phone: string, role: "user" | "driver") =>
     api<{ message: string; demoOtp?: string; channel: string; ttlSec: number }>(
       "/api/v1/auth/login",
@@ -123,6 +130,22 @@ export const auth = {
     api<{ accessToken: string; profile: any }>("/api/v1/auth/verify-otp", {
       method: "POST",
       body: { phone, role, code },
+      auth: false
+    }),
+  // v1.1.0: Google Sign-In. Mobile gets the ID token from
+  // @react-native-google-signin, posts it here, server returns either a JWT
+  // (existing user) or { needsProfile, googleProfile } for first-time signup.
+  googleStart: (idToken: string, role: "user" | "driver") =>
+    api<
+      | { accessToken: string; profile: any; needsProfile?: undefined }
+      | { needsProfile: true; googleProfile: { email: string; name: string | null; picture: string | null; sub: string }; accessToken?: undefined }
+    >("/api/v1/auth/google", { method: "POST", body: { idToken, role }, auth: false }),
+  // Posted after the new user fills in phone+name. Server re-verifies the
+  // ID token, enforces email↔phone uniqueness, and returns the JWT.
+  googleComplete: (input: { idToken: string; role: "user" | "driver"; phone: string; name: string }) =>
+    api<{ accessToken: string; profile: any }>("/api/v1/auth/google/complete", {
+      method: "POST",
+      body: input,
       auth: false
     })
 };

@@ -48,7 +48,7 @@ const en: Dict = {
   "home.sign_out": "Sign out",
   "home.made_with_care": "Made with care for India's emergency response.",
 
-  // Login
+  // Login (legacy OTP path — kept for fallback only)
   "login.title": "Sign in",
   "login.subtitle": "Enter your mobile number",
   "login.mobile": "Mobile number",
@@ -62,6 +62,29 @@ const en: Dict = {
   "otp.title": "Verify OTP",
   "otp.subtitle": "We sent a 6-digit code to",
   "otp.resend": "Resend OTP",
+
+  // Google Sign-In (v1.0.13)
+  "auth.google.title": "Welcome",
+  "auth.google.subtitle": "Sign in with your Google account to continue",
+  "auth.google.button": "Continue with Google",
+  "auth.google.busy": "Signing in…",
+  "auth.google.why_google": "We use Google sign-in for your security. Your number is verified once and stays linked to your Google account.",
+  "auth.google.error_cancelled": "Sign-in cancelled.",
+  "auth.google.error_play_services": "Google Play Services isn't available on this device. Update it from the Play Store and try again.",
+  "auth.google.error_email_used": "This Google account is already registered. If you don't recognise the account, contact support.",
+  "auth.google.error_phone_used": "This phone number is already linked to a different Google account. Contact support if you've lost access.",
+  "auth.google.error_generic": "Couldn't sign in. Please try again.",
+
+  // Profile setup (first sign-in)
+  "profile_setup.title": "Complete your profile",
+  "profile_setup.subtitle": "Just two more details so the driver can reach you",
+  "profile_setup.name_label": "Full name",
+  "profile_setup.name_placeholder": "Ravi Kumar",
+  "profile_setup.phone_label": "Mobile number",
+  "profile_setup.phone_placeholder": "+91 98xxx xxxxx",
+  "profile_setup.phone_help": "We share this with the assigned driver and our operations team only.",
+  "profile_setup.continue": "Continue",
+  "profile_setup.signed_in_as": "Signed in as",
 
   // Language picker
   "lang.title": "Choose your language",
@@ -115,6 +138,29 @@ const hi: Dict = {
   "otp.title": "OTP सत्यापित करें",
   "otp.subtitle": "हमने 6-अंकीय कोड भेजा है",
   "otp.resend": "OTP फिर से भेजें",
+
+  // Google Sign-In (extended — v1.0.13)
+  "auth.google.title": "स्वागत है",
+  "auth.google.subtitle": "जारी रखने के लिए अपने Google खाते से साइन इन करें",
+  "auth.google.button": "Google से जारी रखें",
+  "auth.google.busy": "साइन इन हो रहा है…",
+  "auth.google.why_google": "आपकी सुरक्षा के लिए हम Google साइन-इन का उपयोग करते हैं। आपका नंबर एक बार सत्यापित होता है और आपके Google खाते से जुड़ा रहता है।",
+  "auth.google.error_cancelled": "साइन इन रद्द किया गया।",
+  "auth.google.error_play_services": "इस डिवाइस पर Google Play Services उपलब्ध नहीं है। Play Store से अपडेट करके फिर से कोशिश करें।",
+  "auth.google.error_email_used": "यह Google खाता पहले से पंजीकृत है। यदि आप इसे नहीं पहचानते, तो सहायता से संपर्क करें।",
+  "auth.google.error_phone_used": "यह मोबाइल नंबर पहले से किसी अन्य Google खाते से जुड़ा है। यदि आपका एक्सेस खो गया है, तो सहायता से संपर्क करें।",
+  "auth.google.error_generic": "साइन इन नहीं हो सका। कृपया फिर से कोशिश करें।",
+
+  // Profile setup (first sign-in) — extended
+  "profile_setup.title": "अपनी प्रोफ़ाइल पूरी करें",
+  "profile_setup.subtitle": "ड्राइवर आप तक पहुँच सके इसके लिए बस दो जानकारियाँ चाहिए",
+  "profile_setup.name_label": "पूरा नाम",
+  "profile_setup.name_placeholder": "रवि कुमार",
+  "profile_setup.phone_label": "मोबाइल नंबर",
+  "profile_setup.phone_placeholder": "+91 98xxx xxxxx",
+  "profile_setup.phone_help": "हम यह केवल असाइन किए गए ड्राइवर और हमारी ऑपरेशन्स टीम के साथ साझा करते हैं।",
+  "profile_setup.continue": "जारी रखें",
+  "profile_setup.signed_in_as": "इस रूप में साइन इन हैं",
 
   "lang.title": "अपनी भाषा चुनें",
   "lang.subtitle": "आप इसे अपनी प्रोफ़ाइल से कभी भी बदल सकते हैं",

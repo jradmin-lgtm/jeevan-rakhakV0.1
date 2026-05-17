@@ -21,3 +21,10 @@ export { OtpToast } from "./components/OtpToast";
 export { RatingPrompt } from "./components/RatingPrompt";
 export { ErrorBoundary } from "./components/ErrorBoundary";
 export { useFadeIn } from "./hooks/useFadeIn";
+export {
+  configureGoogleSignIn,
+  signInWithGoogle,
+  signOutFromGoogle,
+  JrGoogleSignInError
+} from "./auth/googleSignIn";
+export type { JrSignInError } from "./auth/googleSignIn";

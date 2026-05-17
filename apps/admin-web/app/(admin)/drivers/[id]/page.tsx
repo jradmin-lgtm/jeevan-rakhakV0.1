@@ -30,28 +30,38 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
   return (
     <>
       <div className="page-header">
-        <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          {driver.pictureUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={driver.pictureUrl} alt={driver.name ?? "Driver avatar"} width={56} height={56} style={{ borderRadius: 28, border: "1px solid var(--border)" }} />
+          ) : null}
+          <div>
           <h1>{driver.name ?? "Unnamed driver"}</h1>
-          <p>
+          <p style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <Link href="/drivers" style={{ color: "var(--accent)" }}>← Back to drivers</Link>
             {driver.disabled ? (
               <>
-                <span style={{ display: "inline-block", padding: "4px 12px", borderRadius: 999, fontSize: 11, fontWeight: 700, letterSpacing: 0.6, background: "#DC2626", color: "#fff", textTransform: "uppercase", marginLeft: 8 }}>
+                <span style={{ display: "inline-block", padding: "4px 12px", borderRadius: 999, fontSize: 11, fontWeight: 700, letterSpacing: 0.6, background: "#DC2626", color: "#fff", textTransform: "uppercase" }}>
                   Disabled
                 </span>
-                <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>
+                <span className="muted" style={{ fontSize: 12 }}>
                   (was {driver.status === "ON_TRIP" ? "on trip" : driver.status === "AVAILABLE" ? "available" : "offline"})
                 </span>
               </>
             ) : (
               <>
-                <span className="pill completed" style={{ marginLeft: 8 }}>Active</span>
-                <span className={`pill ${driver.status.toLowerCase() === "on_trip" ? "accepted" : driver.status === "AVAILABLE" ? "completed" : "cancelled"}`} style={{ marginLeft: 8 }}>
+                <span className="pill completed">Active</span>
+                <span className={`pill ${driver.status.toLowerCase() === "on_trip" ? "accepted" : driver.status === "AVAILABLE" ? "completed" : "cancelled"}`}>
                   {driver.status === "ON_TRIP" ? "On trip" : driver.status === "AVAILABLE" ? "Available" : "Offline"}
                 </span>
               </>
             )}
+            {driver.authProvider === "google" ? (
+              <span title="Signed in with Google" style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "rgba(66, 133, 244, 0.10)", color: "#1A73E8", fontWeight: 600 }}>Google</span>
+            ) : null}
+            {driver.email ? <span className="muted" style={{ fontSize: 12 }}>{driver.email}</span> : null}
           </p>
+        </div>
         </div>
         <DisableToggle
           kind="driver"
@@ -68,6 +78,8 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
             Click ✎ to edit any field. Changes reflect in the driver's app on next refresh.
           </p>
           <Field label="Phone" value={driver.phone} />
+          <Field label="Email" value={driver.email ?? <span style={{ color: "var(--muted)" }}>—</span>} />
+          <Field label="Auth provider" value={driver.authProvider === "google" ? "Google Sign-In" : <span style={{ color: "var(--muted)" }}>OTP (legacy)</span>} />
           <EditableField label="Name" value={driver.name} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="name" placeholder="Full name" />
           <EditableField label="Vehicle #" value={driver.vehicleNumber} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="vehicleNumber" placeholder="DL07AB1234" />
           <EditableField label="Vehicle type" value={driver.vehicleType} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="vehicleType" placeholder="BLS / ALS / ICU" />

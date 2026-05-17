@@ -4,23 +4,28 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { ActivityIndicator, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { colors, ErrorBoundary } from "@jr/ui";
-import { Booking, getToken, me } from "./src/api";
+import { colors, ErrorBoundary, configureGoogleSignIn, signOutFromGoogle } from "@jr/ui";
+import { Booking, getToken, me, clearToken } from "./src/api";
 import { SplashScreen } from "./src/screens/SplashScreen";
-import { LoginOtpScreen } from "./src/screens/LoginOtpScreen";
+import { GoogleLoginScreen } from "./src/screens/GoogleLoginScreen";
+import { ProfileSetupScreen } from "./src/screens/ProfileSetupScreen";
 import { HomeScreen } from "./src/screens/HomeScreen";
 import { BookAmbulanceScreen } from "./src/screens/BookAmbulanceScreen";
 import { LiveTrackingScreen } from "./src/screens/LiveTrackingScreen";
 import { HistoryScreen } from "./src/screens/HistoryScreen";
 import { MedicalProfileScreen } from "./src/screens/MedicalProfileScreen";
 import { SosScreen } from "./src/screens/SosScreen";
-import { NameCaptureScreen } from "./src/screens/NameCaptureScreen";
 import { hydrateLang } from "./src/i18n";
+
+type GooglePending = {
+  idToken: string;
+  google: { email: string; name: string | null; picture: string | null; sub: string };
+};
 
 type RootStackParamList = {
   Splash: undefined;
   Login: undefined;
-  NameCapture: undefined;
+  ProfileSetup: undefined;
   Home: undefined;
   Book: undefined;
   Track: { booking: Booking };
@@ -34,6 +39,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export default function App() {
   const [hydrated, setHydrated] = useState(false);
   const [profile, setProfile] = useState<any>(null);
+  const [googlePending, setGooglePending] = useState<GooglePending | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -41,6 +47,16 @@ export default function App() {
       // splash + login already speak the user's language. ~5ms AsyncStorage
       // read; doesn't extend perceived boot time.
       await hydrateLang();
+      // Configure Google Sign-In once at boot. Cheap; idempotent. The
+      // actual native prompt is only triggered when the user taps the
+      // Continue with Google button.
+      try {
+        configureGoogleSignIn();
+      } catch {
+        /* missing webClientId only surfaces in dev — caught and ignored so
+         * the rest of the app still boots. The login screen also re-tries
+         * configure() lazily, so a real misconfiguration surfaces there. */
+      }
       const token = await getToken();
       if (token) {
         // Render free-tier dynos cold-start in ~30s. Cap the wait at 4s so the
@@ -79,25 +95,31 @@ export default function App() {
       <SafeAreaProvider>
         <NavigationContainer>
           <Stack.Navigator screenOptions={{ headerShown: false, animation: "slide_from_right" }}>
-        {!profile ? (
+        {!profile && !googlePending ? (
           <>
             <Stack.Screen name="Splash">
               {({ navigation }) => <SplashScreen onDone={() => navigation.replace("Login")} />}
             </Stack.Screen>
             <Stack.Screen name="Login">
               {() => (
-                <LoginOtpScreen
+                <GoogleLoginScreen
                   onAuthenticated={(p) => setProfile(p)}
+                  onProfileSetupRequired={(input) => setGooglePending(input)}
                 />
               )}
             </Stack.Screen>
           </>
-        ) : !profile.name || String(profile.name).trim().length < 2 ? (
-          <Stack.Screen name="NameCapture">
+        ) : googlePending ? (
+          <Stack.Screen name="ProfileSetup">
             {() => (
-              <NameCaptureScreen
-                initialName={profile.name}
-                onSaved={(p) => setProfile(p)}
+              <ProfileSetupScreen
+                idToken={googlePending.idToken}
+                google={googlePending.google}
+                onSetupComplete={(p) => {
+                  setProfile(p);
+                  setGooglePending(null);
+                }}
+                onBack={() => setGooglePending(null)}
               />
             )}
           </Stack.Screen>
@@ -107,7 +129,14 @@ export default function App() {
               {({ navigation }) => (
                 <HomeScreen
                   profile={profile}
-                  onLogout={() => setProfile(null)}
+                  onLogout={async () => {
+                    // v1.0.13: clear JWT, sign out of Google so the next
+                    // sign-in shows the account picker afresh. Both calls
+                    // swallow errors — logout is fire-and-forget.
+                    await clearToken();
+                    await signOutFromGoogle();
+                    setProfile(null);
+                  }}
                   onBook={() => navigation.navigate("Book")}
                   onSos={() => navigation.navigate("Sos")}
                   onTrack={(b) => navigation.navigate("Track", { booking: b })}

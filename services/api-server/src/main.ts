@@ -153,7 +153,30 @@ async function bootstrap() {
     // a no-op; the UPDATE is here for resilience across re-deploys.
     await pgClient`UPDATE bookings SET display_id = nextval('jr_booking_display_seq')::text WHERE display_id IS NULL`;
     await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS bookings_display_id_uniq ON bookings(display_id)`;
-    app.log.info("[migrate] schema v1.0.11.5 ready (two-way ratings + feedback + admin fare override + display_id)");
+    // v1.1.0: Google Sign-In identity columns. `email` becomes the canonical
+    // login identifier; `auth_subject` is Google's stable `sub` claim used as
+    // the lookup key on every sign-in (resilient to email-alias changes).
+    // `auth_provider` records how the row was created ("google" for new rows;
+    // null on any legacy OTP-only rows from before the DB wipe). All nullable
+    // for backward compatibility with the OTP path during the rollout window.
+    await pgClient`ALTER TABLE users   ADD COLUMN IF NOT EXISTS email          text`;
+    await pgClient`ALTER TABLE users   ADD COLUMN IF NOT EXISTS auth_provider  text`;
+    await pgClient`ALTER TABLE users   ADD COLUMN IF NOT EXISTS auth_subject   text`;
+    await pgClient`ALTER TABLE users   ADD COLUMN IF NOT EXISTS picture_url    text`;
+    await pgClient`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS email          text`;
+    await pgClient`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS auth_provider  text`;
+    await pgClient`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS auth_subject   text`;
+    await pgClient`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS picture_url    text`;
+    // Uniqueness on `LOWER(email)` (Gmail addresses are case-insensitive in
+    // practice — Google normalises before delivery). Partial index so the
+    // legacy NULL-email rows don't collide.
+    await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_uniq   ON users(LOWER(email))   WHERE email IS NOT NULL`;
+    await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS drivers_email_lower_uniq ON drivers(LOWER(email)) WHERE email IS NOT NULL`;
+    // Same idea for the Google subject — it's the stable primary key Google
+    // gives us. Lookup-by-sub is the hot path on every sign-in.
+    await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS users_auth_subject_uniq   ON users(auth_subject)   WHERE auth_subject IS NOT NULL`;
+    await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS drivers_auth_subject_uniq ON drivers(auth_subject) WHERE auth_subject IS NOT NULL`;
+    app.log.info("[migrate] schema v1.1.0 ready (Google Sign-In identity columns + email/auth_subject unique indexes)");
   } catch (err) {
     // Thumb rule: migrations FATAL-EXIT on failure. Silent catch+warn here
     // previously let the service start with a broken schema (system_events

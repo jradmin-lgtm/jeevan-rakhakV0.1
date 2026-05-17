@@ -40,6 +40,15 @@ export const users = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     phone: text("phone").notNull().unique(),
+    // v1.1.0: Google Sign-In primary identity. `email` is unique across all
+    // users; `authProvider` is "google" (or null on the legacy OTP-only rows
+    // from before the DB wipe). `authSubject` is Google's stable `sub` claim
+    // — preferred over email lookups because users can change their Gmail
+    // primary alias. `pictureUrl` is from Google's userinfo response.
+    email: text("email"),
+    authProvider: text("auth_provider"),
+    authSubject: text("auth_subject"),
+    pictureUrl: text("picture_url"),
     name: text("name"),
     bloodGroup: text("blood_group"),
     allergies: text("allergies"),
@@ -69,6 +78,11 @@ export const drivers = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     phone: text("phone").notNull().unique(),
+    // v1.1.0: Google Sign-In identity (see users.email comment).
+    email: text("email"),
+    authProvider: text("auth_provider"),
+    authSubject: text("auth_subject"),
+    pictureUrl: text("picture_url"),
     name: text("name"),
     licenseNumber: text("license_number"),
     vehicleNumber: text("vehicle_number"),

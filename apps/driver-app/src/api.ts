@@ -82,7 +82,12 @@ export type Booking = {
   createdAt: string;
 };
 
+export type GoogleSignInResult =
+  | { kind: "signedIn"; accessToken: string; profile: any }
+  | { kind: "needsProfile"; googleProfile: { email: string; name: string | null; picture: string | null; sub: string } };
+
 export const auth = {
+  // Legacy OTP path — kept for fallback while Google Sign-In rolls out.
   requestOtp: (phone: string) =>
     api<{ message: string; demoOtp?: string; channel: string; ttlSec: number }>(
       "/api/v1/auth/login",
@@ -92,6 +97,18 @@ export const auth = {
     api<{ accessToken: string; profile: any }>("/api/v1/auth/verify-otp", {
       method: "POST",
       body: { phone, role: "driver", code },
+      auth: false
+    }),
+  // v1.1.0 Google Sign-In — symmetric with the user app.
+  googleStart: (idToken: string) =>
+    api<
+      | { accessToken: string; profile: any; needsProfile?: undefined }
+      | { needsProfile: true; googleProfile: { email: string; name: string | null; picture: string | null; sub: string }; accessToken?: undefined }
+    >("/api/v1/auth/google", { method: "POST", body: { idToken, role: "driver" }, auth: false }),
+  googleComplete: (input: { idToken: string; phone: string; name: string }) =>
+    api<{ accessToken: string; profile: any }>("/api/v1/auth/google/complete", {
+      method: "POST",
+      body: { ...input, role: "driver" },
       auth: false
     })
 };

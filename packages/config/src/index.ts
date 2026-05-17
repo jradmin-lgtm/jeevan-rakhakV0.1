@@ -133,6 +133,14 @@ export const config = {
     }
   },
 
+  // Google Sign-In (v1.1.0). Web client ID is shared by Android + iOS + web
+  // because it's the audience the ID token is issued for. The Android client
+  // IDs registered in Cloud Console don't need to be referenced here — Google
+  // Play Services matches them by (package, SHA-1) at runtime.
+  googleAuth: {
+    webClientId: process.env.GOOGLE_WEB_CLIENT_ID ?? ""
+  },
+
   // Feature flags (boolean strings: "true" | "false")
   flags: {
     require_kyc_for_drivers: optional("FLAG_REQUIRE_KYC", "false") === "true",

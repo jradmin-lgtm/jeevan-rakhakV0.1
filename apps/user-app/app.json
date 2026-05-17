@@ -2,7 +2,7 @@
   "expo": {
     "name": "Jeevan Rakshak",
     "slug": "jr-user-app",
-    "version": "1.0.12",
+    "version": "1.0.13",
     "orientation": "portrait",
     "scheme": "jruser",
     "userInterfaceStyle": "light",
@@ -27,7 +27,7 @@
     "owner": "jradmin29",
     "android": {
       "package": "com.jeevanrakshak.user",
-      "versionCode": 23,
+      "versionCode": 24,
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
@@ -41,7 +41,8 @@
     "extra": {
       "eas": {
         "projectId": "a86d99bb-f5cb-42ba-9181-4941454fa700"
-      }
+      },
+      "googleWebClientId": "269522337472-seov7qni7vlbviin0cm4tpgc9l87upi9.apps.googleusercontent.com"
     }
   }
 }

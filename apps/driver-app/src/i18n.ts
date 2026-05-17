@@ -32,6 +32,29 @@ const en: Dict = {
   "otp.resend": "Resend OTP",
   "otp.verify": "Verify & continue",
 
+  // Google Sign-In (v1.0.13)
+  "auth.google.title": "Driver welcome",
+  "auth.google.subtitle": "Sign in with your Google account to continue",
+  "auth.google.button": "Continue with Google",
+  "auth.google.busy": "Signing in…",
+  "auth.google.why_google": "We use Google sign-in for your security. Your number is verified once and stays linked to your Google account.",
+  "auth.google.error_cancelled": "Sign-in cancelled.",
+  "auth.google.error_play_services": "Google Play Services isn't available on this device. Update it from the Play Store and try again.",
+  "auth.google.error_email_used": "This Google account is already registered as a driver.",
+  "auth.google.error_phone_used": "This phone number is already linked to a different driver account.",
+  "auth.google.error_generic": "Couldn't sign in. Please try again.",
+
+  // Profile setup (first sign-in)
+  "profile_setup.title": "Complete driver profile",
+  "profile_setup.subtitle": "Two details before KYC verification",
+  "profile_setup.name_label": "Full name",
+  "profile_setup.name_placeholder": "Ravi Kumar",
+  "profile_setup.phone_label": "Mobile number",
+  "profile_setup.phone_placeholder": "+91 98xxx xxxxx",
+  "profile_setup.phone_help": "This is how patients and ops will reach you on a live trip.",
+  "profile_setup.continue": "Continue to KYC",
+  "profile_setup.signed_in_as": "Signed in as",
+
   // Name capture
   "name.title": "What should we call you?",
   "name.subtitle": "So patients can identify their ambulance driver",
@@ -98,6 +121,29 @@ const hi: Dict = {
   "otp.subtitle": "भेजा गया",
   "otp.resend": "OTP फिर से भेजें",
   "otp.verify": "सत्यापित करें",
+
+  // Google Sign-In (extended — v1.0.13)
+  "auth.google.title": "ड्राइवर स्वागत",
+  "auth.google.subtitle": "जारी रखने के लिए अपने Google खाते से साइन इन करें",
+  "auth.google.button": "Google से जारी रखें",
+  "auth.google.busy": "साइन इन हो रहा है…",
+  "auth.google.why_google": "आपकी सुरक्षा के लिए हम Google साइन-इन का उपयोग करते हैं। आपका नंबर एक बार सत्यापित होता है और आपके Google खाते से जुड़ा रहता है।",
+  "auth.google.error_cancelled": "साइन इन रद्द किया गया।",
+  "auth.google.error_play_services": "इस डिवाइस पर Google Play Services उपलब्ध नहीं है। Play Store से अपडेट करके फिर से कोशिश करें।",
+  "auth.google.error_email_used": "यह Google खाता पहले से ड्राइवर के रूप में पंजीकृत है।",
+  "auth.google.error_phone_used": "यह मोबाइल नंबर पहले से किसी अन्य ड्राइवर खाते से जुड़ा है।",
+  "auth.google.error_generic": "साइन इन नहीं हो सका। कृपया फिर से कोशिश करें।",
+
+  // Profile setup
+  "profile_setup.title": "ड्राइवर प्रोफ़ाइल पूरी करें",
+  "profile_setup.subtitle": "KYC सत्यापन से पहले बस दो जानकारियाँ",
+  "profile_setup.name_label": "पूरा नाम",
+  "profile_setup.name_placeholder": "रवि कुमार",
+  "profile_setup.phone_label": "मोबाइल नंबर",
+  "profile_setup.phone_placeholder": "+91 98xxx xxxxx",
+  "profile_setup.phone_help": "इसी से मरीज़ और ऑपरेशन्स टीम लाइव यात्रा के दौरान आप तक पहुँचेंगे।",
+  "profile_setup.continue": "KYC के लिए आगे बढ़ें",
+  "profile_setup.signed_in_as": "इस रूप में साइन इन हैं",
 
   "name.title": "हम आपको क्या कहें?",
   "name.subtitle": "ताकि मरीज़ अपने ड्राइवर को पहचान सकें",
