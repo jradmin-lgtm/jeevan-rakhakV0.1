@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { z } from "zod";
 import { and, count, desc, eq, gte, sql as drizzleSql } from "drizzle-orm";
 import { bookingEvents, bookings, drivers, db, users, systemEvents } from "@jr/db";
 
@@ -146,6 +147,97 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       .orderBy(desc(users.createdAt))
       .limit(200);
     return reply.send({ source, users: rows });
+  });
+
+  // Per-user detail: profile + last 100 bookings + lifetime totals.
+  app.get("/api/v1/admin/users/:id", adminGuard, async (req, reply) => {
+    const id = (req.params as any).id as string;
+    const [u] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+    if (!u) return reply.code(404).send({ error: "not_found" });
+
+    const history = await db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.userId, id))
+      .orderBy(desc(bookings.createdAt))
+      .limit(100);
+
+    const totals = {
+      total: history.length,
+      completed: history.filter((b) => b.status === "COMPLETED").length,
+      cancelled: history.filter((b) => b.status === "CANCELLED").length,
+      // Sum of payable across completed trips. Falls back to fareFinalInr if
+      // payable hasn't been backfilled on old rows.
+      lifetimePayableInr: history
+        .filter((b) => b.status === "COMPLETED")
+        .reduce((s, b) => s + (b.payableInr ?? b.fareFinalInr ?? 0), 0)
+    };
+
+    return reply.send({ user: u, bookings: history, totals });
+  });
+
+  // Toggle disabled flag on a user. Disabled users can't redeem an OTP and
+  // their booking POSTs return 403. Existing JWTs remain valid until their
+  // 30d expiry — admin should also call out to the user out-of-band if they
+  // need them off the platform immediately.
+  const patchDisabledSchema = z.object({ disabled: z.boolean() });
+
+  app.patch("/api/v1/admin/users/:id", adminGuard, async (req, reply) => {
+    const id = (req.params as any).id as string;
+    const parsed = patchDisabledSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+    }
+    const [updated] = await db
+      .update(users)
+      .set({ disabled: parsed.data.disabled, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning();
+    if (!updated) return reply.code(404).send({ error: "not_found" });
+    return reply.send({ user: updated });
+  });
+
+  // Per-driver detail: profile + last 100 trips + lifetime trip count + earnings rollup.
+  app.get("/api/v1/admin/drivers/:id", adminGuard, async (req, reply) => {
+    const id = (req.params as any).id as string;
+    const [d] = await db.select().from(drivers).where(eq(drivers.id, id)).limit(1);
+    if (!d) return reply.code(404).send({ error: "not_found" });
+
+    const history = await db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.driverId, id))
+      .orderBy(desc(bookings.createdAt))
+      .limit(100);
+
+    const totals = {
+      total: history.length,
+      completed: history.filter((b) => b.status === "COMPLETED").length,
+      cancelled: history.filter((b) => b.status === "CANCELLED").length,
+      // Lifetime earnings = sum of payable across completed trips. Coupon-discounted
+      // rides earn the driver whatever the patient actually paid (pilot rule —
+      // payout reconciliation against promo budget happens out-of-band).
+      lifetimeEarningsInr: history
+        .filter((b) => b.status === "COMPLETED")
+        .reduce((s, b) => s + (b.payableInr ?? b.fareFinalInr ?? 0), 0)
+    };
+
+    return reply.send({ driver: d, bookings: history, totals });
+  });
+
+  app.patch("/api/v1/admin/drivers/:id", adminGuard, async (req, reply) => {
+    const id = (req.params as any).id as string;
+    const parsed = patchDisabledSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+    }
+    const [updated] = await db
+      .update(drivers)
+      .set({ disabled: parsed.data.disabled, updatedAt: new Date() })
+      .where(eq(drivers.id, id))
+      .returning();
+    if (!updated) return reply.code(404).send({ error: "not_found" });
+    return reply.send({ driver: updated });
   });
 
   // ─── Observability ─────────────────────────────────────────────────────────

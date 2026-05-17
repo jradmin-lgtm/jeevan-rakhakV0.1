@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { Source, SourceFilter } from "./SourceFilter";
 import { adminFetch } from "../../lib/adminFetch";
+import { formatTimeIST, formatTimeShortIST } from "../../lib/dates";
 
 type Stats = {
   source: Source;
@@ -71,7 +72,7 @@ export function LiveDashboard({
         setStats(s);
         setBookings(b.bookings ?? []);
         setDrivers(d.drivers ?? []);
-        setUpdatedAt(new Date().toLocaleTimeString());
+        setUpdatedAt(formatTimeIST(new Date()));
       } catch {
         /* keep last good */
       }
@@ -143,7 +144,7 @@ export function LiveDashboard({
                 ) : (
                   bookings.slice(0, 8).map((b) => (
                     <tr key={b.id}>
-                      <td className="mono muted" suppressHydrationWarning>{new Date(b.createdAt).toLocaleTimeString()}</td>
+                      <td className="mono muted" suppressHydrationWarning>{formatTimeShortIST(b.createdAt)}</td>
                       <td>
                         {prettyEmergency(b.emergencyType)}
                         {b.isDemo ? <span className="demo-flag">DEMO</span> : null}

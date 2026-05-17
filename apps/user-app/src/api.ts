@@ -94,6 +94,9 @@ export type Booking = {
   dropAddress?: string | null;
   fareEstimateInr?: number | null;
   fareFinalInr?: number | null;
+  couponCode?: string | null;
+  discountInr?: number | null;
+  payableInr?: number | null;
   rating?: number | null;
   feedback?: string | null;
   rideOtpCode?: string | null;
@@ -134,6 +137,7 @@ export const bookings = {
     dropLat?: number;
     dropLng?: number;
     dropAddress?: string;
+    couponCode?: string;
   }) => api<{ booking: Booking }>("/api/v1/bookings", { method: "POST", body: input }),
   get: (id: string) => api<{ booking: Booking }>(`/api/v1/bookings/${id}`),
   mine: () => api<{ bookings: Booking[] }>("/api/v1/bookings/mine"),

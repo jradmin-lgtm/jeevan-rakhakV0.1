@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { adminFetch } from "../../../lib/adminFetch";
+import { formatIST } from "../../../lib/dates";
 
 type Health = {
   api: { status: "up" | "down"; uptimeSec: number };
@@ -48,7 +49,7 @@ function relative(ts: string, now: number): string {
   if (diff < 60) return `${diff}s ago`;
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return new Date(ts).toLocaleString();
+  return formatIST(ts);
 }
 
 export function AlertsClient({ initialHealth, initialEvents, apiBase }: Props) {

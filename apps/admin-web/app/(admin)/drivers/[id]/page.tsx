@@ -1,0 +1,150 @@
+import React from "react";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { adminFetch } from "../../../../lib/adminFetch";
+import { formatIST } from "../../../../lib/dates";
+import { DisableToggle } from "../../users/[id]/DisableToggle";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
+
+async function getDriver(id: string) {
+  try {
+    const res = await adminFetch(`${API_BASE}/api/v1/admin/drivers/${id}`);
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+export default async function DriverDetail({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const data = await getDriver(id);
+  if (!data) notFound();
+  const { driver, bookings, totals } = data;
+
+  return (
+    <>
+      <div className="page-header">
+        <div>
+          <h1>{driver.name ?? "Unnamed driver"}</h1>
+          <p>
+            <Link href="/drivers" style={{ color: "var(--accent)" }}>← Back to drivers</Link>
+            {driver.isDemo ? <span className="demo-flag" style={{ marginLeft: 12 }}>DEMO</span> : null}
+            {driver.disabled
+              ? <span className="pill cancelled" style={{ marginLeft: 8 }}>Disabled</span>
+              : <span className="pill completed" style={{ marginLeft: 8 }}>Active</span>}
+            <span className={`pill ${driver.status.toLowerCase() === "on_trip" ? "accepted" : driver.status === "AVAILABLE" ? "completed" : "cancelled"}`} style={{ marginLeft: 8 }}>
+              {driver.status === "ON_TRIP" ? "On trip" : driver.status === "AVAILABLE" ? "Available" : "Offline"}
+            </span>
+          </p>
+        </div>
+        <DisableToggle
+          kind="driver"
+          id={driver.id}
+          initialDisabled={!!driver.disabled}
+          apiBase={API_BASE}
+        />
+      </div>
+
+      <div className="row">
+        <div className="card">
+          <h3 style={{ margin: "0 0 12px" }}>Profile</h3>
+          <Field label="Phone" value={driver.phone} />
+          <Field label="Name" value={driver.name ?? "—"} />
+          <Field label="Licence" value={driver.licenseNumber ?? "—"} />
+          <Field label="Vehicle" value={`${driver.vehicleNumber ?? "—"} (${driver.vehicleType ?? "BLS"})`} />
+          <Field label="KYC" value={driver.kycVerified ? "Verified" : "Pending"} />
+          <Field label="Rating" value={`⭐ ${(driver.rating ?? 5).toFixed(1)}`} />
+          <Field label="Last seen" value={driver.lastSeenAt ? formatIST(driver.lastSeenAt) : "—"} />
+          <Field label="Joined" value={formatIST(driver.createdAt)} />
+        </div>
+        <div className="card">
+          <h3 style={{ margin: "0 0 12px" }}>Lifetime</h3>
+          <Field label="Total trips" value={String(totals.total)} />
+          <Field label="Completed" value={String(totals.completed)} />
+          <Field label="Cancelled" value={String(totals.cancelled)} />
+          <Field label="Lifetime earnings" value={`₹${totals.lifetimeEarningsInr}`} />
+        </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 16, padding: 0 }}>
+        <div style={{ padding: 16, borderBottom: "1px solid var(--border)" }}>
+          <h3 style={{ margin: 0 }}>Trip history</h3>
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Emergency</th>
+                <th>Pickup → Drop</th>
+                <th>Fare → Payable</th>
+                <th>Rating</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {bookings.length === 0 ? (
+                <tr><td colSpan={7} className="muted" style={{ padding: 24, textAlign: "center" }}>No trips yet.</td></tr>
+              ) : (
+                bookings.map((b: any) => (
+                  <tr key={b.id}>
+                    <td className="mono muted">{formatIST(b.createdAt)}</td>
+                    <td>{prettyEmergency(b.emergencyType)}</td>
+                    <td>
+                      <div>{b.pickupAddress ?? "—"}</div>
+                      {b.dropAddress ? <div className="muted" style={{ fontSize: 12 }}>→ {b.dropAddress}</div> : null}
+                    </td>
+                    <td className="mono">
+                      ₹{b.fareFinalInr ?? b.fareEstimateInr ?? "—"}
+                      {b.couponCode ? <span className="muted" style={{ fontSize: 11 }}> · {b.couponCode}</span> : null}
+                      {b.payableInr != null ? <div className="mono" style={{ color: "var(--success)" }}>₹{b.payableInr}</div> : null}
+                    </td>
+                    <td>{b.rating ? "★".repeat(b.rating) : <span className="muted">—</span>}</td>
+                    <td><span className={`pill ${b.status.toLowerCase()}`}>{prettyStatus(b.status)}</span></td>
+                    <td><Link href={`/bookings/${b.id}`} style={{ color: "var(--accent)", fontSize: 12 }}>Open →</Link></td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
+      <span className="muted" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: 500 }}>{value}</span>
+    </div>
+  );
+}
+
+function prettyEmergency(t: string): string {
+  switch (t) {
+    case "ACCIDENT_TRAUMA": return "Accident / Trauma";
+    case "CARDIAC": return "Cardiac";
+    case "BREATHING_DISTRESS": return "Breathing distress";
+    case "PREGNANCY_NEONATAL": return "Pregnancy / Neonatal";
+    case "GENERAL_CRITICAL_TRANSFER": return "Critical transfer";
+    default: return t;
+  }
+}
+
+function prettyStatus(s: string): string {
+  switch (s) {
+    case "REQUESTED": return "Searching";
+    case "ACCEPTED": return "Driver assigned";
+    case "ARRIVED": return "Driver arrived";
+    case "PICKED_UP": return "On trip";
+    case "COMPLETED": return "Completed";
+    case "CANCELLED": return "Cancelled";
+    case "TIMED_OUT": return "No driver";
+    default: return s;
+  }
+}

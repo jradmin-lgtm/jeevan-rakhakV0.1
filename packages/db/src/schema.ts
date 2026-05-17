@@ -45,6 +45,10 @@ export const users = pgTable(
     allergies: text("allergies"),
     emergencyContact: text("emergency_contact"),
     isDemo: boolean("is_demo").default(false).notNull(),
+    // Admin-set disable flag. Disabled users are blocked at /auth/verify-otp
+    // (they can still request an OTP — the SMS still goes out — but they
+    // can't redeem it). Admins toggle this from the user detail page.
+    disabled: boolean("disabled").default(false).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
   },
@@ -70,6 +74,9 @@ export const drivers = pgTable(
     lastLng: doublePrecision("last_lng"),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
     isDemo: boolean("is_demo").default(false).notNull(),
+    // Admin-set disable flag. Disabled drivers can't redeem an OTP, can't be
+    // matched to bookings, and stop appearing in dispatch fan-out.
+    disabled: boolean("disabled").default(false).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
   },
@@ -111,6 +118,14 @@ export const bookings = pgTable(
     dropAddress: text("drop_address"),
     fareEstimateInr: integer("fare_estimate_inr"),
     fareFinalInr: integer("fare_final_inr"),
+    // Coupon applied at booking time (e.g. PILOT100). Captured so admin can
+    // see what the patient actually saw, and so post-launch we can audit
+    // promotion redemption + reconcile against payments. Null = no coupon.
+    couponCode: text("coupon_code"),
+    discountInr: integer("discount_inr").default(0).notNull(),
+    // Payable = fareFinalInr − discountInr (capped at 0). Recomputed at
+    // /complete. Stored so admin doesn't have to re-derive on every read.
+    payableInr: integer("payable_inr"),
     rating: integer("rating"),
     feedback: text("feedback"),
     isDemo: boolean("is_demo").default(false).notNull(),

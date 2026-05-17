@@ -121,7 +121,8 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
         pickupLat: pickupCoords.lat,
         pickupLng: pickupCoords.lng,
         pickupAddress: pickupAddress || undefined,
-        dropAddress: dropAddress || undefined
+        dropAddress: dropAddress || undefined,
+        couponCode: couponApplied ? coupon : undefined
       });
       onBooked(r.booking);
     } catch (e: any) {

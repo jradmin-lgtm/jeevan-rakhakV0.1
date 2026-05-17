@@ -1,8 +1,10 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Source, SourceFilter } from "../SourceFilter";
 import { adminFetch } from "../../../lib/adminFetch";
+import { formatIST } from "../../../lib/dates";
 
 type Driver = {
   id: string;
@@ -16,6 +18,7 @@ type Driver = {
   rating: number;
   lastSeenAt?: string | null;
   isDemo?: boolean;
+  disabled?: boolean;
 };
 
 export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Driver[]; apiBase: string }) {
@@ -104,12 +107,13 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
                 <th>Last seen</th>
                 <th>Status</th>
                 <th>Source</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="muted" style={{ padding: 24, textAlign: "center" }}>
+                  <td colSpan={9} className="muted" style={{ padding: 24, textAlign: "center" }}>
                     No drivers match the current filters.
                   </td>
                 </tr>
@@ -120,6 +124,7 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <span className={`dot ${d.status === "OFFLINE" ? "down" : "up"}`} />
                         <strong>{d.name ?? "Unnamed"}</strong>
+                        {d.disabled ? <span className="pill cancelled" style={{ marginLeft: 4 }}>Disabled</span> : null}
                       </div>
                     </td>
                     <td className="mono muted">{d.phone}</td>
@@ -133,7 +138,7 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
                       </span>
                     </td>
                     <td>⭐ {d.rating?.toFixed(1) ?? "5.0"}</td>
-                    <td className="mono muted">{d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString() : "—"}</td>
+                    <td className="mono muted">{d.lastSeenAt ? formatIST(d.lastSeenAt) : "—"}</td>
                     <td>
                       <span className={`pill ${d.status.toLowerCase() === "on_trip" ? "accepted" : d.status === "AVAILABLE" ? "completed" : "cancelled"}`}>
                         {d.status === "ON_TRIP" ? "On trip" : d.status === "AVAILABLE" ? "Available" : "Offline"}
@@ -141,6 +146,9 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
                     </td>
                     <td>
                       {d.isDemo ? <span className="demo-flag">DEMO</span> : <span style={{ fontSize: 11, color: "var(--success)", fontWeight: 600, letterSpacing: 0.4 }}>REAL</span>}
+                    </td>
+                    <td>
+                      <Link href={`/drivers/${d.id}`} style={{ color: "var(--accent)", fontSize: 12 }}>Open →</Link>
                     </td>
                   </tr>
                 ))

@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Source, SourceFilter } from "../SourceFilter";
 import { adminFetch } from "../../../lib/adminFetch";
+import { formatIST } from "../../../lib/dates";
 
 type Booking = {
   id: string;
@@ -117,7 +118,7 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
                 filtered.map((b) => (
                   <tr key={b.id}>
                     <td className="mono">{b.id.slice(0, 8)}…</td>
-                    <td className="mono muted">{new Date(b.createdAt).toLocaleString()}</td>
+                    <td className="mono muted">{formatIST(b.createdAt)}</td>
                     <td>{prettyEmergency(b.emergencyType)}</td>
                     <td>
                       <div>{b.pickupAddress ?? "—"}</div>

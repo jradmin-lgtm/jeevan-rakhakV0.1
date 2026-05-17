@@ -111,7 +111,15 @@ async function bootstrap() {
     await pgClient`CREATE INDEX IF NOT EXISTS system_events_level_idx ON system_events(level)`;
     // Per-ride OTP (4 digits) for the driver's PICKUP verification step.
     await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS ride_otp_code text`;
-    app.log.info("[migrate] system_events + ride_otp_code ready");
+    // Admin-set disable flag for users and drivers — gates /auth/verify-otp.
+    await pgClient`ALTER TABLE users   ADD COLUMN IF NOT EXISTS disabled boolean NOT NULL DEFAULT false`;
+    await pgClient`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS disabled boolean NOT NULL DEFAULT false`;
+    // Coupon + discount + payable. Captured at booking creation, recomputed
+    // at /complete. Lets admin show fare breakdown that matches the user app.
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS coupon_code  text`;
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS discount_inr integer NOT NULL DEFAULT 0`;
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS payable_inr  integer`;
+    app.log.info("[migrate] system_events + ride_otp_code + disabled + coupon/discount/payable ready");
   } catch (err) {
     // Thumb rule: migrations FATAL-EXIT on failure. Silent catch+warn here
     // previously let the service start with a broken schema (system_events

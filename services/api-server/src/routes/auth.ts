@@ -168,6 +168,12 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       if (role === "user") {
         const [existing] = await db.select().from(users).where(eq(users.phone, phone)).limit(1);
         if (existing) {
+          // Admin-disabled accounts cannot redeem an OTP. The OTP was already
+          // burned above so further guesses are blocked; the caller has to
+          // contact ops to be re-enabled.
+          if (existing.disabled) {
+            return reply.code(403).send({ error: "account_disabled", message: "This account has been disabled. Contact support." });
+          }
           actorId = existing.id;
           displayName = existing.name;
         } else {
@@ -177,6 +183,9 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       } else {
         const [existing] = await db.select().from(drivers).where(eq(drivers.phone, phone)).limit(1);
         if (existing) {
+          if (existing.disabled) {
+            return reply.code(403).send({ error: "account_disabled", message: "This driver account has been disabled. Contact support." });
+          }
           actorId = existing.id;
           displayName = existing.name;
         } else {

@@ -22,13 +22,43 @@ const bookingCreateSchema = z.object({
   pickupAddress: z.string().max(500).optional(),
   dropLat: z.number().optional(),
   dropLng: z.number().optional(),
-  dropAddress: z.string().max(500).optional()
+  dropAddress: z.string().max(500).optional(),
+  // Optional coupon the patient applied in the user app. Server validates it
+  // against COUPONS below and stores the resulting discountInr + payableInr
+  // on the booking row so admin sees the same fare math the patient saw.
+  couponCode: z.string().max(40).optional()
 });
 
 function estimateFare(pickupLat: number, pickupLng: number, dropLat?: number, dropLng?: number) {
   if (dropLat == null || dropLng == null) return config.baseFareInr;
   const km = haversineDistanceKm(pickupLat, pickupLng, dropLat, dropLng);
   return Math.round(config.baseFareInr + km * config.perKmFareInr);
+}
+
+/**
+ * Coupon registry — pilot uses a single 100%-off launch promo. When more
+ * coupons land or rules grow (per-user limits, expiry, max uses), promote
+ * this to a `coupons` table + admin CRUD. Until then the constant is enough.
+ */
+const COUPONS: Record<string, { percentOff: number; flatOffInr: number }> = {
+  PILOT100: { percentOff: 100, flatOffInr: 0 }
+};
+
+function applyCoupon(baseFareInr: number, rawCode: string | undefined | null) {
+  if (!rawCode) return { couponCode: null as string | null, discountInr: 0, payableInr: baseFareInr };
+  const code = rawCode.trim().toUpperCase();
+  const promo = COUPONS[code];
+  if (!promo) {
+    // Unknown coupons are treated as "no coupon applied" — we keep the request
+    // succeeding so a fat-fingered code doesn't block the booking, but the
+    // patient pays full fare. The user app validates coupons before submit so
+    // we typically only see codes we know.
+    return { couponCode: null as string | null, discountInr: 0, payableInr: baseFareInr };
+  }
+  const pctDiscount = Math.round((baseFareInr * promo.percentOff) / 100);
+  const discountInr = Math.min(baseFareInr, pctDiscount + promo.flatOffInr);
+  const payableInr = Math.max(0, baseFareInr - discountInr);
+  return { couponCode: code, discountInr, payableInr };
 }
 
 export async function registerBookingRoutes(app: FastifyInstance) {
@@ -44,6 +74,13 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
       }
       const data = parsed.data;
+
+      // Block disabled accounts from booking. JWT is still valid (issued before
+      // admin flipped the flag) but the booking POST is the meaningful action.
+      const [me] = await db.select().from(users).where(eq(users.id, sub)).limit(1);
+      if (me?.disabled) {
+        return reply.code(403).send({ error: "account_disabled", message: "This account has been disabled. Contact support." });
+      }
 
       // Enforce the active-bookings cap before paying for a DB insert. Bookings
       // in REQUESTED / ACCEPTED / ARRIVED / PICKED_UP count toward the limit;
@@ -73,6 +110,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         data.dropLat,
         data.dropLng
       );
+      const { couponCode, discountInr, payableInr } = applyCoupon(fareEstimate, data.couponCode);
 
       // Per-ride OTP — 4 random digits the patient reads out to the driver
       // before pickup. New code per booking so a previous trip's OTP can't
@@ -91,6 +129,9 @@ export async function registerBookingRoutes(app: FastifyInstance) {
           dropLng: data.dropLng,
           dropAddress: data.dropAddress,
           fareEstimateInr: fareEstimate,
+          couponCode,
+          discountInr,
+          payableInr,
           rideOtpCode
         })
         .returning();
@@ -99,7 +140,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         bookingId: created.id,
         actor: `user:${sub}`,
         type: "booking.created",
-        payloadJson: JSON.stringify({ fareEstimate })
+        payloadJson: JSON.stringify({ fareEstimate, couponCode, discountInr, payableInr })
       });
 
       // Notify socket-server out-of-band so dispatch fan-out begins immediately.
@@ -211,6 +252,13 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
       const id = req.params.id as string;
       driverActionSchemas.accept.parse(req.body ?? {});
+      // Block disabled drivers from picking up new trips. Existing in-flight
+      // trips (already ACCEPTED) keep working — admin must call them out to
+      // hand off, otherwise patients are left mid-ride.
+      const [me] = await db.select().from(drivers).where(eq(drivers.id, sub)).limit(1);
+      if (me?.disabled) {
+        return reply.code(403).send({ error: "account_disabled", message: "This driver account has been disabled." });
+      }
       const [b] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
       if (!b) return reply.code(404).send({ error: "not_found" });
       if (b.status !== "REQUESTED" || b.driverId)
@@ -339,13 +387,25 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         .returning();
       if (!b) return reply.code(404).send({ error: "not_found_or_forbidden" });
       const finalFare = b.fareEstimateInr ?? config.baseFareInr;
-      await db.update(bookings).set({ fareFinalInr: finalFare }).where(eq(bookings.id, id));
+      // Recompute discount + payable against the final fare. If a coupon was
+      // applied at creation the same rule runs again — covers the case where
+      // base fare gets a future recompute hook between create and complete.
+      const { discountInr, payableInr } = applyCoupon(finalFare, b.couponCode);
+      await db
+        .update(bookings)
+        .set({ fareFinalInr: finalFare, discountInr, payableInr })
+        .where(eq(bookings.id, id));
       await db
         .update(drivers)
         .set({ status: "AVAILABLE", updatedAt: new Date() })
         .where(eq(drivers.id, sub));
-      await emitBookingEvent(id, "booking.completed", `driver:${sub}`, { finalFare });
-      return reply.send({ booking: { ...b, fareFinalInr: finalFare } });
+      await emitBookingEvent(id, "booking.completed", `driver:${sub}`, {
+        finalFare,
+        couponCode: b.couponCode,
+        discountInr,
+        payableInr
+      });
+      return reply.send({ booking: { ...b, fareFinalInr: finalFare, discountInr, payableInr } });
     }
   );
 
