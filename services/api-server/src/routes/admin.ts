@@ -333,38 +333,124 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const since = range.since ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const until = range.until ?? new Date();
     // postgres.js refuses Date objects in raw template-literal parameters
-    // (`Received an instance of Date`). It accepts ISO strings + casts
-    // them via PG when the column is timestamptz. Drizzle's eq/gte/lte
-    // helpers know how to bind Date directly so those are unchanged.
+    // — it accepts ISO strings + casts via the explicit ::timestamptz.
+    // Drizzle's eq/gte/lte helpers handle Dates directly.
     const sinceIso = since.toISOString();
     const untilIso = until.toISOString();
 
     const dateClause = and(gte(bookings.createdAt, since), lte(bookings.createdAt, until));
+    const completedDateClause = and(dateClause, eq(bookings.status, "COMPLETED"));
 
-    // Per-day bookings + per-day completed.
+    // ────────────────────────────────────────────────────────────────
+    // Per-day series (bookings + completed)
+    // ────────────────────────────────────────────────────────────────
     const perDay: any = await db.execute(drizzleSql`
       SELECT
         to_char(date_trunc('day', created_at AT TIME ZONE 'Asia/Kolkata'), 'YYYY-MM-DD') AS day,
         COUNT(*)::int AS count,
-        SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END)::int AS completed
+        SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END)::int AS completed,
+        COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN fare_final_inr END), 0)::int AS gmv,
+        COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN payable_inr END), 0)::int AS revenue
       FROM bookings
       WHERE created_at >= ${sinceIso}::timestamptz AND created_at <= ${untilIso}::timestamptz
       GROUP BY 1
       ORDER BY 1 ASC
     `);
 
-    // Headline numbers.
+    // ────────────────────────────────────────────────────────────────
+    // Booking headline numbers
+    // ────────────────────────────────────────────────────────────────
     const [totalRow] = await db.select({ c: count() }).from(bookings).where(dateClause);
-    const [completedRow] = await db.select({ c: count() }).from(bookings).where(and(dateClause, eq(bookings.status, "COMPLETED")));
+    const [completedRow] = await db.select({ c: count() }).from(bookings).where(completedDateClause);
     const [cancelledRow] = await db.select({ c: count() }).from(bookings).where(and(dateClause, eq(bookings.status, "CANCELLED")));
+    const [activeRow] = await db.select({ c: count() }).from(bookings).where(and(dateClause, drizzleSql`${bookings.status} IN ('REQUESTED','ACCEPTED','ARRIVED','PICKED_UP')`));
     const [avgFareRow] = await db.select({
       avg: drizzleSql<number>`COALESCE(AVG(${bookings.fareFinalInr}), 0)`
-    }).from(bookings).where(and(dateClause, eq(bookings.status, "COMPLETED")));
+    }).from(bookings).where(completedDateClause);
     const [avgRatingRow] = await db.select({
       avg: drizzleSql<number>`COALESCE(AVG(${bookings.rating}::float), 0)`
     }).from(bookings).where(and(dateClause, drizzleSql`${bookings.rating} IS NOT NULL`));
 
-    // Emergency-type mix.
+    // ────────────────────────────────────────────────────────────────
+    // Money: GMV / Revenue / Discount / Profit (margin-based estimate)
+    // ────────────────────────────────────────────────────────────────
+    const [moneyRow]: any = await db.execute(drizzleSql`
+      SELECT
+        COALESCE(SUM(fare_final_inr), 0)::int AS gmv,
+        COALESCE(SUM(payable_inr), 0)::int     AS revenue,
+        COALESCE(SUM(discount_inr), 0)::int    AS discount_given,
+        COUNT(*) FILTER (WHERE coupon_code IS NOT NULL)::int AS coupon_bookings
+      FROM bookings
+      WHERE status = 'COMPLETED'
+        AND created_at >= ${sinceIso}::timestamptz
+        AND created_at <= ${untilIso}::timestamptz
+    `);
+    const gmv = Number((moneyRow.rows ?? moneyRow)[0]?.gmv ?? 0);
+    const revenue = Number((moneyRow.rows ?? moneyRow)[0]?.revenue ?? 0);
+    const discountGiven = Number((moneyRow.rows ?? moneyRow)[0]?.discount_given ?? 0);
+    const couponBookings = Number((moneyRow.rows ?? moneyRow)[0]?.coupon_bookings ?? 0);
+    // Profit estimate. JR doesn't have a real driver-payout model yet —
+    // for the pilot we assume a 20% platform margin on revenue. Show as
+    // an *estimate*; the team can override when a real payout schedule
+    // lands in v1.2.
+    const PROFIT_MARGIN_PCT = 20;
+    const profitEstimate = Math.round((revenue * PROFIT_MARGIN_PCT) / 100);
+
+    // Coupon usage breakdown (which codes, how often).
+    const couponBreakdown: any = await db.execute(drizzleSql`
+      SELECT coupon_code AS code,
+             COUNT(*)::int AS uses,
+             COALESCE(SUM(discount_inr), 0)::int AS total_discount
+      FROM bookings
+      WHERE coupon_code IS NOT NULL
+        AND created_at >= ${sinceIso}::timestamptz
+        AND created_at <= ${untilIso}::timestamptz
+      GROUP BY 1
+      ORDER BY 2 DESC
+    `);
+
+    // ────────────────────────────────────────────────────────────────
+    // Driver + user counts (live = active right now, total = ever)
+    // ────────────────────────────────────────────────────────────────
+    const [totalDriversRow] = await db.select({ c: count() }).from(drivers);
+    const [liveDriversRow] = await db.select({ c: count() }).from(drivers).where(drizzleSql`${drivers.status} IN ('AVAILABLE','ON_TRIP')`);
+    const [onTripRow] = await db.select({ c: count() }).from(drivers).where(eq(drivers.status, "ON_TRIP"));
+    const [verifiedDriversRow] = await db.select({ c: count() }).from(drivers).where(eq(drivers.kycVerified, true));
+    const [totalUsersRow] = await db.select({ c: count() }).from(users);
+    // "Active" user proxy = unique users who created a booking in the
+    // selected window. Closest thing we have to MAU/DAU without
+    // tracking app sessions.
+    const [activeUsersRow]: any = await db.execute(drizzleSql`
+      SELECT COUNT(DISTINCT user_id)::int AS c
+      FROM bookings
+      WHERE created_at >= ${sinceIso}::timestamptz
+        AND created_at <= ${untilIso}::timestamptz
+    `);
+    // "Live" user proxy = users who currently have an in-flight booking
+    // (REQUESTED through PICKED_UP).
+    const [liveUsersRow]: any = await db.execute(drizzleSql`
+      SELECT COUNT(DISTINCT user_id)::int AS c
+      FROM bookings
+      WHERE status IN ('REQUESTED','ACCEPTED','ARRIVED','PICKED_UP')
+    `);
+
+    // ────────────────────────────────────────────────────────────────
+    // Hour-of-day distribution (Asia/Kolkata)
+    // ────────────────────────────────────────────────────────────────
+    const hourly: any = await db.execute(drizzleSql`
+      SELECT
+        EXTRACT(HOUR FROM created_at AT TIME ZONE 'Asia/Kolkata')::int AS hour,
+        COUNT(*)::int AS count
+      FROM bookings
+      WHERE created_at >= ${sinceIso}::timestamptz
+        AND created_at <= ${untilIso}::timestamptz
+      GROUP BY 1
+      ORDER BY 1
+    `);
+
+    // ────────────────────────────────────────────────────────────────
+    // Emergency mix
+    // ────────────────────────────────────────────────────────────────
     const mix: any = await db.execute(drizzleSql`
       SELECT emergency_type::text AS type, COUNT(*)::int AS count
       FROM bookings
@@ -373,25 +459,119 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       ORDER BY 2 DESC
     `);
 
+    // ────────────────────────────────────────────────────────────────
+    // Trip averages — distance + duration for completed rides
+    // ────────────────────────────────────────────────────────────────
+    const [tripAvgRow]: any = await db.execute(drizzleSql`
+      SELECT
+        COALESCE(AVG(EXTRACT(EPOCH FROM (completed_at - accepted_at)) / 60), 0)::float AS avg_minutes,
+        COALESCE(AVG(EXTRACT(EPOCH FROM (accepted_at - created_at)) / 60), 0)::float AS avg_response_min,
+        COALESCE(AVG(
+          6371 * 2 * ASIN(SQRT(
+            POWER(SIN(RADIANS((drop_lat - pickup_lat) / 2)), 2) +
+            COS(RADIANS(pickup_lat)) * COS(RADIANS(drop_lat)) *
+            POWER(SIN(RADIANS((drop_lng - pickup_lng) / 2)), 2)
+          ))
+        ), 0)::float AS avg_km
+      FROM bookings
+      WHERE status = 'COMPLETED'
+        AND completed_at IS NOT NULL AND accepted_at IS NOT NULL
+        AND drop_lat IS NOT NULL AND drop_lng IS NOT NULL
+        AND created_at >= ${sinceIso}::timestamptz
+        AND created_at <= ${untilIso}::timestamptz
+    `);
+
+    // ────────────────────────────────────────────────────────────────
+    // Retention D1/D3/D7 — % of users who booked again N days after
+    // their first booking. Computed on the entire dataset, not the
+    // window (cohorts that started inside the window may not have
+    // had time to retain past day 7).
+    // ────────────────────────────────────────────────────────────────
+    const [retentionRow]: any = await db.execute(drizzleSql`
+      WITH first_booking AS (
+        SELECT user_id, MIN(created_at) AS first_at
+        FROM bookings
+        GROUP BY user_id
+        HAVING MIN(created_at) <= NOW() - INTERVAL '7 days'
+      )
+      SELECT
+        COUNT(DISTINCT fb.user_id)::int AS cohort_size,
+        COUNT(DISTINCT CASE WHEN EXISTS (
+          SELECT 1 FROM bookings b
+          WHERE b.user_id = fb.user_id
+            AND b.created_at >= fb.first_at + INTERVAL '1 day'
+            AND b.created_at <  fb.first_at + INTERVAL '2 day'
+        ) THEN fb.user_id END)::int AS d1,
+        COUNT(DISTINCT CASE WHEN EXISTS (
+          SELECT 1 FROM bookings b
+          WHERE b.user_id = fb.user_id
+            AND b.created_at >= fb.first_at + INTERVAL '3 day'
+            AND b.created_at <  fb.first_at + INTERVAL '4 day'
+        ) THEN fb.user_id END)::int AS d3,
+        COUNT(DISTINCT CASE WHEN EXISTS (
+          SELECT 1 FROM bookings b
+          WHERE b.user_id = fb.user_id
+            AND b.created_at >= fb.first_at + INTERVAL '7 day'
+            AND b.created_at <  fb.first_at + INTERVAL '8 day'
+        ) THEN fb.user_id END)::int AS d7
+      FROM first_booking fb
+    `);
+    const r = (retentionRow.rows ?? retentionRow)[0] ?? {};
+    const cohort = Number(r.cohort_size ?? 0);
+    const d1 = Number(r.d1 ?? 0);
+    const d3 = Number(r.d3 ?? 0);
+    const d7 = Number(r.d7 ?? 0);
+    const pct = (n: number) => (cohort > 0 ? Math.round((n / cohort) * 100) : 0);
+
     const total = Number(totalRow?.c ?? 0);
     const completed = Number(completedRow?.c ?? 0);
     const cancelled = Number(cancelledRow?.c ?? 0);
     const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
     const cancellationRate = total > 0 ? Math.round((cancelled / total) * 100) : 0;
+    const tripAvg = (tripAvgRow.rows ?? tripAvgRow)[0] ?? {};
 
     return reply.send({
       since: since.toISOString(),
       until: until.toISOString(),
-      bookingsPerDay: (perDay as any).rows ?? perDay ?? [],
-      emergencyMix: (mix as any).rows ?? mix ?? [],
+      bookingsPerDay: perDay.rows ?? perDay ?? [],
+      emergencyMix: mix.rows ?? mix ?? [],
+      hourly: hourly.rows ?? hourly ?? [],
+      couponBreakdown: couponBreakdown.rows ?? couponBreakdown ?? [],
       stats: {
+        // bookings
         totalBookings: total,
         completed,
         cancelled,
+        active: Number(activeRow?.c ?? 0),
         completionRate,
         cancellationRate,
         avgFareInr: Math.round(Number(avgFareRow?.avg ?? 0)),
-        avgRating: Number((Number(avgRatingRow?.avg ?? 0)).toFixed(2))
+        avgRating: Number((Number(avgRatingRow?.avg ?? 0)).toFixed(2)),
+        // money
+        gmvInr: gmv,
+        revenueInr: revenue,
+        discountGivenInr: discountGiven,
+        couponBookings,
+        profitEstimateInr: profitEstimate,
+        profitMarginPct: PROFIT_MARGIN_PCT,
+        // counts
+        totalDrivers: Number(totalDriversRow?.c ?? 0),
+        liveDrivers: Number(liveDriversRow?.c ?? 0),
+        onTripDrivers: Number(onTripRow?.c ?? 0),
+        verifiedDrivers: Number(verifiedDriversRow?.c ?? 0),
+        totalUsers: Number(totalUsersRow?.c ?? 0),
+        activeUsers: Number((activeUsersRow.rows ?? activeUsersRow)[0]?.c ?? 0),
+        liveUsers: Number((liveUsersRow.rows ?? liveUsersRow)[0]?.c ?? 0),
+        // trips
+        avgTripMin: Number((Number(tripAvg.avg_minutes ?? 0)).toFixed(1)),
+        avgResponseMin: Number((Number(tripAvg.avg_response_min ?? 0)).toFixed(1)),
+        avgTripKm: Number((Number(tripAvg.avg_km ?? 0)).toFixed(2))
+      },
+      retention: {
+        cohortSize: cohort,
+        d1: { count: d1, pct: pct(d1) },
+        d3: { count: d3, pct: pct(d3) },
+        d7: { count: d7, pct: pct(d7) }
       }
     });
   });
