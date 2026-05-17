@@ -86,6 +86,16 @@ const en: Dict = {
   "profile_setup.continue": "Continue",
   "profile_setup.signed_in_as": "Signed in as",
 
+  // Account deletion (Google Play compliance)
+  "delete.button": "Delete account",
+  "delete.title": "Delete your account?",
+  "delete.body": "This will permanently remove your profile, medical details, and emergency contact. Past trip records are kept for hospital billing reference, but cannot be traced back to you. This cannot be undone.",
+  "delete.confirm": "Delete forever",
+  "delete.cancel": "Keep my account",
+  "delete.in_progress_title": "Trip in progress",
+  "delete.in_progress_body": "You're currently in an ambulance. Please wait until the trip is completed before deleting your account.",
+  "delete.error_generic": "Couldn't delete your account. Please try again or contact support.",
+
   // Language picker
   "lang.title": "Choose your language",
   "lang.subtitle": "You can change this anytime from your profile",
@@ -161,6 +171,16 @@ const hi: Dict = {
   "profile_setup.phone_help": "हम यह केवल असाइन किए गए ड्राइवर और हमारी ऑपरेशन्स टीम के साथ साझा करते हैं।",
   "profile_setup.continue": "जारी रखें",
   "profile_setup.signed_in_as": "इस रूप में साइन इन हैं",
+
+  // Account deletion — extended
+  "delete.button": "खाता हटाएँ",
+  "delete.title": "क्या आप अपना खाता हटाना चाहते हैं?",
+  "delete.body": "यह आपकी प्रोफ़ाइल, चिकित्सीय विवरण और आपातकालीन संपर्क को स्थायी रूप से हटा देगा। अस्पताल बिलिंग संदर्भ के लिए पिछली यात्राओं के रिकॉर्ड रखे जाते हैं, लेकिन आप तक नहीं पहुँचा जा सकता। यह वापस नहीं किया जा सकता।",
+  "delete.confirm": "स्थायी रूप से हटाएँ",
+  "delete.cancel": "खाता रखें",
+  "delete.in_progress_title": "यात्रा प्रगति पर है",
+  "delete.in_progress_body": "आप अभी एम्बुलेंस में हैं। कृपया यात्रा पूरी होने तक प्रतीक्षा करें।",
+  "delete.error_generic": "खाता हटाया नहीं जा सका। कृपया फिर से कोशिश करें या सहायता से संपर्क करें।",
 
   "lang.title": "अपनी भाषा चुनें",
   "lang.subtitle": "आप इसे अपनी प्रोफ़ाइल से कभी भी बदल सकते हैं",

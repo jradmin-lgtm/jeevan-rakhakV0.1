@@ -345,6 +345,41 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
               onLogout();
             }}
           />
+          <Button
+            label="Delete account"
+            variant="ghost"
+            onPress={() => {
+              Alert.alert(
+                "Delete your driver account?",
+                "This will permanently remove your profile and KYC details. Completed trip records are kept for payout reconciliation but cannot be traced back to you. This cannot be undone.",
+                [
+                  { text: "Keep my account", style: "cancel" },
+                  {
+                    text: "Delete forever",
+                    style: "destructive",
+                    onPress: async () => {
+                      try {
+                        await me.delete();
+                        await clearToken();
+                        disconnectSocket();
+                        onLogout();
+                      } catch (e: any) {
+                        const msg = String(e?.message ?? "");
+                        if (msg.includes("active_trip_exists")) {
+                          Alert.alert(
+                            "Active trip in progress",
+                            "Please complete or cancel your current trip before deleting your account."
+                          );
+                        } else {
+                          Alert.alert("Couldn't delete your account", e?.message ?? "Please try again or contact support.");
+                        }
+                      }
+                    }
+                  }
+                ]
+              );
+            }}
+          />
         </View>
       </Card>
     </Screen>

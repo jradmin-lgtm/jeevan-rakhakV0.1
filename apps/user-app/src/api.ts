@@ -153,7 +153,12 @@ export const auth = {
 export const me = {
   get: () => api<{ role: string; profile: any }>("/api/v1/me"),
   update: (patch: Partial<{ name: string; bloodGroup: string; allergies: string; emergencyContact: string }>) =>
-    api<{ role: string; profile: any }>("/api/v1/me", { method: "PATCH", body: patch })
+    api<{ role: string; profile: any }>("/api/v1/me", { method: "PATCH", body: patch }),
+  // v1.0.13: Google Play account-deletion compliance. Soft-deletes the row
+  // (disabled=true + PII nulled), cancels in-flight bookings, retains phone
+  // for trip-history continuity. Phone is the only field we keep so the
+  // driver-side payout records aren't orphaned.
+  delete: () => api<{ deleted: boolean }>("/api/v1/me/delete", { method: "POST" })
 };
 
 export const bookings = {

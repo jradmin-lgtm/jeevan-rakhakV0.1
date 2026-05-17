@@ -116,7 +116,11 @@ export const auth = {
 export const me = {
   get: () => api<{ role: string; profile: any }>("/api/v1/me"),
   update: (patch: { name?: string }) =>
-    api<{ role: string; profile: any }>("/api/v1/me", { method: "PATCH", body: patch })
+    api<{ role: string; profile: any }>("/api/v1/me", { method: "PATCH", body: patch }),
+  // v1.0.13: Google Play account-deletion compliance. Refuses if the driver
+  // has an active trip (would strand the patient). On success, server soft-
+  // deletes the row + nulls PII, retains phone for payout records.
+  delete: () => api<{ deleted: boolean }>("/api/v1/me/delete", { method: "POST" })
 };
 
 export const driver = {

@@ -55,6 +55,16 @@ const en: Dict = {
   "profile_setup.continue": "Continue to KYC",
   "profile_setup.signed_in_as": "Signed in as",
 
+  // Account deletion (Google Play compliance)
+  "delete.button": "Delete account",
+  "delete.title": "Delete your driver account?",
+  "delete.body": "This will permanently remove your profile and KYC details. Completed trip records are kept for payout reconciliation but cannot be traced back to you. This cannot be undone.",
+  "delete.confirm": "Delete forever",
+  "delete.cancel": "Keep my account",
+  "delete.in_trip_title": "Active trip in progress",
+  "delete.in_trip_body": "Please complete or cancel your current trip before deleting your account.",
+  "delete.error_generic": "Couldn't delete your account. Please try again or contact support.",
+
   // Name capture
   "name.title": "What should we call you?",
   "name.subtitle": "So patients can identify their ambulance driver",
@@ -144,6 +154,16 @@ const hi: Dict = {
   "profile_setup.phone_help": "इसी से मरीज़ और ऑपरेशन्स टीम लाइव यात्रा के दौरान आप तक पहुँचेंगे।",
   "profile_setup.continue": "KYC के लिए आगे बढ़ें",
   "profile_setup.signed_in_as": "इस रूप में साइन इन हैं",
+
+  // Account deletion — extended
+  "delete.button": "खाता हटाएँ",
+  "delete.title": "क्या आप अपना ड्राइवर खाता हटाना चाहते हैं?",
+  "delete.body": "यह आपकी प्रोफ़ाइल और KYC विवरण को स्थायी रूप से हटा देगा। भुगतान समाधान के लिए पूर्ण यात्राओं के रिकॉर्ड रखे जाते हैं, लेकिन आप तक नहीं पहुँचा जा सकता। यह वापस नहीं किया जा सकता।",
+  "delete.confirm": "स्थायी रूप से हटाएँ",
+  "delete.cancel": "खाता रखें",
+  "delete.in_trip_title": "सक्रिय यात्रा प्रगति पर है",
+  "delete.in_trip_body": "कृपया अपनी मौजूदा यात्रा को पूरा या रद्द करें, फिर खाता हटाएँ।",
+  "delete.error_generic": "खाता हटाया नहीं जा सका। कृपया फिर से कोशिश करें या सहायता से संपर्क करें।",
 
   "name.title": "हम आपको क्या कहें?",
   "name.subtitle": "ताकि मरीज़ अपने ड्राइवर को पहचान सकें",

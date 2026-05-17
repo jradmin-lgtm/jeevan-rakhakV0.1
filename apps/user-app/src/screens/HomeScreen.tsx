@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Animated, Pressable, RefreshControl, StyleSheet, View } from "react-native";
+import { Alert, Animated, Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import {
   AppHeader,
   Button,
@@ -175,6 +175,39 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
             </View>
           </View>
           <Button label={t("home.sign_out")} variant="ghost" onPress={async () => { await clearToken(); onLogout(); }} />
+          <Button
+            label={t("delete.button")}
+            variant="ghost"
+            onPress={() => {
+              Alert.alert(
+                t("delete.title"),
+                t("delete.body"),
+                [
+                  { text: t("delete.cancel"), style: "cancel" },
+                  {
+                    text: t("delete.confirm"),
+                    style: "destructive",
+                    onPress: async () => {
+                      try {
+                        await me.delete();
+                        // Same teardown path as sign-out — wipe JWT, revoke
+                        // Google session, then route back to login.
+                        await clearToken();
+                        onLogout();
+                      } catch (e: any) {
+                        const msg = String(e?.message ?? "");
+                        if (msg.includes("ride_in_progress")) {
+                          Alert.alert(t("delete.in_progress_title"), t("delete.in_progress_body"));
+                        } else {
+                          Alert.alert(t("delete.error_generic"), e?.message ?? "");
+                        }
+                      }
+                    }
+                  }
+                ]
+              );
+            }}
+          />
         </View>
       </Card>
 
