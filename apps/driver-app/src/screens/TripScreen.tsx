@@ -244,6 +244,9 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
         <MapEmbed
           pickup={{ lat: booking.pickupLat, lng: booking.pickupLng, label: "Patient" }}
           driver={myPos ? { lat: myPos.lat, lng: myPos.lng, label: "You" } : null}
+          drop={booking.dropLat != null && booking.dropLng != null
+            ? { lat: booking.dropLat, lng: booking.dropLng, label: "Hospital" }
+            : null}
           height={280}
         />
         {myPos && booking.status === "ACCEPTED" ? (

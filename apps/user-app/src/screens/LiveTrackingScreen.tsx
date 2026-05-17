@@ -334,6 +334,9 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
           <MapEmbed
             pickup={{ lat: booking.pickupLat, lng: booking.pickupLng, label: "Pickup" }}
             driver={driverPos ? { lat: driverPos.lat, lng: driverPos.lng, label: "Driver" } : null}
+            drop={booking.dropLat != null && booking.dropLng != null
+              ? { lat: booking.dropLat, lng: booking.dropLng, label: "Hospital" }
+              : null}
             height={280}
           />
           {driverPos ? (
