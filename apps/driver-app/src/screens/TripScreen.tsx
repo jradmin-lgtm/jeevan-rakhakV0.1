@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, Linking, View } from "react-native";
+import { Alert, Linking, Pressable, StyleSheet, View } from "react-native";
 import * as Location from "expo-location";
 import {
   AppHeader,
@@ -16,6 +16,7 @@ import {
   Stepper,
   Text,
   colors,
+  radius,
   space
 } from "@jr/ui";
 import { Booking, bookings as bookingsApi, driver as driverApi } from "../api";
@@ -113,10 +114,15 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
   }, [booking.id]);
 
   // Refresh booking state regularly so user-driven cancels show up.
+  // v1.0.11: poll cadence backed off from 5s → 12s. The 5s rhythm caused
+  // TripScreen to re-render constantly, which in turn destabilised the
+  // OTP input keyboard on ARRIVED (focus loss reported by testers). 12s
+  // is fast enough to catch a user cancel within the response window and
+  // slow enough to let the OtpInput stay focused while the driver types.
   useEffect(() => {
     const id = setInterval(() => {
       bookingsApi.get(booking.id).then((r) => setBooking(r.booking)).catch(() => {});
-    }, 5000);
+    }, 12000);
     return () => clearInterval(id);
   }, [booking.id]);
 
@@ -294,6 +300,33 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
         </Card>
       ) : null}
 
+      {/* Patient snippet — driver only sees name/age/gender. Condition /
+        * notes / paramedic assessment stay admin-only (team feedback 1.6 +
+        * 1.7 explicit visibility rules). */}
+      {(booking.patientName || booking.patientAge || booking.patientGender) ? (
+        <Card>
+          <View style={{ gap: space.sm }}>
+            <Text variant="label" tone="secondary">PATIENT</Text>
+            <Text variant="body" weight="semi">
+              {booking.patientName ?? "—"}
+              {booking.patientAge ? `, ${booking.patientAge}y` : ""}
+              {booking.patientGender ? ` · ${booking.patientGender === "M" ? "Male" : booking.patientGender === "F" ? "Female" : "Other"}` : ""}
+            </Text>
+          </View>
+        </Card>
+      ) : null}
+
+      {/* Paramedic assessment — opens after arrival. Records vitals + visible
+        * observations + immediate-risk flag. Sent to admin + receiving
+        * hospital. NEVER shown back to the driver after submission (team
+        * feedback 1.7: medical observations are admin/hospital-only). */}
+      {!finished && ["ARRIVED", "PICKED_UP"].includes(booking.status) ? (
+        <ParamedicAssessmentCard
+          bookingId={booking.id}
+          alreadySubmitted={!!booking.paramedicAssessment}
+        />
+      ) : null}
+
       {/* SOS flow: drop hospital wasn't set at booking time. On arrival, the
         * driver assesses the patient and captures the drop here. Saved via
         * /set-drop so the patient app immediately sees the destination.
@@ -328,10 +361,10 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
             </Text>
             <OtpVerify
               onSubmit={async (code) => {
-                await advance(() => bookingsApi.pickup(booking.id, code), {
-                  title: "",
-                  body: ""
-                });
+                // No confirm dialog — the empty-strings hack here was causing
+                // an empty Alert.alert("","") to flash on submit, which on
+                // some Androids killed the keyboard and stranded the driver.
+                await advance(() => bookingsApi.pickup(booking.id, code));
               }}
               busy={busy}
             />
@@ -473,6 +506,180 @@ function DropPicker({
     </View>
   );
 }
+
+/**
+ * Paramedic assessment form. Driver fills after arrival; on submit the
+ * card collapses into a "Submitted ✓" confirmation. The driver app
+ * intentionally never re-displays the values back — once sent, the
+ * record lives only in the admin/hospital views (privacy rule from
+ * team feedback 1.7).
+ */
+function ParamedicAssessmentCard({ bookingId, alreadySubmitted }: { bookingId: string; alreadySubmitted: boolean }) {
+  const [open, setOpen] = useState(!alreadySubmitted);
+  const [submitted, setSubmitted] = useState(alreadySubmitted);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  // Local form state — single source of truth, never read back from server.
+  const [consciousness, setConsciousness] = useState<string | null>(null);
+  const [breathing, setBreathing] = useState<string | null>(null);
+  const [pulse, setPulse] = useState<string | null>(null);
+  const [bleeding, setBleeding] = useState<string | null>(null);
+  const [immediateRisk, setImmediateRisk] = useState(false);
+  const [notes, setNotes] = useState("");
+
+  if (submitted && !open) {
+    return (
+      <Card flat>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <View style={{ flex: 1 }}>
+            <Text variant="label" tone="secondary">PARAMEDIC ASSESSMENT</Text>
+            <Text variant="small" tone="success">Submitted · sent to medical team</Text>
+          </View>
+          <Pressable onPress={() => setOpen(true)}>
+            <Text variant="small" tone="primary" weight="semi">Update</Text>
+          </Pressable>
+        </View>
+      </Card>
+    );
+  }
+
+  const submit = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await bookingsApi.paramedicAssessment(bookingId, {
+        consciousness: consciousness ?? undefined,
+        breathing: breathing ?? undefined,
+        pulse: pulse ?? undefined,
+        bleedingSeverity: bleeding ?? undefined,
+        immediateRisk,
+        notes: notes || undefined
+      });
+      setSubmitted(true);
+      setOpen(false);
+    } catch (e: any) {
+      setErr(e?.message ?? "Could not save. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card style={{ borderColor: colors.primary, borderWidth: 1 }}>
+      <View style={{ gap: space.md }}>
+        <View>
+          <Text variant="label" tone="primary">PARAMEDIC ASSESSMENT</Text>
+          <Text variant="tiny" tone="secondary">
+            Quick patient vitals. Goes to the medical team + receiving hospital. Not visible back here once submitted.
+          </Text>
+        </View>
+
+        <ChipRow label="Consciousness" options={["alert", "responsive_to_voice", "responsive_to_pain", "unconscious"]} value={consciousness} onChange={setConsciousness} pretty={prettyConsciousness} />
+        <ChipRow label="Breathing" options={["normal", "laboured", "shallow", "absent"]} value={breathing} onChange={setBreathing} />
+        <ChipRow label="Pulse" options={["normal", "weak", "rapid", "absent"]} value={pulse} onChange={setPulse} />
+        <ChipRow label="Bleeding" options={["none", "minor", "moderate", "severe"]} value={bleeding} onChange={setBleeding} />
+
+        <Pressable
+          onPress={() => setImmediateRisk((v) => !v)}
+          style={[paramedicStyles.riskRow, immediateRisk ? paramedicStyles.riskOn : null]}
+        >
+          <Text variant="body" weight="semi" style={{ color: immediateRisk ? colors.textInverse : colors.textPrimary }}>
+            🚨 Immediate risk to life
+          </Text>
+          <Text variant="tiny" style={{ color: immediateRisk ? colors.textInverse : colors.textMuted }}>
+            {immediateRisk ? "FLAGGED" : "Tap to flag"}
+          </Text>
+        </Pressable>
+
+        <Input
+          label="Notes (optional)"
+          value={notes}
+          onChangeText={setNotes}
+          placeholder="Anything the hospital should know on arrival"
+          multiline
+        />
+
+        {err ? <Text variant="tiny" tone="danger">{err}</Text> : null}
+        <Button
+          label={busy ? "Sending…" : alreadySubmitted ? "Update assessment" : "Send to medical team"}
+          onPress={submit}
+          loading={busy}
+          fullWidth
+        />
+      </View>
+    </Card>
+  );
+}
+
+function ChipRow({
+  label,
+  options,
+  value,
+  onChange,
+  pretty
+}: {
+  label: string;
+  options: string[];
+  value: string | null;
+  onChange: (v: string) => void;
+  pretty?: (v: string) => string;
+}) {
+  return (
+    <View style={{ gap: space.xs }}>
+      <Text variant="label" tone="secondary">{label}</Text>
+      <View style={paramedicStyles.chipRow}>
+        {options.map((o) => {
+          const sel = value === o;
+          return (
+            <Pressable
+              key={o}
+              onPress={() => onChange(o)}
+              style={[paramedicStyles.chip, sel ? paramedicStyles.chipOn : null]}
+            >
+              <Text variant="tiny" weight={sel ? "bold" : "regular"} style={{ color: sel ? colors.textInverse : colors.textPrimary }}>
+                {(pretty ?? defaultPretty)(o)}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function defaultPretty(v: string) { return v.charAt(0).toUpperCase() + v.slice(1); }
+function prettyConsciousness(v: string) {
+  switch (v) {
+    case "alert": return "Alert";
+    case "responsive_to_voice": return "Responds to voice";
+    case "responsive_to_pain": return "Responds to pain";
+    case "unconscious": return "Unconscious";
+    default: return v;
+  }
+}
+
+const paramedicStyles = StyleSheet.create({
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: space.xs },
+  chip: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface
+  },
+  chipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  riskRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: space.md,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: colors.border
+  },
+  riskOn: { backgroundColor: colors.danger, borderColor: colors.danger }
+});
 
 function stepHeadline(status: string): string {
   switch (status) {

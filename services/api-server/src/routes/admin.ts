@@ -181,6 +181,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   // 30d expiry — admin should also call out to the user out-of-band if they
   // need them off the platform immediately.
   const patchDisabledSchema = z.object({ disabled: z.boolean() });
+  // Driver PATCH also accepts kycVerified toggle (v1.0.11 — team feedback 1.10).
+  const patchDriverSchema = z.object({
+    disabled: z.boolean().optional(),
+    kycVerified: z.boolean().optional()
+  }).refine((d) => d.disabled !== undefined || d.kycVerified !== undefined, {
+    message: "at_least_one_field_required"
+  });
 
   app.patch("/api/v1/admin/users/:id", adminGuard, async (req, reply) => {
     const id = (req.params as any).id as string;
@@ -227,13 +234,16 @@ export async function registerAdminRoutes(app: FastifyInstance) {
 
   app.patch("/api/v1/admin/drivers/:id", adminGuard, async (req, reply) => {
     const id = (req.params as any).id as string;
-    const parsed = patchDisabledSchema.safeParse(req.body);
+    const parsed = patchDriverSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
     }
+    const patch: any = { updatedAt: new Date() };
+    if (parsed.data.disabled !== undefined) patch.disabled = parsed.data.disabled;
+    if (parsed.data.kycVerified !== undefined) patch.kycVerified = parsed.data.kycVerified;
     const [updated] = await db
       .update(drivers)
-      .set({ disabled: parsed.data.disabled, updatedAt: new Date() })
+      .set(patch)
       .where(eq(drivers.id, id))
       .returning();
     if (!updated) return reply.code(404).send({ error: "not_found" });

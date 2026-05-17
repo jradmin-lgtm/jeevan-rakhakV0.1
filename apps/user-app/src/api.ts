@@ -97,6 +97,11 @@ export type Booking = {
   couponCode?: string | null;
   discountInr?: number | null;
   payableInr?: number | null;
+  patientName?: string | null;
+  patientAge?: number | null;
+  patientGender?: "M" | "F" | "O" | null;
+  patientCondition?: string | null;
+  patientNotes?: string | null;
   rating?: number | null;
   feedback?: string | null;
   rideOtpCode?: string | null;
@@ -156,7 +161,14 @@ export const bookings = {
       body: { rating, feedback }
     }),
   cancel: (id: string, reason?: string) =>
-    api<{ booking: Booking }>(`/api/v1/bookings/${id}/cancel`, { method: "POST", body: { reason } })
+    api<{ booking: Booking }>(`/api/v1/bookings/${id}/cancel`, { method: "POST", body: { reason } }),
+  patientInfo: (id: string, info: {
+    patientName?: string;
+    patientAge?: number;
+    patientGender?: "M" | "F" | "O";
+    patientCondition?: string;
+    patientNotes?: string;
+  }) => api<{ booking: Booking }>(`/api/v1/bookings/${id}/patient-info`, { method: "POST", body: info })
 };
 
 export const driver = {

@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import * as Location from "expo-location";
-import { AppHeader, Button, Card, Input, Screen, Text, colors, radius, space } from "@jr/ui";
+import { AppHeader, Button, Card, Input, PulseDot, Screen, Text, colors, radius, space } from "@jr/ui";
 import { bookings as bookingsApi, EmergencyType, Booking } from "../api";
 
 const EMERGENCIES: { key: EmergencyType; label: string; sub: string; emoji: string }[] = [
@@ -29,60 +29,57 @@ type Props = {
 
 export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
   const [type, setType] = useState<EmergencyType | null>(null);
-  const [pickupAddress, setPickupAddress] = useState("Current location");
+  // Pickup is GPS-only as of v1.0.11 — the team flagged that typing/backspacing
+  // in the field was confusing because the dispatch uses coordinates, not the
+  // displayed text. Now we lock the field, always use live GPS, and show a
+  // refresh button if the user wants to re-snap to current position.
   const [dropAddress, setDropAddress] = useState("");
   const [pickupCoords, setPickupCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(true);
-  const [locationNote, setLocationNote] = useState<string>("Detecting your location…");
+  const [locationNote, setLocationNote] = useState<string>("Detecting your live location…");
   const [coupon, setCoupon] = useState<string>("");
   const [couponApplied, setCouponApplied] = useState<boolean>(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
+  const refreshLocation = useCallback(async () => {
+    setLocating(true);
+    setLocationNote("Detecting your live location…");
+    try {
+      const perm = await Location.requestForegroundPermissionsAsync();
+      if (perm.status !== "granted") {
+        setPickupCoords(FALLBACK_PICKUP);
+        setLocationNote("Location permission denied · using approximate fallback");
+        return;
+      }
+      const fix = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High
+      });
+      setPickupCoords({ lat: fix.coords.latitude, lng: fix.coords.longitude });
+      setLocationNote(
+        `Live location active · ${fix.coords.latitude.toFixed(4)}, ${fix.coords.longitude.toFixed(4)} (±${Math.round(fix.coords.accuracy ?? 0)}m)`
+      );
+    } catch {
       try {
-        const perm = await Location.requestForegroundPermissionsAsync();
-        if (perm.status !== "granted") {
-          if (cancelled) return;
-          setPickupCoords(FALLBACK_PICKUP);
-          setLocationNote("Location permission denied · using approximate fallback");
+        const last = await Location.getLastKnownPositionAsync();
+        if (last) {
+          setPickupCoords({ lat: last.coords.latitude, lng: last.coords.longitude });
+          setLocationNote("Using your last known location (GPS lock failed)");
           return;
         }
-        const fix = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-          // Pilot only — keep timeout tight so the user isn't waiting forever.
-          // If GPS is slow, we fall back to last-known position below.
-        });
-        if (cancelled) return;
-        setPickupCoords({ lat: fix.coords.latitude, lng: fix.coords.longitude });
-        setLocationNote(
-          `Pickup pinned at ${fix.coords.latitude.toFixed(4)}, ${fix.coords.longitude.toFixed(4)} (±${Math.round(fix.coords.accuracy ?? 0)}m)`
-        );
       } catch {
-        if (cancelled) return;
-        // Try last-known before giving up entirely.
-        try {
-          const last = await Location.getLastKnownPositionAsync();
-          if (last) {
-            setPickupCoords({ lat: last.coords.latitude, lng: last.coords.longitude });
-            setLocationNote("Using your last known location (GPS lock failed)");
-            return;
-          }
-        } catch {
-          /* ignored */
-        }
-        setPickupCoords(FALLBACK_PICKUP);
-        setLocationNote("Couldn't detect location · using approximate fallback");
-      } finally {
-        if (!cancelled) setLocating(false);
+        /* ignored */
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+      setPickupCoords(FALLBACK_PICKUP);
+      setLocationNote("Couldn't detect location · using approximate fallback");
+    } finally {
+      setLocating(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void refreshLocation();
+  }, [refreshLocation]);
 
   const baseFare = BASE_FARE_INR;
   const discount = couponApplied ? baseFare : 0;
@@ -120,7 +117,9 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
         emergencyType: type,
         pickupLat: pickupCoords.lat,
         pickupLng: pickupCoords.lng,
-        pickupAddress: pickupAddress || undefined,
+        // Server will reverse-geocode if needed; we just send "Current location"
+        // as a stable label so admin doesn't see an empty pickup string.
+        pickupAddress: "Current location",
         dropAddress: dropAddress || undefined,
         couponCode: couponApplied ? coupon : undefined
       });
@@ -171,15 +170,29 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
 
       <Card>
         <View style={{ gap: space.md }}>
-          <Input
-            label="Pickup location"
-            value={pickupAddress}
-            onChangeText={setPickupAddress}
-            placeholder="Where to pick up?"
-          />
-          <Text variant="tiny" tone={locating ? "secondary" : "muted"}>
-            {locationNote}
-          </Text>
+          <Text variant="label" tone="secondary">PICKUP LOCATION</Text>
+          <View style={styles.pickupLockedRow}>
+            <View style={{ flex: 1, gap: 4 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
+                {!locating ? <PulseDot size={8} color={colors.success} rings={1} /> : null}
+                <Text variant="body" weight="semi">
+                  {locating ? "Detecting…" : pickupCoords ? "Current location" : "Location not available"}
+                </Text>
+              </View>
+              <Text variant="tiny" tone={locating ? "secondary" : "muted"}>
+                {locationNote}
+              </Text>
+              <Text variant="tiny" tone="secondary">
+                Your live location is what we share with the ambulance team.
+              </Text>
+            </View>
+            <Button
+              label={locating ? "…" : "Refresh"}
+              variant="ghost"
+              onPress={refreshLocation}
+              disabled={locating}
+            />
+          </View>
           <Input
             label="Drop / hospital (optional)"
             value={dropAddress}
@@ -259,6 +272,16 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
 }
 
 const styles = StyleSheet.create({
+  pickupLockedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.md,
+    padding: space.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface
+  },
   tile: {
     flexDirection: "row",
     alignItems: "center",

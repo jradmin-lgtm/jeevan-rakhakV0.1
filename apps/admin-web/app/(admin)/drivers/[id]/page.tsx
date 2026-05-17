@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { adminFetch } from "../../../../lib/adminFetch";
 import { formatIST } from "../../../../lib/dates";
 import { DisableToggle } from "../../users/[id]/DisableToggle";
+import { KycVerifyToggle } from "./KycVerifyToggle";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
@@ -52,12 +53,35 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
           <h3 style={{ margin: "0 0 12px" }}>Profile</h3>
           <Field label="Phone" value={driver.phone} />
           <Field label="Name" value={driver.name ?? "—"} />
-          <Field label="Licence" value={driver.licenseNumber ?? "—"} />
           <Field label="Vehicle" value={`${driver.vehicleNumber ?? "—"} (${driver.vehicleType ?? "BLS"})`} />
-          <Field label="KYC" value={driver.kycVerified ? "Verified" : "Pending"} />
+          <Field label="Licence #" value={driver.licenseNumber ?? "—"} />
+          <Field label="RC #" value={driver.rcNumber ?? "—"} />
+          <Field label="Insurance #" value={driver.insuranceNumber ?? "—"} />
+          <Field label="Hospital" value={driver.hospitalName ?? "—"} />
+          <Field label="Hospital ID" value={driver.hospitalId ?? "—"} />
           <Field label="Rating" value={`⭐ ${(driver.rating ?? 5).toFixed(1)}`} />
           <Field label="Last seen" value={driver.lastSeenAt ? formatIST(driver.lastSeenAt) : "—"} />
           <Field label="Joined" value={formatIST(driver.createdAt)} />
+        </div>
+        <div className="card">
+          <h3 style={{ margin: "0 0 12px" }}>KYC</h3>
+          <Field label="Status" value={
+            driver.kycVerified
+              ? <span style={{ color: "var(--success)", fontWeight: 600 }}>✓ Verified</span>
+              : <span style={{ color: "var(--danger, #DC2626)", fontWeight: 600 }}>Pending review</span>
+          } />
+          <div style={{ marginTop: 12, fontSize: 12, color: "var(--muted)" }}>
+            {driver.kycVerified
+              ? "This driver can accept ride requests. Revoke if their KYC ever lapses."
+              : "Driver has submitted all required fields. Verify against physical documents (licence, RC, insurance, hospital ID) before approving."}
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <KycVerifyToggle
+              driverId={driver.id}
+              initialVerified={!!driver.kycVerified}
+              apiBase={API_BASE}
+            />
+          </div>
         </div>
         <div className="card">
           <h3 style={{ margin: "0 0 12px" }}>Lifetime</h3>
@@ -116,7 +140,7 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
   );
 }
 
-function Field({ label, value }: { label: string; value: string }) {
+function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
       <span className="muted" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>{label}</span>

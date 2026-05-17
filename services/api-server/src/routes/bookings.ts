@@ -3,9 +3,11 @@ import { z } from "zod";
 import { and, count, desc, eq, isNull, sql as drizzleSql } from "drizzle-orm";
 import { db, bookingEvents, bookings, driverLocations, drivers, users } from "@jr/db";
 
-// Pilot cap: any single user can have at most 3 active (un-terminal) bookings
-// in flight at once. Prevents misuse + keeps dispatch fan-out load bounded.
-const MAX_ACTIVE_BOOKINGS_PER_USER = 3;
+// Pilot cap: any single user may hold only 1 active (un-terminal) booking at
+// a time. The earlier value of 3 confused testers — they'd dispatch a second
+// ambulance while the first was still en route. One ride at a time matches
+// real-world emergency dispatch and avoids resource waste.
+const MAX_ACTIVE_BOOKINGS_PER_USER = 1;
 import { config } from "@jr/config";
 import { haversineDistanceKm } from "@jr/utils";
 
@@ -98,7 +100,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       if (activeCount >= MAX_ACTIVE_BOOKINGS_PER_USER) {
         return reply.code(429).send({
           error: "max_active_bookings_reached",
-          message: `You already have ${activeCount} active bookings. Complete or cancel one before booking again (limit ${MAX_ACTIVE_BOOKINGS_PER_USER}).`,
+          message: "You already have an active ride. Please complete or cancel it before booking a new one.",
           activeCount,
           limit: MAX_ACTIVE_BOOKINGS_PER_USER
         });
@@ -160,6 +162,11 @@ export async function registerBookingRoutes(app: FastifyInstance) {
   );
 
   // Get one booking — must be the booking's user or assigned driver.
+  // Includes the assigned driver's last known position so the user-app can
+  // render the live driver marker even when the socket relay is asleep on
+  // Render free-tier (the 5s booking poll becomes a hard floor for "where
+  // is the ambulance"). Also returns a small `driverProfile` so the user
+  // sees driver name + vehicle number on the live tracking card.
   app.get(
     "/api/v1/bookings/:id",
     { preHandler: [(app as any).authenticate] },
@@ -170,7 +177,30 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       if (!b) return reply.code(404).send({ error: "not_found" });
       if (role === "user" && b.userId !== sub) return reply.code(403).send({ error: "forbidden" });
       if (role === "driver" && b.driverId !== sub) return reply.code(403).send({ error: "forbidden" });
-      return reply.send({ booking: b });
+
+      let driverProfile = null;
+      let driverPosition = null;
+      if (b.driverId) {
+        const [d] = await db.select().from(drivers).where(eq(drivers.id, b.driverId)).limit(1);
+        if (d) {
+          driverProfile = {
+            id: d.id,
+            name: d.name,
+            phone: d.phone,
+            vehicleNumber: d.vehicleNumber,
+            vehicleType: d.vehicleType,
+            rating: d.rating
+          };
+          if (d.lastLat != null && d.lastLng != null) {
+            driverPosition = {
+              lat: d.lastLat,
+              lng: d.lastLng,
+              lastSeenAt: d.lastSeenAt
+            };
+          }
+        }
+      }
+      return reply.send({ booking: b, driverProfile, driverPosition });
     }
   );
 
@@ -258,6 +288,15 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       const [me] = await db.select().from(drivers).where(eq(drivers.id, sub)).limit(1);
       if (me?.disabled) {
         return reply.code(403).send({ error: "account_disabled", message: "This driver account has been disabled." });
+      }
+      // v1.0.11 KYC gate — drivers must be admin-verified before they can
+      // pick up live bookings. Pre-existing drivers are grandfathered in
+      // (kycVerified was false by default; admin needs to flip those).
+      if (!me?.kycVerified) {
+        return reply.code(403).send({
+          error: "kyc_pending",
+          message: "Your profile is under review. You'll receive ride requests once admin verifies your KYC."
+        });
       }
       const [b] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
       if (!b) return reply.code(404).send({ error: "not_found" });
@@ -406,6 +445,88 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         payableInr
       });
       return reply.send({ booking: { ...b, fareFinalInr: finalFare, discountInr, payableInr } });
+    }
+  );
+
+  // Patient info collected after booking confirmation (team feedback 1.6).
+  // Driver app only shows name/age/gender on the trip card; condition + notes
+  // are admin-only so the driver focuses on driving and the hospital can be
+  // prepared via the dashboard.
+  const patientInfoSchema = z.object({
+    patientName: z.string().max(120).optional(),
+    patientAge: z.number().int().min(0).max(130).optional(),
+    patientGender: z.enum(["M", "F", "O"]).optional(),
+    patientCondition: z.string().max(80).optional(),
+    patientNotes: z.string().max(500).optional()
+  });
+
+  app.post(
+    "/api/v1/bookings/:id/patient-info",
+    { preHandler: [(app as any).authenticate] },
+    async (req: any, reply) => {
+      const { sub, role } = req.user;
+      if (role !== "user") return reply.code(403).send({ error: "user_only" });
+      const id = req.params.id as string;
+      const parsed = patientInfoSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+      }
+      const [b] = await db
+        .update(bookings)
+        .set(parsed.data)
+        .where(and(eq(bookings.id, id), eq(bookings.userId, sub)))
+        .returning();
+      if (!b) return reply.code(404).send({ error: "not_found_or_forbidden" });
+      await emitBookingEvent(id, "booking.patient_info_captured", `user:${sub}`, {
+        condition: parsed.data.patientCondition
+      });
+      return reply.send({ booking: b });
+    }
+  );
+
+  // Paramedic assessment recorded by the driver after arrival (team 1.7).
+  // Stored as JSONB so we iterate without a migration per field. Admin-only
+  // visibility — the driver's own dashboard surfaces nothing back.
+  const paramedicSchema = z.object({
+    consciousness: z.enum(["alert", "responsive_to_voice", "responsive_to_pain", "unconscious"]).optional(),
+    breathing: z.enum(["normal", "laboured", "shallow", "absent"]).optional(),
+    pulse: z.enum(["normal", "weak", "rapid", "absent"]).optional(),
+    bloodPressureSystolic: z.number().int().min(40).max(260).optional(),
+    bloodPressureDiastolic: z.number().int().min(20).max(160).optional(),
+    oxygenSaturation: z.number().int().min(40).max(100).optional(),
+    visibleInjury: z.enum(["none", "minor", "moderate", "severe"]).optional(),
+    bleedingSeverity: z.enum(["none", "minor", "moderate", "severe"]).optional(),
+    burnEstimatePct: z.number().int().min(0).max(100).optional(),
+    suspectedFracture: z.boolean().optional(),
+    snakeBiteVisible: z.boolean().optional(),
+    pregnancyMonths: z.number().int().min(0).max(10).optional(),
+    seizureActivity: z.boolean().optional(),
+    immediateRisk: z.boolean().optional(),
+    notes: z.string().max(1000).optional()
+  });
+
+  app.post(
+    "/api/v1/bookings/:id/paramedic-assessment",
+    { preHandler: [(app as any).authenticate] },
+    async (req: any, reply) => {
+      const { sub, role } = req.user;
+      if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
+      const id = req.params.id as string;
+      const parsed = paramedicSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+      }
+      const assessment = { ...parsed.data, recordedAt: new Date().toISOString(), recordedBy: sub };
+      const [b] = await db
+        .update(bookings)
+        .set({ paramedicAssessment: assessment as any })
+        .where(and(eq(bookings.id, id), eq(bookings.driverId, sub)))
+        .returning();
+      if (!b) return reply.code(404).send({ error: "not_found_or_forbidden" });
+      await emitBookingEvent(id, "booking.paramedic_assessment", `driver:${sub}`, {
+        immediateRisk: parsed.data.immediateRisk ?? false
+      });
+      return reply.send({ booking: b });
     }
   );
 

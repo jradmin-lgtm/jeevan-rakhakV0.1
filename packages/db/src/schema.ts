@@ -77,6 +77,15 @@ export const drivers = pgTable(
     // Admin-set disable flag. Disabled drivers can't redeem an OTP, can't be
     // matched to bookings, and stop appearing in dispatch fan-out.
     disabled: boolean("disabled").default(false).notNull(),
+    // KYC fields collected during onboarding. RC / insurance / hospital fields
+    // are text only for v1.0.11; actual document upload (photo URLs) lands in
+    // v1.0.12 when blob storage is provisioned. kycVerified flips true once
+    // admin reviews + approves via the driver detail page.
+    photoUrl: text("photo_url"),
+    rcNumber: text("rc_number"),
+    insuranceNumber: text("insurance_number"),
+    hospitalId: text("hospital_id"),
+    hospitalName: text("hospital_name"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
   },
@@ -126,6 +135,19 @@ export const bookings = pgTable(
     // Payable = fareFinalInr − discountInr (capped at 0). Recomputed at
     // /complete. Stored so admin doesn't have to re-derive on every read.
     payableInr: integer("payable_inr"),
+    // Patient details collected by the user app after booking confirmation.
+    // patientName / patientAge / patientGender are visible to the driver in
+    // the trip card; patientCondition / patientNotes are admin-only (driver
+    // app filters them out so the driver focuses on driving, not triage).
+    patientName: text("patient_name"),
+    patientAge: integer("patient_age"),
+    patientGender: text("patient_gender"),
+    patientCondition: text("patient_condition"),
+    patientNotes: text("patient_notes"),
+    // Paramedic assessment recorded by the driver after arriving at pickup.
+    // JSONB so we can iterate on field shape without a migration per change.
+    // Admin-only visibility — the standard driver dashboard never shows this.
+    paramedicAssessment: jsonb("paramedic_assessment"),
     rating: integer("rating"),
     feedback: text("feedback"),
     isDemo: boolean("is_demo").default(false).notNull(),

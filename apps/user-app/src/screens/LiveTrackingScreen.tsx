@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, Linking, View } from "react-native";
+import { Alert, Linking, Pressable, StyleSheet, View } from "react-native";
 import {
   AppHeader,
   Button,
   Card,
   ContactSupport,
+  Input,
   MapEmbed,
   OtpToast,
   Pill,
@@ -13,11 +14,23 @@ import {
   StatusBadge,
   Text,
   colors,
+  radius,
   space
 } from "@jr/ui";
 import { Booking, bookings as bookingsApi } from "../api";
 import { getSocket } from "../socket";
 import { prettyEmergency } from "./HomeScreen";
+
+type DriverProfile = {
+  id: string;
+  name?: string | null;
+  phone: string;
+  vehicleNumber?: string | null;
+  vehicleType?: string | null;
+  rating?: number | null;
+};
+
+type DriverPosition = { lat: number; lng: number; lastSeenAt?: string | null };
 
 function openOnGoogleMaps(lat: number, lng: number) {
   // Universal Google Maps URL — opens native app if installed, browser
@@ -57,6 +70,7 @@ type Props = {
 export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
   const [booking, setBooking] = useState<Booking>(initial);
   const [driverPos, setDriverPos] = useState<{ lat: number; lng: number; ts: number } | null>(null);
+  const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [nowTs, setNowTs] = useState<number>(Date.now());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -91,23 +105,48 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
   useEffect(() => {
     let mounted = true;
 
+    // Centralised refresh: pulls booking + driver profile + last-known driver
+    // position. Used by both the 5s poll and the socket booking:event handler.
+    // The driver position from this endpoint is the *fallback* — if socket
+    // relay drops (free-tier dyno sleep, transient network), the user still
+    // sees the ambulance move within 5 seconds.
+    const refreshFromApi = async () => {
+      try {
+        const r: any = await bookingsApi.get(initial.id);
+        if (!mounted) return;
+        setBooking(r.booking);
+        if (r.driverProfile) setDriverProfile(r.driverProfile);
+        // Only apply the polled driver position if the live socket stream
+        // hasn't given us anything fresher (<15s old). This keeps the marker
+        // bumping smoothly when the socket IS working.
+        const pollPos = r.driverPosition;
+        if (pollPos && pollPos.lat != null && pollPos.lng != null) {
+          setDriverPos((current) => {
+            if (current && Date.now() - current.ts < 15_000) return current;
+            const ts = pollPos.lastSeenAt ? new Date(pollPos.lastSeenAt).getTime() : Date.now();
+            return { lat: pollPos.lat, lng: pollPos.lng, ts };
+          });
+        }
+      } catch {
+        /* keep last good */
+      }
+    };
+
     (async () => {
       const sock = await getSocket();
       sock.emit("booking:subscribe", { bookingId: initial.id });
       sock.on("booking:event", (msg: any) => {
         if (msg.bookingId !== initial.id) return;
-        // Refresh authoritative state from API on any event.
-        bookingsApi.get(initial.id).then((r) => mounted && setBooking(r.booking)).catch(() => {});
+        void refreshFromApi();
       });
       sock.on("driver:location:update", (loc: any) => {
         if (loc.bookingId !== initial.id) return;
-        setDriverPos({ lat: loc.lat, lng: loc.lng, ts: loc.ts });
+        // Socket update wins — always overwrite (it's the freshest signal).
+        setDriverPos({ lat: loc.lat, lng: loc.lng, ts: loc.ts ?? Date.now() });
       });
 
-      // Fallback polling in case socket fan-out drops.
-      pollRef.current = setInterval(() => {
-        bookingsApi.get(initial.id).then((r) => mounted && setBooking(r.booking)).catch(() => {});
-      }, 5000);
+      void refreshFromApi();
+      pollRef.current = setInterval(refreshFromApi, 5000);
     })();
 
     return () => {
@@ -120,7 +159,9 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
   const onCancel = async () => {
     Alert.alert(
       "Cancel this booking?",
-      "If a driver is already on the way, please confirm with them on call.",
+      booking.status === "REQUESTED"
+        ? "No driver has been assigned yet — you can cancel freely."
+        : "A driver is on the way. They'll be notified that the trip was cancelled.",
       [
         { text: "Keep booking", style: "cancel" },
         {
@@ -131,7 +172,18 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
               await bookingsApi.cancel(initial.id);
               onClose();
             } catch (e: any) {
-              Alert.alert("Could not cancel", e?.message ?? "Try again.");
+              // Server returns 409 cannot_cancel once the patient has been
+              // picked up — they're already in the ambulance. Surface a
+              // human-readable message instead of the raw error code.
+              const msg = String(e?.message ?? "").toLowerCase();
+              if (msg.includes("cannot_cancel")) {
+                Alert.alert(
+                  "Trip already in progress",
+                  "You're already in the ambulance. Cancellation isn't possible once the trip has started — please coordinate with the driver if anything has changed."
+                );
+              } else {
+                Alert.alert("Could not cancel", e?.message ?? "Please try again.");
+              }
             }
           }
         }
@@ -140,10 +192,12 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
   };
 
   const finished = ["COMPLETED", "CANCELLED", "TIMED_OUT"].includes(booking.status);
-  // Cancel is only safe before a driver has been assigned. Once a driver
-  // accepts, the ambulance is already en route and the user must coordinate
-  // with the driver on call instead of pulling the rug out.
-  const cancellable = booking.status === "REQUESTED";
+  // Match the server gate: user can cancel until the driver has actually
+  // started moving with the patient (PICKED_UP). The earlier v1.0.9 client
+  // only allowed REQUESTED, which forced users to call the driver to cancel
+  // — confusing and error-prone. Server still rejects PICKED_UP/COMPLETED
+  // cancels with a 409 that we render as a friendly toast.
+  const cancellable = ["REQUESTED", "ACCEPTED", "ARRIVED"].includes(booking.status);
 
   // ── Timer / ETA derivation ───────────────────────────────────────────────
   // createdMs serves double duty: the elapsed/ETA timer + the 90-min help
@@ -289,6 +343,56 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
         </View>
       </Card>
 
+      {/* Patient info form — auto-shown after booking confirmation until the
+        * user submits at least condition + name. Team feedback 1.6: the
+        * backend / hospital coord team needs this prepared in advance.
+        * Driver sees only the name/age/gender; condition + notes are
+        * admin/hospital-only. Hidden once any field is filled or once trip
+        * progresses past arrival (no point asking en route). */}
+      {!finished
+        && ["REQUESTED", "ACCEPTED", "ARRIVED"].includes(booking.status)
+        && !booking.patientCondition
+        ? (
+          <PatientInfoCard
+            bookingId={booking.id}
+            onSaved={(b) => setBooking((curr) => ({ ...curr, ...b }))}
+          />
+        ) : null}
+
+      {/* Driver info card — appears the moment a driver accepts. One-tap
+        * call to the driver's phone (team feedback 1.11b). Hidden once the
+        * trip is in a terminal state. */}
+      {driverProfile && !finished && booking.status !== "REQUESTED" ? (
+        <Card padding="md">
+          <View style={driverCardStyles.row}>
+            <View style={driverCardStyles.avatar}>
+              <Text variant="heading" weight="bold" style={{ color: colors.primary }}>
+                {(driverProfile.name ?? "D").slice(0, 1).toUpperCase()}
+              </Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
+                <Text variant="body" weight="semi">{driverProfile.name ?? "Driver"}</Text>
+                {driverProfile.rating != null ? (
+                  <Pill label={`⭐ ${driverProfile.rating.toFixed(1)}`} color={colors.success} bg="#E8F8F1" />
+                ) : null}
+              </View>
+              <Text variant="small" tone="secondary">
+                {driverProfile.vehicleNumber ?? "Vehicle pending"}
+                {driverProfile.vehicleType ? ` · ${driverProfile.vehicleType}` : ""}
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => Linking.openURL(`tel:${driverProfile.phone}`).catch(() => {})}
+              style={driverCardStyles.callBtn}
+              accessibilityLabel={`Call ${driverProfile.name ?? "driver"}`}
+            >
+              <Text style={driverCardStyles.callIcon}>📞</Text>
+            </Pressable>
+          </View>
+        </Card>
+      ) : null}
+
       {showHelpBanner ? (
         <Card>
           <View style={{ gap: space.sm }}>
@@ -308,7 +412,7 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
           <Button label="Cancel booking" variant="outline" onPress={onCancel} fullWidth />
         ) : (
           <Text variant="tiny" tone="muted" align="center">
-            Driver is on the way — please coordinate with them by call if you need to change anything.
+            Trip is in progress — coordinate with the driver by call if you need to change anything.
           </Text>
         )
       ) : (
@@ -318,6 +422,182 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
     </Screen>
   );
 }
+
+// Emergency categories from team feedback 1.6 (dropdown). Mapped to the
+// patient_condition text column server-side. Driver app never reads this.
+const EMERGENCY_CONDITIONS = [
+  "Road Accident",
+  "Trauma — Firearm",
+  "Trauma — Sharp Object",
+  "Pregnancy",
+  "Diabetic Unconscious",
+  "Snake Bite",
+  "Poison Consumption",
+  "Chest Pain / Heart Attack",
+  "Breathing Difficulty",
+  "Unconscious Patient",
+  "Severe Bleeding",
+  "Burn / Fire",
+  "Stroke Symptoms",
+  "High Fever / Seizure",
+  "Other"
+];
+
+function PatientInfoCard({ bookingId, onSaved }: { bookingId: string; onSaved: (b: any) => void }) {
+  const [name, setName] = useState("");
+  const [age, setAge] = useState("");
+  const [gender, setGender] = useState<"M" | "F" | "O" | null>(null);
+  const [condition, setCondition] = useState<string | null>(null);
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!condition) {
+      setErr("Please select the emergency condition.");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const ageNum = age ? parseInt(age, 10) : undefined;
+      const r = await bookingsApi.patientInfo(bookingId, {
+        patientName: name || undefined,
+        patientAge: Number.isFinite(ageNum) ? ageNum : undefined,
+        patientGender: gender ?? undefined,
+        patientCondition: condition,
+        patientNotes: notes || undefined
+      });
+      onSaved(r.booking);
+    } catch (e: any) {
+      setErr(e?.message ?? "Could not save. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card style={{ borderColor: colors.primary, borderWidth: 1 }}>
+      <View style={{ gap: space.md }}>
+        <View>
+          <Text variant="label" tone="primary">PATIENT DETAILS</Text>
+          <Text variant="tiny" tone="secondary">
+            Helps our team prepare medical response. Only condition and notes go to the hospital — driver sees name only.
+          </Text>
+        </View>
+
+        <View style={patientStyles.condGrid}>
+          {EMERGENCY_CONDITIONS.map((c) => {
+            const selected = condition === c;
+            return (
+              <Pressable
+                key={c}
+                onPress={() => setCondition(c)}
+                style={[patientStyles.chip, selected ? patientStyles.chipActive : null]}
+              >
+                <Text variant="tiny" weight={selected ? "bold" : "regular"} style={{ color: selected ? colors.textInverse : colors.textPrimary }}>
+                  {c}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <Input
+          label="Patient name"
+          value={name}
+          onChangeText={setName}
+          placeholder="Optional · helps the driver"
+        />
+        <View style={{ flexDirection: "row", gap: space.md }}>
+          <View style={{ flex: 1 }}>
+            <Input label="Age" value={age} onChangeText={setAge} keyboardType="number-pad" placeholder="Optional" />
+          </View>
+          <View style={{ flex: 1.4, gap: 4 }}>
+            <Text variant="label" tone="secondary">Gender</Text>
+            <View style={{ flexDirection: "row", gap: space.xs }}>
+              {(["M", "F", "O"] as const).map((g) => {
+                const selected = gender === g;
+                return (
+                  <Pressable
+                    key={g}
+                    onPress={() => setGender(g)}
+                    style={[patientStyles.genderChip, selected ? patientStyles.chipActive : null]}
+                  >
+                    <Text variant="small" weight="semi" style={{ color: selected ? colors.textInverse : colors.textPrimary }}>
+                      {g === "M" ? "Male" : g === "F" ? "Female" : "Other"}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        </View>
+        <Input
+          label="Notes for medical team (optional)"
+          value={notes}
+          onChangeText={setNotes}
+          placeholder="e.g., diabetic, on blood thinners"
+          multiline
+        />
+        {err ? <Text variant="tiny" tone="danger">{err}</Text> : null}
+        <Button
+          label={busy ? "Sending…" : "Send to medical team"}
+          onPress={submit}
+          loading={busy}
+          disabled={!condition}
+          fullWidth
+        />
+      </View>
+    </Card>
+  );
+}
+
+const patientStyles = StyleSheet.create({
+  condGrid: { flexDirection: "row", flexWrap: "wrap", gap: space.xs },
+  chip: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface
+  },
+  chipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary
+  },
+  genderChip: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: "center"
+  }
+});
+
+const driverCardStyles = StyleSheet.create({
+  row: { flexDirection: "row", alignItems: "center", gap: space.md },
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.primaryFaint,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  callBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.success,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  callIcon: { fontSize: 22 }
+});
 
 function statusHeadline(status: string): string {
   switch (status) {

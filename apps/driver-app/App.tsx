@@ -13,16 +13,40 @@ import { TripScreen } from "./src/screens/TripScreen";
 import { EarningsScreen } from "./src/screens/EarningsScreen";
 import { ProfileScreen } from "./src/screens/ProfileScreen";
 import { NameCaptureScreen } from "./src/screens/NameCaptureScreen";
+import { KycOnboardingScreen, KycPendingScreen } from "./src/screens/KycOnboardingScreen";
 
 type RootStackParamList = {
   Splash: undefined;
   Login: undefined;
   NameCapture: undefined;
+  KycOnboarding: undefined;
+  KycPending: undefined;
   Dashboard: undefined;
   Trip: { booking: Booking };
   Earnings: undefined;
   Profile: undefined;
 };
+
+// A driver is "KYC complete" once they've filled at least the four
+// hard-required fields. The server-side accept gate also checks
+// `kycVerified` so we know the admin has actually approved.
+function hasSubmittedKyc(p: any) {
+  return (
+    !!p?.licenseNumber &&
+    !!p?.vehicleNumber &&
+    !!p?.rcNumber &&
+    !!p?.insuranceNumber &&
+    !!p?.hospitalId &&
+    !!p?.hospitalName
+  );
+}
+
+async function refreshProfile(setter: (p: any) => void) {
+  try {
+    const r = await me.get();
+    if (r?.profile) setter(r.profile);
+  } catch { /* ignore — next refresh tick will retry */ }
+}
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -82,6 +106,19 @@ export default function App() {
                 onSaved={(p) => setProfile(p)}
               />
             )}
+          </Stack.Screen>
+        ) : !hasSubmittedKyc(profile) ? (
+          <Stack.Screen name="KycOnboarding">
+            {() => (
+              <KycOnboardingScreen
+                initial={profile}
+                onSubmitted={(p) => setProfile(p)}
+              />
+            )}
+          </Stack.Screen>
+        ) : !profile.kycVerified ? (
+          <Stack.Screen name="KycPending">
+            {() => <KycPendingScreen onProfileRefresh={() => void refreshProfile(setProfile)} />}
           </Stack.Screen>
         ) : (
           <>

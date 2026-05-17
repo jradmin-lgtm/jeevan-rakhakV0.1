@@ -119,7 +119,19 @@ async function bootstrap() {
     await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS coupon_code  text`;
     await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS discount_inr integer NOT NULL DEFAULT 0`;
     await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS payable_inr  integer`;
-    app.log.info("[migrate] system_events + ride_otp_code + disabled + coupon/discount/payable ready");
+    // v1.0.11: patient details + paramedic assessment + driver KYC fields.
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS patient_name         text`;
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS patient_age          integer`;
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS patient_gender       text`;
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS patient_condition    text`;
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS patient_notes        text`;
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS paramedic_assessment jsonb`;
+    await pgClient`ALTER TABLE drivers  ADD COLUMN IF NOT EXISTS photo_url        text`;
+    await pgClient`ALTER TABLE drivers  ADD COLUMN IF NOT EXISTS rc_number        text`;
+    await pgClient`ALTER TABLE drivers  ADD COLUMN IF NOT EXISTS insurance_number text`;
+    await pgClient`ALTER TABLE drivers  ADD COLUMN IF NOT EXISTS hospital_id      text`;
+    await pgClient`ALTER TABLE drivers  ADD COLUMN IF NOT EXISTS hospital_name    text`;
+    app.log.info("[migrate] schema v1.0.11 ready (patient + paramedic + KYC fields)");
   } catch (err) {
     // Thumb rule: migrations FATAL-EXIT on failure. Silent catch+warn here
     // previously let the service start with a broken schema (system_events

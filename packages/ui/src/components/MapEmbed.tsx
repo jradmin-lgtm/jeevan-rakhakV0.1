@@ -118,16 +118,20 @@ html,body,#map{height:100%;margin:0;padding:0;background:#eef2f7;font-family:-ap
         source={{ html }}
         style={styles.web}
         onLoadEnd={() => setLoaded(true)}
-        // Block obvious dev-loop wastefulness on this WebView. The map doesn't
-        // need cookies, file access, or hardware acceleration outside the
-        // tile renderer.
         javaScriptEnabled
         domStorageEnabled
         scrollEnabled={false}
         bounces={false}
         showsHorizontalScrollIndicator={false}
         showsVerticalScrollIndicator={false}
-        androidLayerType="hardware"
+        // v1.0.11: removed `androidLayerType="hardware"` — caused the WebView
+        // to render blank/white on driver-app TripScreen once the driver
+        // accepted a ride (Android 10+ regression with hardware-layered
+        // WebViews inside frequently-re-rendered parents). Default layer
+        // behavior renders reliably; the perf cost is invisible at this
+        // map's update rate.
+        mixedContentMode="always"
+        setSupportMultipleWindows={false}
       />
       {!loaded ? (
         <View style={styles.loading} pointerEvents="none">

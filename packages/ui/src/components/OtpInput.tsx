@@ -1,4 +1,4 @@
-import React, { memo, useRef } from "react";
+import React, { memo, useEffect, useRef } from "react";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Text } from "./Text";
 import { colors, radius, space } from "../tokens";
@@ -13,11 +13,34 @@ type Props = {
 
 function OtpInputInner({ value, onChangeText, length = 4, autoFocus, error }: Props) {
   const inputRef = useRef<TextInput>(null);
-  const focus = () => inputRef.current?.focus();
+
+  // v1.0.11: focus once on mount via useEffect instead of the TextInput's
+  // `autoFocus` prop. Team reported the keyboard disappearing mid-entry on
+  // Android — the prop was re-triggering focus behavior on every parent
+  // re-render (TripScreen polls booking state every few seconds). useEffect
+  // with empty deps fires exactly once, then we leave focus management to
+  // the user's taps on the visual boxes.
+  useEffect(() => {
+    if (autoFocus) {
+      // Tiny delay lets the layout settle before showing the soft keyboard;
+      // without it Android sometimes shows the keyboard, then hides it
+      // immediately when the parent's first layout pass completes.
+      const t = setTimeout(() => inputRef.current?.focus(), 120);
+      return () => clearTimeout(t);
+    }
+  }, [autoFocus]);
+
+  // Only refocus from a tap if we're not already focused — avoids the
+  // blur→refocus cycle that briefly dismisses the soft keyboard.
+  const handleBoxesPress = () => {
+    if (!inputRef.current?.isFocused?.()) {
+      inputRef.current?.focus();
+    }
+  };
 
   return (
     <View>
-      <Pressable onPress={focus} style={styles.row}>
+      <Pressable onPress={handleBoxesPress} style={styles.row}>
         {Array.from({ length }, (_, i) => {
           const filled = i < value.length;
           const active = i === value.length && value.length < length;
@@ -42,7 +65,6 @@ function OtpInputInner({ value, onChangeText, length = 4, autoFocus, error }: Pr
       </Pressable>
       <TextInput
         ref={inputRef}
-        autoFocus={autoFocus}
         value={value}
         onChangeText={(v) => onChangeText(v.replace(/\D/g, "").slice(0, length))}
         keyboardType="number-pad"

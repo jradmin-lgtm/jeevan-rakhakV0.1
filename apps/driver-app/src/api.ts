@@ -69,6 +69,12 @@ export type Booking = {
   fareEstimateInr?: number | null;
   fareFinalInr?: number | null;
   rideOtpCode?: string | null;
+  patientName?: string | null;
+  patientAge?: number | null;
+  patientGender?: "M" | "F" | "O" | null;
+  // patientCondition + patientNotes are intentionally NOT included — driver
+  // app must never display them (medical-privacy rule per team feedback).
+  paramedicAssessment?: Record<string, unknown> | null;
   createdAt: string;
 };
 
@@ -108,7 +114,18 @@ export const driver = {
     api<{ ok: true }>("/api/v1/driver/location", {
       method: "POST",
       body: { lat, lng, bookingId, speedKmh, headingDeg }
-    })
+    }),
+  submitKyc: (data: {
+    name?: string;
+    photoUrl?: string;
+    vehicleNumber?: string;
+    vehicleType?: string;
+    licenseNumber?: string;
+    rcNumber?: string;
+    insuranceNumber?: string;
+    hospitalId?: string;
+    hospitalName?: string;
+  }) => api<{ driver: any }>("/api/v1/driver/kyc", { method: "POST", body: data })
 };
 
 export const bookings = {
@@ -127,5 +144,7 @@ export const bookings = {
       body: { dropLat, dropLng, dropAddress }
     }),
   complete: (id: string) =>
-    api<{ booking: Booking }>(`/api/v1/bookings/${id}/complete`, { method: "POST", body: {} })
+    api<{ booking: Booking }>(`/api/v1/bookings/${id}/complete`, { method: "POST", body: {} }),
+  paramedicAssessment: (id: string, assessment: Record<string, unknown>) =>
+    api<{ booking: Booking }>(`/api/v1/bookings/${id}/paramedic-assessment`, { method: "POST", body: assessment })
 };

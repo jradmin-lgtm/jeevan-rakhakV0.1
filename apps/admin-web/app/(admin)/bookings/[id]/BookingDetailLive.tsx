@@ -26,6 +26,12 @@ type Booking = {
   couponCode?: string | null;
   discountInr?: number | null;
   payableInr?: number | null;
+  patientName?: string | null;
+  patientAge?: number | null;
+  patientGender?: "M" | "F" | "O" | null;
+  patientCondition?: string | null;
+  patientNotes?: string | null;
+  paramedicAssessment?: Record<string, any> | null;
   rating?: number | null;
   feedback?: string | null;
   isDemo?: boolean;
@@ -177,6 +183,40 @@ export function BookingDetailLive({
         </div>
       </div>
 
+      {/* Patient + paramedic clinical details — admin/hospital only. Driver
+        * app never displays the condition / notes / paramedic assessment
+        * per the v1.0.11 visibility rules. */}
+      {(booking.patientCondition || booking.patientName || booking.paramedicAssessment) ? (
+        <div className="card" style={{ marginTop: 16 }}>
+          <h3 style={{ margin: "0 0 12px" }}>Clinical brief · admin / hospital only</h3>
+          {booking.patientName || booking.patientAge || booking.patientGender ? (
+            <Field label="Patient" value={[
+              booking.patientName,
+              booking.patientAge ? `${booking.patientAge}y` : null,
+              booking.patientGender === "M" ? "Male" : booking.patientGender === "F" ? "Female" : booking.patientGender === "O" ? "Other" : null
+            ].filter(Boolean).join(" · ") || "—"} />
+          ) : null}
+          {booking.patientCondition ? <Field label="Condition" value={<strong style={{ color: "var(--danger, #DC2626)" }}>{booking.patientCondition}</strong>} /> : null}
+          {booking.patientNotes ? <Field label="User notes" value={booking.patientNotes} /> : null}
+          {booking.paramedicAssessment ? (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+              <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--muted)", marginBottom: 8 }}>
+                Paramedic assessment {booking.paramedicAssessment.recordedAt ? `· ${formatIST(String(booking.paramedicAssessment.recordedAt))}` : ""}
+              </div>
+              {booking.paramedicAssessment.immediateRisk ? (
+                <div style={{ background: "rgba(220,38,38,0.08)", color: "var(--danger, #DC2626)", padding: 8, borderRadius: 6, fontWeight: 700, marginBottom: 8 }}>
+                  🚨 IMMEDIATE RISK TO LIFE flagged by paramedic
+                </div>
+              ) : null}
+              {Object.entries(booking.paramedicAssessment).map(([k, v]) => {
+                if (["recordedAt", "recordedBy", "immediateRisk"].includes(k) || v == null || v === "") return null;
+                return <Field key={k} label={prettyAssessmentKey(k)} value={String(v)} />;
+              })}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="card" style={{ marginTop: 16 }}>
         <h3 style={{ margin: "0 0 12px" }}>Event timeline · {events.length}</h3>
         <div className="timeline">
@@ -222,6 +262,13 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
       <span style={{ fontSize: 13, fontWeight: 500 }}>{value}</span>
     </div>
   );
+}
+
+function prettyAssessmentKey(k: string): string {
+  return k
+    .replace(/([A-Z])/g, " $1")
+    .replace(/^./, (c) => c.toUpperCase())
+    .replace(/_/g, " ");
 }
 
 function prettyEmergency(t: string): string {
