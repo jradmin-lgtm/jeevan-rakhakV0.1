@@ -1,11 +1,12 @@
 import React from "react";
 import { UsersList } from "./UsersList";
+import { adminFetch } from "../../../lib/adminFetch";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
 async function getUsers() {
   try {
-    const res = await fetch(`${API_BASE}/api/v1/admin/users`, { cache: "no-store" });
+    const res = await adminFetch(`${API_BASE}/api/v1/admin/users`);
     if (!res.ok) throw new Error("users");
     const data = await res.json();
     return data.users ?? [];

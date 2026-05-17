@@ -1,9 +1,9 @@
 import { createServer, IncomingMessage, ServerResponse } from "http";
 import { Server, Socket } from "socket.io";
 import jwt from "jsonwebtoken";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { config } from "@jr/config";
-import { db, drivers } from "@jr/db";
+import { bookings, db, drivers } from "@jr/db";
 
 type JwtPayload = {
   sub: string;
@@ -25,7 +25,7 @@ const httpServer = createServer(async (req, res) => {
   // Internal endpoints used by api-server fan-out (auth via shared secret).
   if (req.url === "/internal/booking-created" && req.method === "POST") {
     return readJson(req, res, async (body) => {
-      if (req.headers["x-internal"] !== config.jwtSecret) {
+      if (req.headers["x-internal"] !== config.internalApiSecret) {
         return send(res, 401, { error: "unauthorized" });
       }
       io.to(drivers_room).emit("booking:offered", { bookingId: body.bookingId });
@@ -34,7 +34,7 @@ const httpServer = createServer(async (req, res) => {
   }
   if (req.url === "/internal/booking-event" && req.method === "POST") {
     return readJson(req, res, async (body) => {
-      if (req.headers["x-internal"] !== config.jwtSecret) {
+      if (req.headers["x-internal"] !== config.internalApiSecret) {
         return send(res, 401, { error: "unauthorized" });
       }
       io.to(bookingRoom(body.bookingId)).emit("booking:event", body);
@@ -118,10 +118,30 @@ io.on("connection", async (socket: Socket) => {
     }
   });
 
-  // User subscribes to booking-specific channel after creating a booking.
-  socket.on("booking:subscribe", (payload: { bookingId: string }) => {
+  // User or driver subscribes to a booking-specific channel. Ownership is
+  // verified server-side before joining the room — without this check, any
+  // authenticated user could subscribe to ANY booking and watch live driver
+  // location + status updates for a stranger's trip. (Security audit
+  // finding #3, v1.0.11.4.)
+  socket.on("booking:subscribe", async (payload: { bookingId: string }) => {
     if (!payload?.bookingId) return;
-    socket.join(bookingRoom(payload.bookingId));
+    try {
+      const [b] = await db
+        .select({ userId: bookings.userId, driverId: bookings.driverId })
+        .from(bookings)
+        .where(eq(bookings.id, payload.bookingId))
+        .limit(1);
+      if (!b) return;
+      const isOwner = user.role === "user" && b.userId === user.sub;
+      const isAssignedDriver = user.role === "driver" && b.driverId === user.sub;
+      if (!isOwner && !isAssignedDriver) {
+        console.warn(`[socket] ${user.role}:${user.sub} denied booking:subscribe on ${payload.bookingId}`);
+        return;
+      }
+      socket.join(bookingRoom(payload.bookingId));
+    } catch (err) {
+      console.warn("[socket] booking:subscribe lookup failed", err);
+    }
   });
 
   socket.on("booking:unsubscribe", (payload: { bookingId: string }) => {
@@ -139,17 +159,33 @@ io.on("connection", async (socket: Socket) => {
       headingDeg?: number;
     }) => {
       if (user.role !== "driver") return;
-      // Live relay to the user listening on the booking room.
-      if (payload.bookingId) {
-        io.to(bookingRoom(payload.bookingId)).emit("driver:location:update", {
-          bookingId: payload.bookingId,
-          lat: payload.lat,
-          lng: payload.lng,
-          speedKmh: payload.speedKmh,
-          headingDeg: payload.headingDeg,
-          ts: Date.now()
-        });
+      // Live relay to the user listening on the booking room — but only
+      // if THIS driver is actually assigned to THIS booking. Without the
+      // check, driver A could spoof location updates on driver B's
+      // bookings. (Security audit finding #6, v1.0.11.4.)
+      if (!payload.bookingId) return;
+      try {
+        const [b] = await db
+          .select({ driverId: bookings.driverId })
+          .from(bookings)
+          .where(and(eq(bookings.id, payload.bookingId), eq(bookings.driverId, user.sub)))
+          .limit(1);
+        if (!b) {
+          console.warn(`[socket] driver:${user.sub} denied driver:location on ${payload.bookingId} (not assigned)`);
+          return;
+        }
+      } catch (err) {
+        console.warn("[socket] driver:location ownership check failed", err);
+        return;
       }
+      io.to(bookingRoom(payload.bookingId)).emit("driver:location:update", {
+        bookingId: payload.bookingId,
+        lat: payload.lat,
+        lng: payload.lng,
+        speedKmh: payload.speedKmh,
+        headingDeg: payload.headingDeg,
+        ts: Date.now()
+      });
     }
   );
 

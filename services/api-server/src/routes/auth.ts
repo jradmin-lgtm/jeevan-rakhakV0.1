@@ -141,9 +141,14 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       }
 
       if (candidate.code !== code) {
-        // Track failure: we re-purpose the row's `payloadJson`-equivalent via
-        // the consumed flag — once N failures hit, mark consumed so the user
-        // must request a new OTP.
+        // Brute-force lockout. v1.0.11.4 hardening: previously an attacker
+        // could reset the 5-attempt counter by requesting a fresh OTP
+        // mid-attack (each new row started its own attempt window). Now
+        // when the cumulative request count in the last 10 minutes hits
+        // the cap, we consume EVERY un-consumed OTP for this (phone, role)
+        // — not just the current candidate. The attacker must wait the
+        // full 10-minute window AND request a new code; their previous
+        // session's OTPs are dead. (Security audit finding #5.)
         const [{ c }] = await db
           .select({ c: count() })
           .from(otpCodes)
@@ -155,7 +160,16 @@ export async function registerAuthRoutes(app: FastifyInstance) {
             )
           );
         if (c >= config.otpMaxFailedAttempts) {
-          await db.update(otpCodes).set({ consumedAt: now }).where(eq(otpCodes.id, candidate.id));
+          await db
+            .update(otpCodes)
+            .set({ consumedAt: now })
+            .where(
+              and(
+                eq(otpCodes.phone, phone),
+                eq(otpCodes.role, role),
+                isNull(otpCodes.consumedAt)
+              )
+            );
           return reply.code(429).send({ error: "too_many_attempts" });
         }
         return reply.code(401).send({ error: "invalid_or_expired_otp" });
