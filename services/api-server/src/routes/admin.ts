@@ -332,17 +332,23 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const range = pickDateRange(req);
     const since = range.since ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const until = range.until ?? new Date();
+    // postgres.js refuses Date objects in raw template-literal parameters
+    // (`Received an instance of Date`). It accepts ISO strings + casts
+    // them via PG when the column is timestamptz. Drizzle's eq/gte/lte
+    // helpers know how to bind Date directly so those are unchanged.
+    const sinceIso = since.toISOString();
+    const untilIso = until.toISOString();
 
     const dateClause = and(gte(bookings.createdAt, since), lte(bookings.createdAt, until));
 
     // Per-day bookings + per-day completed.
-    const perDay = await db.execute<{ day: string; count: number; completed: number }>(drizzleSql`
+    const perDay: any = await db.execute(drizzleSql`
       SELECT
         to_char(date_trunc('day', created_at AT TIME ZONE 'Asia/Kolkata'), 'YYYY-MM-DD') AS day,
         COUNT(*)::int AS count,
         SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END)::int AS completed
       FROM bookings
-      WHERE created_at >= ${since} AND created_at <= ${until}
+      WHERE created_at >= ${sinceIso}::timestamptz AND created_at <= ${untilIso}::timestamptz
       GROUP BY 1
       ORDER BY 1 ASC
     `);
@@ -359,10 +365,10 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     }).from(bookings).where(and(dateClause, drizzleSql`${bookings.rating} IS NOT NULL`));
 
     // Emergency-type mix.
-    const mix = await db.execute<{ type: string; count: number }>(drizzleSql`
+    const mix: any = await db.execute(drizzleSql`
       SELECT emergency_type::text AS type, COUNT(*)::int AS count
       FROM bookings
-      WHERE created_at >= ${since} AND created_at <= ${until}
+      WHERE created_at >= ${sinceIso}::timestamptz AND created_at <= ${untilIso}::timestamptz
       GROUP BY 1
       ORDER BY 2 DESC
     `);
