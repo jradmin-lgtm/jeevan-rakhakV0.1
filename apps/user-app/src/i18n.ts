@@ -86,6 +86,16 @@ const en: Dict = {
   "profile_setup.continue": "Continue",
   "profile_setup.signed_in_as": "Signed in as",
 
+  // Drop location picker (v1.0.13)
+  "drop_picker.title": "Pick drop location",
+  "drop_picker.subtitle": "Drag the map · the red pin is your drop",
+  "drop_picker.selected": "DROP LOCATION",
+  "drop_picker.confirm": "Confirm this location",
+  "drop_picker.detecting": "Detecting address…",
+  "drop_picker.loading_map": "Loading map…",
+  "drop_picker.open_button": "Pin on map",
+  "drop_picker.refine_hint": "Drop pin on map for exact location",
+
   // Account deletion (Google Play compliance)
   "delete.button": "Delete account",
   "delete.title": "Delete your account?",
@@ -171,6 +181,16 @@ const hi: Dict = {
   "profile_setup.phone_help": "हम यह केवल असाइन किए गए ड्राइवर और हमारी ऑपरेशन्स टीम के साथ साझा करते हैं।",
   "profile_setup.continue": "जारी रखें",
   "profile_setup.signed_in_as": "इस रूप में साइन इन हैं",
+
+  // Drop location picker — extended (v1.0.13)
+  "drop_picker.title": "ड्रॉप स्थान चुनें",
+  "drop_picker.subtitle": "नक्शा खींचें · लाल पिन आपका ड्रॉप है",
+  "drop_picker.selected": "ड्रॉप स्थान",
+  "drop_picker.confirm": "यह स्थान पुष्टि करें",
+  "drop_picker.detecting": "पता खोजा जा रहा है…",
+  "drop_picker.loading_map": "नक्शा लोड हो रहा है…",
+  "drop_picker.open_button": "नक्शे पर पिन करें",
+  "drop_picker.refine_hint": "सटीक स्थान के लिए नक्शे पर पिन करें",
 
   // Account deletion — extended
   "delete.button": "खाता हटाएँ",

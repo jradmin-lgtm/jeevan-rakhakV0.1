@@ -3,6 +3,8 @@ import { Pressable, StyleSheet, View } from "react-native";
 import * as Location from "expo-location";
 import { AppHeader, Button, Card, Input, PulseDot, Screen, Text, colors, radius, space } from "@jr/ui";
 import { bookings as bookingsApi, EmergencyType, Booking } from "../api";
+import { DropLocationPicker } from "./DropLocationPicker";
+import { useT } from "../i18n";
 
 const EMERGENCIES: { key: EmergencyType; label: string; sub: string; emoji: string }[] = [
   { key: "CARDIAC",                    label: "Cardiac",            sub: "Chest pain, heart attack",  emoji: "♥" },
@@ -28,12 +30,19 @@ type Props = {
 };
 
 export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
+  const { t } = useT();
   const [type, setType] = useState<EmergencyType | null>(null);
   // Pickup is GPS-only as of v1.0.11 — the team flagged that typing/backspacing
   // in the field was confusing because the dispatch uses coordinates, not the
   // displayed text. Now we lock the field, always use live GPS, and show a
   // refresh button if the user wants to re-snap to current position.
   const [dropAddress, setDropAddress] = useState("");
+  // v1.0.13: optional precise drop coordinates from the map picker. When set,
+  // the booking POST sends dropLat/dropLng so the driver gets an exact pin
+  // (not just a hospital name to retype into Maps). User can still book with
+  // text-only drop — coords are an opt-in refinement.
+  const [dropCoords, setDropCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [pickupCoords, setPickupCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(true);
   const [locationNote, setLocationNote] = useState<string>("Detecting your live location…");
@@ -120,6 +129,8 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
         // as a stable label so admin doesn't see an empty pickup string.
         pickupAddress: "Current location",
         dropAddress: dropAddress || undefined,
+        dropLat: dropCoords?.lat,
+        dropLng: dropCoords?.lng,
         couponCode: couponApplied ? coupon : undefined
       });
       onBooked(r.booking);
@@ -192,12 +203,34 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
               disabled={locating}
             />
           </View>
-          <Input
-            label="Drop / hospital (optional)"
-            value={dropAddress}
-            onChangeText={setDropAddress}
-            placeholder="Hospital or address"
-          />
+          <View style={{ gap: space.xs }}>
+            <Input
+              label="Drop / hospital (optional)"
+              value={dropAddress}
+              onChangeText={(v) => {
+                setDropAddress(v);
+                // Clear coords if user is typing — they're picking a new
+                // destination, the pin from the map no longer matches.
+                if (dropCoords) setDropCoords(null);
+              }}
+              placeholder="Hospital or address"
+            />
+            <Pressable
+              onPress={() => setPickerOpen(true)}
+              android_ripple={{ color: "rgba(229,50,43,0.10)" }}
+              style={styles.pinOnMapBtn}
+              testID="open-drop-picker"
+            >
+              <Text variant="small" weight="bold" tone="primary">
+                {dropCoords ? "📍 Edit pin on map" : `📍 ${t("drop_picker.open_button")}`}
+              </Text>
+              <Text variant="tiny" tone="muted">
+                {dropCoords
+                  ? `Exact location set · ${dropCoords.lat.toFixed(4)}, ${dropCoords.lng.toFixed(4)}`
+                  : t("drop_picker.refine_hint")}
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </Card>
 
@@ -266,6 +299,21 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
       <Text variant="tiny" tone="muted" align="center">
         Average response: 8–12 min · Cashless during launch offer
       </Text>
+
+      <DropLocationPicker
+        visible={pickerOpen}
+        // Open the picker centred on the current pickup. If the user
+        // already picked a drop, re-open at that pin so they can refine.
+        initialCenter={dropCoords ?? pickupCoords}
+        onCancel={() => setPickerOpen(false)}
+        onConfirm={(picked) => {
+          setDropCoords({ lat: picked.lat, lng: picked.lng });
+          // Only auto-fill the address field if the user hasn't typed
+          // anything custom — never clobber their input.
+          if (!dropAddress.trim()) setDropAddress(picked.address);
+          setPickerOpen(false);
+        }}
+      />
     </Screen>
   );
 }
@@ -320,5 +368,14 @@ const styles = StyleSheet.create({
   struck: {
     textDecorationLine: "line-through",
     color: colors.textMuted
+  },
+  pinOnMapBtn: {
+    marginTop: -space.xs,
+    paddingVertical: space.sm,
+    paddingHorizontal: space.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.primaryFaint,
+    borderWidth: 1,
+    borderColor: "rgba(229,50,43,0.15)"
   }
 });
