@@ -161,6 +161,29 @@ export const me = {
   delete: () => api<{ deleted: boolean }>("/api/v1/me/delete", { method: "POST" })
 };
 
+export type FareQuote = {
+  baseFareInr: number;
+  perKmFareInr: number;
+  distanceKm: number | null;
+  distanceChargeInr: number;
+  totalInr: number;
+  coupon: { couponCode: string | null; discountInr: number; payableInr: number };
+};
+
+export const fares = {
+  // v1.0.13: server-computed fare quote. Mobile shows the breakdown; the
+  // saved fareEstimateInr on the booking row uses the exact same numbers.
+  // Eliminates the ₹250 (hardcoded mobile) vs ₹500 (server default) drift.
+  quote: (input: {
+    pickupLat: number;
+    pickupLng: number;
+    dropLat?: number | null;
+    dropLng?: number | null;
+    couponCode?: string | null;
+  }) =>
+    api<FareQuote>("/api/v1/fares/quote", { method: "POST", body: input })
+};
+
 export const bookings = {
   create: (input: {
     emergencyType: EmergencyType;

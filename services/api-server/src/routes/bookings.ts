@@ -38,6 +38,50 @@ function estimateFare(pickupLat: number, pickupLng: number, dropLat?: number, dr
 }
 
 /**
+ * v1.0.13: full quote breakdown used by the mobile booking screen so the
+ * patient sees the same fare math the server will record. Single source of
+ * truth — fixes the "₹250 in app, ₹500 on admin" drift from earlier builds.
+ *
+ * Shape:
+ *   {
+ *     baseFareInr: 500,                 // config.baseFareInr
+ *     perKmFareInr: 30,                 // config.perKmFareInr
+ *     distanceKm: 8.42 | null,          // null when no drop coords
+ *     distanceChargeInr: 253 | 0,
+ *     totalInr: 753,                    // base + distanceCharge, rounded
+ *     coupon: { code, discountInr, payableInr } | null
+ *   }
+ */
+function fareQuote(
+  pickupLat: number,
+  pickupLng: number,
+  dropLat?: number | null,
+  dropLng?: number | null,
+  couponCode?: string | null
+) {
+  const baseFareInr = config.baseFareInr;
+  const perKmFareInr = config.perKmFareInr;
+  let distanceKm: number | null = null;
+  let distanceChargeInr = 0;
+  if (dropLat != null && dropLng != null) {
+    distanceKm = haversineDistanceKm(pickupLat, pickupLng, dropLat, dropLng);
+    distanceChargeInr = Math.round(distanceKm * perKmFareInr);
+  }
+  const totalInr = baseFareInr + distanceChargeInr;
+  const coupon = couponCode
+    ? applyCoupon(totalInr, couponCode)
+    : { couponCode: null, discountInr: 0, payableInr: totalInr };
+  return {
+    baseFareInr,
+    perKmFareInr,
+    distanceKm: distanceKm != null ? Math.round(distanceKm * 100) / 100 : null,
+    distanceChargeInr,
+    totalInr,
+    coupon
+  };
+}
+
+/**
  * Coupon registry — pilot uses a single 100%-off launch promo. When more
  * coupons land or rules grow (per-user limits, expiry, max uses), promote
  * this to a `coupons` table + admin CRUD. Until then the constant is enough.
@@ -64,6 +108,31 @@ function applyCoupon(baseFareInr: number, rawCode: string | undefined | null) {
 }
 
 export async function registerBookingRoutes(app: FastifyInstance) {
+  // v1.0.13: fare-quote endpoint. Stateless, called by the user app whenever
+  // pickup/drop coords or coupon change so the booking screen shows the
+  // exact number that will hit the bookings row. Auth-required so we don't
+  // expose pricing publicly (could leak business model).
+  const fareQuoteSchema = z.object({
+    pickupLat: z.number(),
+    pickupLng: z.number(),
+    dropLat: z.number().optional().nullable(),
+    dropLng: z.number().optional().nullable(),
+    couponCode: z.string().max(40).optional().nullable()
+  });
+  app.post(
+    "/api/v1/fares/quote",
+    { preHandler: [(app as any).authenticate] },
+    async (req: any, reply) => {
+      const parsed = fareQuoteSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+      }
+      const { pickupLat, pickupLng, dropLat, dropLng, couponCode } = parsed.data;
+      const quote = fareQuote(pickupLat, pickupLng, dropLat ?? undefined, dropLng ?? undefined, couponCode);
+      return reply.send(quote);
+    }
+  );
+
   // Create booking (user)
   app.post(
     "/api/v1/bookings",

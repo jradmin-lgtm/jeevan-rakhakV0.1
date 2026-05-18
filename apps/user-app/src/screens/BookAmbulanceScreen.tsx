@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import * as Location from "expo-location";
 import { AppHeader, Button, Card, Input, PulseDot, Screen, Text, colors, radius, space } from "@jr/ui";
-import { bookings as bookingsApi, EmergencyType, Booking } from "../api";
+import { bookings as bookingsApi, fares as faresApi, FareQuote, EmergencyType, Booking } from "../api";
 import { DropLocationPicker } from "./DropLocationPicker";
 import { useT } from "../i18n";
 
@@ -19,9 +19,9 @@ const EMERGENCIES: { key: EmergencyType; label: string; sub: string; emoji: stri
 // Confirm button stays disabled, so we never dispatch an ambulance to a
 // guessed Delhi address.
 
-// Base estimate. Once distance-aware pricing lands, replace with a real calc.
-const BASE_FARE_INR = 250;
-
+// v1.0.13: hardcoded BASE_FARE_INR removed. Fare is now fetched from the
+// server's /fares/quote endpoint so admin + mobile + the booking row always
+// show the same number. The user app no longer guesses pricing.
 const PILOT_COUPON = "PILOT100";
 
 type Props = {
@@ -50,6 +50,11 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
   const [couponApplied, setCouponApplied] = useState<boolean>(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // v1.0.13: server-computed fare quote. Recomputed whenever pickup/drop
+  // coords change or the user applies/removes a coupon. `quoteBusy` lets
+  // the UI show a subtle spinner instead of a flash of stale numbers.
+  const [quote, setQuote] = useState<FareQuote | null>(null);
+  const [quoteBusy, setQuoteBusy] = useState(false);
 
   const refreshLocation = useCallback(async () => {
     setLocating(true);
@@ -89,9 +94,36 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
     void refreshLocation();
   }, [refreshLocation]);
 
-  const baseFare = BASE_FARE_INR;
-  const discount = couponApplied ? baseFare : 0;
-  const finalFare = baseFare - discount;
+  // Pull a fresh quote whenever pickup, drop, or coupon changes. Falls back
+  // gracefully — if the server can't be reached we just don't show numbers
+  // (the Confirm button stays enabled; server will compute on POST). Cheap
+  // call, no debouncing needed because the inputs only change on user action.
+  useEffect(() => {
+    if (!pickupCoords) {
+      setQuote(null);
+      return;
+    }
+    let cancelled = false;
+    setQuoteBusy(true);
+    faresApi
+      .quote({
+        pickupLat: pickupCoords.lat,
+        pickupLng: pickupCoords.lng,
+        dropLat: dropCoords?.lat ?? null,
+        dropLng: dropCoords?.lng ?? null,
+        couponCode: couponApplied ? coupon : null
+      })
+      .then((q) => { if (!cancelled) setQuote(q); })
+      .catch(() => { if (!cancelled) setQuote(null); })
+      .finally(() => { if (!cancelled) setQuoteBusy(false); });
+    return () => { cancelled = true; };
+  }, [pickupCoords?.lat, pickupCoords?.lng, dropCoords?.lat, dropCoords?.lng, couponApplied, coupon]);
+
+  const baseFare = quote?.baseFareInr ?? 0;
+  const distanceCharge = quote?.distanceChargeInr ?? 0;
+  const totalBeforeDiscount = quote?.totalInr ?? 0;
+  const discount = quote?.coupon?.discountInr ?? 0;
+  const finalFare = quote?.coupon?.payableInr ?? totalBeforeDiscount;
 
   const applyCoupon = () => {
     const code = coupon.trim().toUpperCase();
@@ -236,14 +268,46 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
 
       <Card>
         <View style={{ gap: space.md }}>
-          <Text variant="label" tone="secondary">FARE &amp; OFFERS</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <Text variant="label" tone="secondary">FARE &amp; OFFERS</Text>
+            {quoteBusy ? <Text variant="tiny" tone="muted">Calculating…</Text> : null}
+          </View>
 
+          {/* Server-computed fare breakdown. Shows Base + Distance × per-km
+            * when drop coords are known (via the map picker), otherwise just
+            * the base fare. The discount + total payable rows mirror the
+            * server's COUPONS table, so the patient sees the exact number
+            * the booking row will record. */}
           <View style={styles.fareRow}>
             <Text variant="body" tone="secondary">Base fare</Text>
-            <Text variant="body" weight="semi" style={couponApplied ? styles.struck : undefined}>
-              ₹{baseFare}
+            <Text variant="body" weight="semi">
+              {quote ? `₹${baseFare}` : <Text variant="body" tone="muted">…</Text>}
             </Text>
           </View>
+
+          {quote && quote.distanceKm != null ? (
+            <View style={styles.fareRow}>
+              <Text variant="body" tone="secondary">
+                Distance ({quote.distanceKm.toFixed(1)} km × ₹{quote.perKmFareInr})
+              </Text>
+              <Text variant="body" weight="semi">+ ₹{distanceCharge}</Text>
+            </View>
+          ) : null}
+
+          {quote && quote.distanceKm != null ? (
+            <View style={styles.fareRow}>
+              <Text variant="body" tone="secondary">Subtotal</Text>
+              <Text variant="body" weight="semi" style={couponApplied ? styles.struck : undefined}>
+                ₹{totalBeforeDiscount}
+              </Text>
+            </View>
+          ) : null}
+
+          {!quote || quote.distanceKm == null ? (
+            <Text variant="tiny" tone="muted">
+              Pin a drop location on the map above to see the distance-based fare.
+            </Text>
+          ) : null}
 
           {couponApplied ? (
             <>
