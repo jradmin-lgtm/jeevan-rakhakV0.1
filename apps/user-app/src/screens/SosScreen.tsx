@@ -109,7 +109,12 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
               style={styles.bigButtonInner}
               disabled={busy}
             >
-              <Text variant="title" tone="inverse" weight="bold" style={{ fontSize: 44, letterSpacing: 2 }}>
+              <Text
+                variant="title"
+                tone="inverse"
+                weight="bold"
+                style={{ fontSize: 48, letterSpacing: 1, textAlign: "center", includeFontPadding: false }}
+              >
                 SOS
               </Text>
               <Text variant="small" tone="inverse" style={{ opacity: 0.92, marginTop: 4 }}>

@@ -85,18 +85,26 @@ function OtpInputInner({ value, onChangeText, length = 4, autoFocus, error }: Pr
   );
 }
 
-const SIZE_W = 56;
-const SIZE_H = 64;
+// v1.0.14: the OtpInput used to hard-code 56×64dp boxes. On narrow devices
+// (~320dp width, e.g. older Androids and split-screen mode) four boxes
+// overflowed the parent and pushed the right-most box off-screen. We now
+// flex each box to share the available width with a sensible max so they
+// don't grow obnoxiously on tablets.
+const BOX_MIN_W = 48;
+const BOX_MAX_W = 64;
+const BOX_HEIGHT = 64;
 
 const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     justifyContent: "center",
-    gap: space.md
+    gap: space.sm
   },
   box: {
-    width: SIZE_W,
-    height: SIZE_H,
+    flex: 1,
+    minWidth: BOX_MIN_W,
+    maxWidth: BOX_MAX_W,
+    height: BOX_HEIGHT,
     borderRadius: radius.lg,
     borderWidth: 2,
     borderColor: colors.border,

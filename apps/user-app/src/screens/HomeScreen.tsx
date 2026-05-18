@@ -134,7 +134,19 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
                   accessibilityRole="button"
                   accessibilityLabel="Emergency SOS — dispatch ambulance now"
                 >
-                  <Text variant="title" tone="inverse" weight="bold" style={{ fontSize: 48, letterSpacing: 3 }}>SOS</Text>
+                  {/* v1.0.14: dropped letterSpacing 3 → 1. Android renders
+                    * the "O" off-centre when the trailing letter-spacing pad
+                    * isn't compensated; using includeFontPadding:false + a
+                    * smaller letterSpacing + textAlign:center produces an
+                    * evenly-balanced "SOS" across devices. */}
+                  <Text
+                    variant="title"
+                    tone="inverse"
+                    weight="bold"
+                    style={{ fontSize: 52, letterSpacing: 1, textAlign: "center", includeFontPadding: false }}
+                  >
+                    SOS
+                  </Text>
                   <Text variant="small" tone="inverse" style={{ opacity: 0.95, marginTop: 2 }}>{t("home.sos.tap")}</Text>
                 </Pressable>
               </Animated.View>

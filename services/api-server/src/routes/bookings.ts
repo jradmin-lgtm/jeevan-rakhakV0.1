@@ -10,6 +10,11 @@ import { db, bookingEvents, bookings, driverLocations, drivers, users } from "@j
 const MAX_ACTIVE_BOOKINGS_PER_USER = 1;
 import { config } from "@jr/config";
 import { haversineDistanceKm } from "@jr/utils";
+// v1.0.14: fare logic is in services/api-server/src/fare-config.ts —
+// the single editable spot for rates, multipliers, surcharges. Change a
+// constant there → redeploy → mobile UI re-quotes on next mount. No APK
+// rebuild needed since pricing is server-driven.
+import { computeFare, computeFareTotal, applyCoupon } from "../fare-config";
 
 const bookingCreateSchema = z.object({
   emergencyType: z.enum([
@@ -31,154 +36,10 @@ const bookingCreateSchema = z.object({
   couponCode: z.string().max(40).optional()
 });
 
-// ─────────────────────────────────────────────────────────────────────────
-// v1.0.13 (revised): industry-style dynamic fare model.
-//
-// Drops the fixed ₹500 "base fare" from earlier builds. Total is now driven
-// by distance × per-km rate × multipliers (vehicle type, emergency severity,
-// night surcharge). A minimum fare floor catches short trips so we don't
-// charge ₹0 for a 200m ride.
-//
-// Why these defaults — calibrated to typical Indian private-ambulance rates
-// (mid-2024 surveys, BLS service):
-//
-//   - RATE_PER_KM_BASE     = ₹120/km   — BLS standard for metros + tier-2
-//   - MIN_FARE             = ₹300      — covers the first ~2.5 km
-//   - VEHICLE_MULT         = BLS 1.0   - ALS 1.5 - ICU 2.0
-//   - EMERGENCY_MULT       = Cardiac/Trauma 1.2 (priority dispatch surcharge)
-//                            Pregnancy 1.1  · others 1.0
-//   - NIGHT_SURCHARGE      = 1.25      — applied 22:00–06:00 IST
-//
-// ETA is included in the quote so the UI can show "ambulance arrives in
-// ~N min" before booking. It's purely informational; doesn't affect the
-// fare (no wait-time charges during launch).
-// ─────────────────────────────────────────────────────────────────────────
-const RATE_PER_KM = 120;
-const MIN_FARE = 300;
-const VEHICLE_MULT: Record<string, number> = { BLS: 1.0, ALS: 1.5, ICU: 2.0 };
-const EMERGENCY_MULT: Record<string, number> = {
-  CARDIAC: 1.2,
-  ACCIDENT_TRAUMA: 1.2,
-  PREGNANCY_NEONATAL: 1.1,
-  BREATHING_DISTRESS: 1.0,
-  GENERAL_CRITICAL_TRANSFER: 1.0
-};
-
-function isNightIST(now: Date = new Date()): boolean {
-  // IST hour using Intl so DST/timezone-shift doesn't bite us. 22:00–06:00 = night.
-  const hour = Number(
-    new Intl.DateTimeFormat("en-IN", {
-      hour: "2-digit",
-      hour12: false,
-      timeZone: "Asia/Kolkata"
-    }).format(now)
-  );
-  return hour >= 22 || hour < 6;
-}
-
-/** Same urban-India ETA used on the mobile side — kept in sync. */
-function estimateEtaMin(km: number, avgKmh = 28, roadFactor = 1.4): number {
-  return Math.max(1, Math.round(((km * roadFactor) / avgKmh) * 60));
-}
-
-function estimateFare(
-  pickupLat: number,
-  pickupLng: number,
-  dropLat?: number,
-  dropLng?: number,
-  vehicleType?: string | null,
-  emergencyType?: string | null
-) {
-  if (dropLat == null || dropLng == null) return MIN_FARE;
-  const km = haversineDistanceKm(pickupLat, pickupLng, dropLat, dropLng);
-  const distanceCharge = Math.max(MIN_FARE, RATE_PER_KM * km);
-  const vMult = VEHICLE_MULT[String(vehicleType ?? "BLS")] ?? 1.0;
-  const eMult = EMERGENCY_MULT[String(emergencyType ?? "")] ?? 1.0;
-  const night = isNightIST() ? 1.25 : 1.0;
-  return Math.round(distanceCharge * vMult * eMult * night);
-}
-
-/**
- * v1.0.13 (revised) fare-quote: full dynamic breakdown so the mobile UI
- * can show each component (Distance, Vehicle, Emergency, Night surcharge).
- */
-function fareQuote(
-  pickupLat: number,
-  pickupLng: number,
-  dropLat?: number | null,
-  dropLng?: number | null,
-  couponCode?: string | null,
-  vehicleType?: string | null,
-  emergencyType?: string | null
-) {
-  let distanceKm: number | null = null;
-  let etaMin: number | null = null;
-  let distanceChargeInr = 0;
-
-  if (dropLat != null && dropLng != null) {
-    distanceKm = haversineDistanceKm(pickupLat, pickupLng, dropLat, dropLng);
-    etaMin = estimateEtaMin(distanceKm);
-    distanceChargeInr = Math.max(MIN_FARE, Math.round(RATE_PER_KM * distanceKm));
-  } else {
-    // No drop set — show minimum fare estimate so the UI isn't empty.
-    distanceChargeInr = MIN_FARE;
-  }
-
-  const vMult = VEHICLE_MULT[String(vehicleType ?? "BLS")] ?? 1.0;
-  const eMult = EMERGENCY_MULT[String(emergencyType ?? "")] ?? 1.0;
-  const night = isNightIST() ? 1.25 : 1.0;
-
-  const totalInr = Math.round(distanceChargeInr * vMult * eMult * night);
-  const coupon = couponCode
-    ? applyCoupon(totalInr, couponCode)
-    : { couponCode: null, discountInr: 0, payableInr: totalInr };
-
-  return {
-    // Backwards-compatible fields (older client code reads these)
-    baseFareInr: MIN_FARE,           // semantics: minimum-fare floor, not a flat add-on anymore
-    perKmFareInr: RATE_PER_KM,
-    distanceKm: distanceKm != null ? Math.round(distanceKm * 100) / 100 : null,
-    distanceChargeInr,               // already includes MIN_FARE floor
-    totalInr,
-    coupon,
-    // v1.0.13 revised additions
-    etaMin,
-    multipliers: {
-      vehicleType: vehicleType ?? "BLS",
-      vehicleMult: vMult,
-      emergencyType: emergencyType ?? null,
-      emergencyMult: eMult,
-      nightSurcharge: night,
-      isNight: night > 1
-    }
-  };
-}
-
-/**
- * Coupon registry — pilot uses a single 100%-off launch promo. When more
- * coupons land or rules grow (per-user limits, expiry, max uses), promote
- * this to a `coupons` table + admin CRUD. Until then the constant is enough.
- */
-const COUPONS: Record<string, { percentOff: number; flatOffInr: number }> = {
-  PILOT100: { percentOff: 100, flatOffInr: 0 }
-};
-
-function applyCoupon(baseFareInr: number, rawCode: string | undefined | null) {
-  if (!rawCode) return { couponCode: null as string | null, discountInr: 0, payableInr: baseFareInr };
-  const code = rawCode.trim().toUpperCase();
-  const promo = COUPONS[code];
-  if (!promo) {
-    // Unknown coupons are treated as "no coupon applied" — we keep the request
-    // succeeding so a fat-fingered code doesn't block the booking, but the
-    // patient pays full fare. The user app validates coupons before submit so
-    // we typically only see codes we know.
-    return { couponCode: null as string | null, discountInr: 0, payableInr: baseFareInr };
-  }
-  const pctDiscount = Math.round((baseFareInr * promo.percentOff) / 100);
-  const discountInr = Math.min(baseFareInr, pctDiscount + promo.flatOffInr);
-  const payableInr = Math.max(0, baseFareInr - discountInr);
-  return { couponCode: code, discountInr, payableInr };
-}
+// v1.0.14: all fare logic lives in services/api-server/src/fare-config.ts.
+// `computeFare()` returns the full breakdown for /fares/quote, and
+// `computeFareTotal()` is the convenience shortcut for /bookings POST
+// (just the number to persist). Both are pure functions — no DB, no env.
 
 export async function registerBookingRoutes(app: FastifyInstance) {
   // v1.0.13: fare-quote endpoint. Stateless, called by the user app whenever
@@ -205,7 +66,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
       }
       const { pickupLat, pickupLng, dropLat, dropLng, couponCode, vehicleType, emergencyType } = parsed.data;
-      const quote = fareQuote(
+      const quote = computeFare(
         pickupLat, pickupLng,
         dropLat ?? undefined, dropLng ?? undefined,
         couponCode,
@@ -258,10 +119,10 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         });
       }
 
-      // v1.0.13 (revised): pass the emergency type so the saved fareEstimate
-      // matches the quote the patient saw. Vehicle type is BLS for now — once
-      // dispatch assigns a specific vehicle we'll re-quote on /accept.
-      const fareEstimate = estimateFare(
+      // v1.0.14: same code path as the /fares/quote endpoint via fare-config.
+      // computeFareTotal() applies distance + vehicle + emergency + night
+      // surcharges using the constants in services/api-server/src/fare-config.ts.
+      const fareEstimate = computeFareTotal(
         data.pickupLat,
         data.pickupLng,
         data.dropLat,
@@ -602,7 +463,10 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         .where(and(eq(bookings.id, id), eq(bookings.driverId, sub)))
         .returning();
       if (!b) return reply.code(404).send({ error: "not_found_or_forbidden" });
-      const finalFare = b.fareEstimateInr ?? config.baseFareInr;
+      // Fall back to the minimum-fare floor when the booking row never got
+      // a quote (shouldn't happen post-v1.0.13 since /bookings POST always
+      // calls computeFareTotal, but legacy rows from pre-1.0.13 carry null).
+      const finalFare = b.fareEstimateInr ?? 300;
       // Recompute discount + payable against the final fare. If a coupon was
       // applied at creation the same rule runs again — covers the case where
       // base fare gets a future recompute hook between create and complete.

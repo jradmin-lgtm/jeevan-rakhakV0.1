@@ -12,14 +12,24 @@ import { colors, radius, space } from "../tokens";
  * is the landline 05812582000 — that's the ops desk that can route
  * across the rotation.
  */
+// Phone numbers stored in full E.164-ish form (+91 + 10 or 11-digit subscriber).
+// The dialable string must match the displayed number exactly when normalised,
+// or the user will tap a row and get a wrong-number tone. A 2026-05 audit caught
+// a typo in the Ops desk number: +910581258200 was 12 digits (missing trailing
+// 0); the actual landline is 05812582000 → +9105812582000.
+//
+// Display format conventions:
+//   • Mobile (10 digits, starts with 6/7/8/9): "+91 9XXXX XXXXX" (5+5 + country code prefix)
+//   • Landline (10–11 digits, starts with 0X…): "+91 XXX XXX XXXX" — STD code regrouped
+// Both prefix +91 so the visual aligns column-wise.
 export const SUPPORT_EMAIL = "contact.jeevanrakshak@gmail.com";
-export const SUPPORT_PHONE = "+910581258200"; // 05812582000 — ops desk landline (default call)
-export const SUPPORT_PHONE_DISPLAY = "0581 258 2000";
+export const SUPPORT_PHONE = "+9105812582000"; // 0581-258-2000 — ops desk landline (default call)
+export const SUPPORT_PHONE_DISPLAY = "+91 581 258 2000";
 
 export const SUPPORT_NUMBERS = [
-  { label: "Ops desk", phone: "+910581258200", display: "0581 258 2000", primary: true },
-  { label: "Mobile",   phone: "+919458701070", display: "94587 01070" },
-  { label: "Gynae emergency", phone: "+919045954724", display: "90459 54724", urgent: true }
+  { label: "Ops desk",        phone: "+9105812582000", display: "+91 581 258 2000", primary: true },
+  { label: "Mobile",          phone: "+919458701070",  display: "+91 94587 01070" },
+  { label: "Gynae emergency", phone: "+919045954724",  display: "+91 90459 54724", urgent: true }
 ];
 
 type Props = {
@@ -160,9 +170,13 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.bg
   },
+  // v1.0.14: softened. The previous "full danger-red border + pink fill" made
+  // GYNAE look like a selected/active state instead of just "important". Now
+  // we keep the same neutral card chrome as the other rows, but accent the
+  // left edge in red + use the danger text colour on the label. Subtle.
   stackedCtaUrgent: {
-    borderColor: colors.danger,
-    backgroundColor: "#FEF2F2"
+    borderLeftWidth: 4,
+    borderLeftColor: colors.danger
   },
   compactRow: { flexDirection: "row", gap: space.sm },
   compactCta: {
