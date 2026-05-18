@@ -7,15 +7,15 @@ import { colors, radius, space } from "../tokens";
  * Live support coordinates for the pilot. Inline so any screen can drop
  * <ContactSupport /> in without re-typing the email/phone or risking drift.
  *
- * Updated in v1.0.12 per team feedback: three numbers, one is GYNAE-only.
- * The default-dial number (driver `Need help?` + patient compact call)
- * is the landline 05812582000 — that's the ops desk that can route
- * across the rotation.
+ * v1.0.15 — renamed "Ops desk" label to "Mobile" so users don't see internal
+ * dispatcher jargon. The number itself (the 0581-258-2000 landline) is the
+ * one that can route across the rotation; the existing second mobile is
+ * renamed "Alt mobile" to disambiguate.
  */
 // Phone numbers stored in full E.164-ish form (+91 + 10 or 11-digit subscriber).
 // The dialable string must match the displayed number exactly when normalised,
 // or the user will tap a row and get a wrong-number tone. A 2026-05 audit caught
-// a typo in the Ops desk number: +910581258200 was 12 digits (missing trailing
+// a typo in the primary number: +910581258200 was 12 digits (missing trailing
 // 0); the actual landline is 05812582000 → +9105812582000.
 //
 // Display format conventions:
@@ -23,15 +23,14 @@ import { colors, radius, space } from "../tokens";
 //   • Landline (10–11 digits, starts with 0X…): "+91 XXX XXX XXXX" — STD code regrouped
 // Both prefix +91 so the visual aligns column-wise.
 export const SUPPORT_EMAIL = "contact.jeevanrakshak@gmail.com";
-export const SUPPORT_PHONE = "+9105812582000"; // 0581-258-2000 — ops desk landline (default call)
+export const SUPPORT_PHONE = "+9105812582000"; // 0581-258-2000 — default-dial primary line
 export const SUPPORT_PHONE_DISPLAY = "+91 581 258 2000";
 
-// v1.0.14 (revised): labels uppercased for the cleaner directory look the
-// team asked for. The urgent row carries an explicit "EMERGENCY" suffix
-// so even users skimming see the priority.
+// v1.0.15: labels swapped — "OPS DESK" → "MOBILE" (user-facing relabel),
+// the existing mobile becomes "ALT MOBILE" to avoid duplicate "MOBILE" rows.
 export const SUPPORT_NUMBERS = [
-  { label: "OPS DESK",        phone: "+9105812582000", display: "+91 581 258 2000", primary: true },
-  { label: "MOBILE",          phone: "+919458701070",  display: "+91 94587 01070" },
+  { label: "MOBILE",          phone: "+9105812582000", display: "+91 581 258 2000", primary: true },
+  { label: "ALT MOBILE",      phone: "+919458701070",  display: "+91 94587 01070" },
   { label: "GYNAE EMERGENCY", phone: "+919045954724",  display: "+91 90459 54724", urgent: true }
 ];
 
@@ -71,7 +70,7 @@ function ContactSupportInner({ bookingId, compact, variant = "user" }: Props) {
     return (
       <View style={styles.compactRow}>
         <Pressable onPress={callDefault} android_ripple={{ color: "rgba(229,50,43,0.1)" }} style={styles.compactCta}>
-          <Text variant="small" weight="bold" tone="primary">📞  Call ops</Text>
+          <Text variant="small" weight="bold" tone="primary">📞  Call mobile</Text>
         </Pressable>
         <Pressable onPress={emailSupport} android_ripple={{ color: "rgba(229,50,43,0.1)" }} style={styles.compactCta}>
           <Text variant="small" weight="bold" tone="primary">✉  Email</Text>
@@ -92,7 +91,7 @@ function ContactSupportInner({ bookingId, compact, variant = "user" }: Props) {
         </Text>
         <View style={styles.row}>
           <Pressable onPress={callDefault} android_ripple={{ color: "rgba(229,50,43,0.1)" }} style={styles.cta}>
-            <Text variant="body" weight="bold" tone="primary">📞  Call ops</Text>
+            <Text variant="body" weight="bold" tone="primary">📞  Call mobile</Text>
             <Text variant="tiny" tone="secondary">{SUPPORT_PHONE_DISPLAY}</Text>
           </Pressable>
           <Pressable onPress={emailSupport} android_ripple={{ color: "rgba(229,50,43,0.1)" }} style={styles.cta}>

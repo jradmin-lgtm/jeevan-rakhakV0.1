@@ -6,12 +6,17 @@ import { bookings as bookingsApi, fares as faresApi, FareQuote, EmergencyType, B
 import { MapLocationPicker } from "./MapLocationPicker";
 import { useT } from "../i18n";
 
-const EMERGENCIES: { key: EmergencyType; label: string; sub: string; emoji: string }[] = [
-  { key: "CARDIAC",                    label: "Cardiac",            sub: "Chest pain, heart attack",  emoji: "♥" },
-  { key: "BREATHING_DISTRESS",         label: "Breathing distress", sub: "Asthma, oxygen support",    emoji: "≈" },
-  { key: "ACCIDENT_TRAUMA",            label: "Accident / Trauma",  sub: "Road accident, injury",     emoji: "✚" },
-  { key: "PREGNANCY_NEONATAL",         label: "Pregnancy",          sub: "Labour, neonatal",          emoji: "✿" },
-  { key: "GENERAL_CRITICAL_TRANSFER",  label: "Critical transfer",  sub: "Hospital to hospital",      emoji: "→" }
+// v1.0.15: emergency labels are now translation keys so the option list
+// re-renders in Hindi when the locale flips mid-screen. Previously the
+// labels were captured at module load time → option-select looked "broken"
+// for Hindi users (they tapped the right tile but saw English copy that
+// didn't match the language toggle).
+const EMERGENCY_KEYS: { key: EmergencyType; labelKey: string; subKey: string; emoji: string }[] = [
+  { key: "CARDIAC",                    labelKey: "emergency.cardiac.label",          subKey: "emergency.cardiac.sub",          emoji: "♥" },
+  { key: "BREATHING_DISTRESS",         labelKey: "emergency.breathing.label",        subKey: "emergency.breathing.sub",        emoji: "≈" },
+  { key: "ACCIDENT_TRAUMA",            labelKey: "emergency.accident.label",         subKey: "emergency.accident.sub",         emoji: "✚" },
+  { key: "PREGNANCY_NEONATAL",         labelKey: "emergency.pregnancy.label",        subKey: "emergency.pregnancy.sub",        emoji: "✿" },
+  { key: "GENERAL_CRITICAL_TRANSFER",  labelKey: "emergency.critical_transfer.label", subKey: "emergency.critical_transfer.sub", emoji: "→" }
 ];
 
 // v1.0.12: removed the Delhi-centroid fallback. If we couldn't get a real
@@ -185,7 +190,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
         <View style={{ gap: space.md }}>
           <Text variant="label" tone="secondary">EMERGENCY TYPE</Text>
           <View style={{ gap: space.sm }}>
-            {EMERGENCIES.map((e) => {
+            {EMERGENCY_KEYS.map((e) => {
               const selected = type === e.key;
               return (
                 <Pressable
@@ -204,8 +209,8 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
                     </Text>
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text variant="body" weight="semi">{e.label}</Text>
-                    <Text variant="small" tone="secondary">{e.sub}</Text>
+                    <Text variant="body" weight="semi">{t(e.labelKey)}</Text>
+                    <Text variant="small" tone="secondary">{t(e.subKey)}</Text>
                   </View>
                   <View style={[styles.radio, selected ? { borderColor: colors.primary, backgroundColor: colors.primary } : null]} />
                 </Pressable>

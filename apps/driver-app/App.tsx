@@ -11,7 +11,7 @@ import { GoogleLoginScreen } from "./src/screens/GoogleLoginScreen";
 import { ProfileSetupScreen } from "./src/screens/ProfileSetupScreen";
 import { DashboardScreen } from "./src/screens/DashboardScreen";
 import { TripScreen } from "./src/screens/TripScreen";
-import { EarningsScreen } from "./src/screens/EarningsScreen";
+import { TripHistoryScreen } from "./src/screens/TripHistoryScreen";
 import { ProfileScreen } from "./src/screens/ProfileScreen";
 import { KycOnboardingScreen, KycPendingScreen } from "./src/screens/KycOnboardingScreen";
 import { hydrateLang } from "./src/i18n";
@@ -29,7 +29,7 @@ type RootStackParamList = {
   KycPending: undefined;
   Dashboard: undefined;
   Trip: { booking: Booking };
-  Earnings: undefined;
+  TripHistory: undefined;
   Profile: undefined;
 };
 
@@ -152,7 +152,7 @@ export default function App() {
                   }}
                   onTrip={(b) => navigation.navigate("Trip", { booking: b })}
                   onProfile={() => navigation.navigate("Profile")}
-                  onEarnings={() => navigation.navigate("Earnings")}
+                  onEarnings={() => navigation.navigate("TripHistory")}
                 />
               )}
             </Stack.Screen>
@@ -164,8 +164,8 @@ export default function App() {
                 />
               )}
             </Stack.Screen>
-            <Stack.Screen name="Earnings">
-              {({ navigation }) => <EarningsScreen onBack={() => navigation.goBack()} />}
+            <Stack.Screen name="TripHistory">
+              {({ navigation }) => <TripHistoryScreen onBack={() => navigation.goBack()} />}
             </Stack.Screen>
             <Stack.Screen name="Profile">
               {({ navigation }) => (

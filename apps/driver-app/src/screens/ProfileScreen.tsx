@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { Alert, View } from "react-native";
+import { Alert, Pressable, View } from "react-native";
 import { AppHeader, Button, Card, Input, Pill, Screen, Text, colors, space } from "@jr/ui";
 import { me } from "../api";
+import { useT, setLang, type Lang } from "../i18n";
 
 type Props = {
   initial: any;
@@ -10,8 +11,13 @@ type Props = {
 };
 
 export function ProfileScreen({ initial, onBack, onUpdated }: Props) {
+  const { t, lang } = useT();
   const [name, setName] = useState<string>(initial?.name ?? "");
   const [busy, setBusy] = useState(false);
+
+  const switchLang = (next: Lang) => {
+    void setLang(next);
+  };
 
   const save = async () => {
     setBusy(true);
@@ -67,12 +73,57 @@ export function ProfileScreen({ initial, onBack, onUpdated }: Props) {
         </View>
       </Card>
 
+      {/* v1.0.15: in-app language toggle. Mirrors the user-app picker so a
+        * driver who reads Hindi can flip and see Dashboard / Trip / Trip
+        * History / map picker rendered in Hindi (where strings are wired). */}
+      <Card>
+        <View style={{ gap: space.md }}>
+          <Text variant="label" tone="secondary">LANGUAGE</Text>
+          <View style={{ flexDirection: "row", gap: space.sm }}>
+            <Pressable
+              onPress={() => switchLang("en")}
+              style={[langStyles.pill, lang === "en" && langStyles.pillActive]}
+              android_ripple={{ color: "rgba(229,50,43,0.1)" }}
+            >
+              <Text variant="body" weight="semi" tone={lang === "en" ? "primary" : "secondary"}>
+                {t("lang.english") || "English"}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => switchLang("hi")}
+              style={[langStyles.pill, lang === "hi" && langStyles.pillActive]}
+              android_ripple={{ color: "rgba(229,50,43,0.1)" }}
+            >
+              <Text variant="body" weight="semi" tone={lang === "hi" ? "primary" : "secondary"}>
+                {t("lang.hindi") || "हिन्दी"}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </Card>
+
       <Text variant="tiny" tone="muted" align="center">
         Need help? support@jeevanrakshak.app
       </Text>
     </Screen>
   );
 }
+
+const langStyles = {
+  pill: {
+    flex: 1,
+    paddingVertical: space.md,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
+    alignItems: "center" as const
+  },
+  pillActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryFaint
+  }
+};
 
 function Row({ label, value }: { label: string; value: string }) {
   return (

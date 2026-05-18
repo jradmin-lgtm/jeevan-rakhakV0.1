@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, count, desc, eq, isNull, sql as drizzleSql } from "drizzle-orm";
-import { db, bookingEvents, bookings, driverLocations, drivers, users } from "@jr/db";
+import { db, bookingEvents, bookings, driverLocations, drivers, sosDispatchAttempts, users } from "@jr/db";
 
 // Pilot cap: any single user may hold only 1 active (un-terminal) booking at
 // a time. The earlier value of 3 confused testers — they'd dispatch a second
@@ -33,7 +33,11 @@ const bookingCreateSchema = z.object({
   // Optional coupon the patient applied in the user app. Server validates it
   // against COUPONS below and stores the resulting discountInr + payableInr
   // on the booking row so admin sees the same fare math the patient saw.
-  couponCode: z.string().max(40).optional()
+  couponCode: z.string().max(40).optional(),
+  // v1.0.15: true when the booking originated from the SOS panic button.
+  // Server treats SOS specially: skips the public pending pool, starts the
+  // cascade engine, and defers payment to the post-completion screen.
+  isSos: z.boolean().optional()
 });
 
 // v1.0.14: all fare logic lives in services/api-server/src/fare-config.ts.
@@ -137,6 +141,8 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       // be reused.
       const rideOtpCode = String(Math.floor(1000 + Math.random() * 9000));
 
+      const isSos = data.isSos === true;
+
       const [created] = await db
         .insert(bookings)
         .values({
@@ -152,27 +158,45 @@ export async function registerBookingRoutes(app: FastifyInstance) {
           couponCode,
           discountInr,
           payableInr,
-          rideOtpCode
+          rideOtpCode,
+          isSos
         })
         .returning();
 
       await db.insert(bookingEvents).values({
         bookingId: created.id,
         actor: `user:${sub}`,
-        type: "booking.created",
-        payloadJson: JSON.stringify({ fareEstimate, couponCode, discountInr, payableInr })
+        type: isSos ? "booking.created.sos" : "booking.created",
+        payloadJson: JSON.stringify({ fareEstimate, couponCode, discountInr, payableInr, isSos })
       });
 
-      // Notify socket-server out-of-band so dispatch fan-out begins immediately.
-      // Best-effort; if socket server is down the worker also picks pending bookings.
-      try {
-        await fetch(`${config.socketBaseUrl}/internal/booking-created`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-internal": config.internalApiSecret },
-          body: JSON.stringify({ bookingId: created.id })
-        });
-      } catch (err) {
-        app.log.warn({ err }, "socket fan-out hint failed");
+      if (isSos) {
+        // v1.0.15: SOS skips the public dispatch fan-out. The cascade engine
+        // (services/api-server/src/sos-cascade.ts) drives push-notifications
+        // to drivers in waves, expanding by one nearest driver every 60s up
+        // to a cap of 10. Drivers don't see SOS in their general Dashboard
+        // pending list — only via the pushed SosIncomingModal.
+        try {
+          const { startCascade } = await import("../sos-cascade.js");
+          startCascade(app, created.id);
+        } catch (err) {
+          // Fail-soft: if the cascade engine can't start (shouldn't happen),
+          // log loudly and let ops handle it manually. The booking row is
+          // already inserted so the patient sees a "looking for ambulance"
+          // state and we can intervene out-of-band.
+          app.log.error({ err, bookingId: created.id }, "[sos] cascade start failed");
+        }
+      } else {
+        // Normal flow: existing socket fan-out so it appears on driver Dashboard.
+        try {
+          await fetch(`${config.socketBaseUrl}/internal/booking-created`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-internal": config.internalApiSecret },
+            body: JSON.stringify({ bookingId: created.id })
+          });
+        } catch (err) {
+          app.log.warn({ err }, "socket fan-out hint failed");
+        }
       }
 
       return reply.code(201).send({ booking: created });
@@ -258,7 +282,12 @@ export async function registerBookingRoutes(app: FastifyInstance) {
     }
   );
 
-  // Pending bookings (driver dashboard fallback if socket connection drops)
+  // Pending bookings (driver dashboard fallback if socket connection drops).
+  // v1.0.15: SOS bookings are intentionally excluded — they ride the cascade
+  // engine and surface in the driver app via <SosIncomingModal /> rather
+  // than the general pending list. Including them here would race with the
+  // cascade and let any-online-driver tap-to-accept, defeating the nearest-
+  // first dispatch logic.
   app.get(
     "/api/v1/bookings/pending",
     { preHandler: [(app as any).authenticate] },
@@ -268,7 +297,13 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       const rows = await db
         .select()
         .from(bookings)
-        .where(and(eq(bookings.status, "REQUESTED"), isNull(bookings.driverId)))
+        .where(
+          and(
+            eq(bookings.status, "REQUESTED"),
+            isNull(bookings.driverId),
+            eq(bookings.isSos, false)
+          )
+        )
         .orderBy(desc(bookings.createdAt))
         .limit(20);
       return reply.send({ bookings: rows });
@@ -350,6 +385,38 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         .set({ status: "ON_TRIP", updatedAt: new Date() })
         .where(eq(drivers.id, sub));
       await emitBookingEvent(id, "booking.accepted", `driver:${sub}`);
+      // Mark this driver's attempt row accepted (for SOS) + notify the
+      // patient + dismiss losers' modals. Wrapped so a normal-flow accept
+      // (not via cascade) still goes through cleanly.
+      if (updated.isSos) {
+        try {
+          await db
+            .update(sosDispatchAttempts)
+            .set({ acceptedAt: new Date() })
+            .where(
+              and(
+                eq(sosDispatchAttempts.bookingId, id),
+                eq(sosDispatchAttempts.driverId, sub)
+              )
+            );
+          const { stopCascade, notifyCascadeLosers } = await import("../sos-cascade.js");
+          stopCascade(id);
+          await notifyCascadeLosers(id, sub);
+          // Emit to the patient so LiveTrackingScreen flips out of the
+          // "looking for ambulance" wait card.
+          await fetch(`${config.socketBaseUrl}/internal/emit-to-user`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-internal": config.internalApiSecret },
+            body: JSON.stringify({
+              userId: updated.userId,
+              event: "sos:assigned",
+              payload: { bookingId: id }
+            })
+          });
+        } catch (err) {
+          app.log.warn({ err, bookingId: id }, "[sos] post-accept cleanup failed");
+        }
+      }
       return reply.send({ booking: updated });
     }
   );
@@ -471,9 +538,16 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       // applied at creation the same rule runs again — covers the case where
       // base fare gets a future recompute hook between create and complete.
       const { discountInr, payableInr } = applyCoupon(finalFare, b.couponCode);
+      // v1.0.15: normal flow (non-SOS) auto-marks paid at completion since
+      // the patient saw + agreed to the fare upfront. SOS leaves paidAt NULL
+      // so LiveTrackingScreen routes to PaymentScreen for the post-completion
+      // coupon + Mark-paid flow.
+      const autoPay = b.isSos
+        ? {}
+        : { paidInr: payableInr, paidAt: new Date(), paidCoupon: b.couponCode ?? null };
       await db
         .update(bookings)
-        .set({ fareFinalInr: finalFare, discountInr, payableInr })
+        .set({ fareFinalInr: finalFare, discountInr, payableInr, ...autoPay })
         .where(eq(bookings.id, id));
       await db
         .update(drivers)
@@ -673,6 +747,140 @@ export async function registerBookingRoutes(app: FastifyInstance) {
     }
   );
 
+  // v1.0.15: post-completion payment for SOS rides.
+  //
+  // SOS bookings come through without a coupon/payment screen up front
+  // (patient is in a hurry). At the end of the ride the patient sees a
+  // PaymentScreen with the full fare breakdown + coupon entry. Tapping
+  // "Mark paid · finish" hits this endpoint.
+  //
+  // Idempotent: a second call with the same booking returns the existing
+  // payment shape instead of 409 — covers the case where the user app gets
+  // force-killed mid-network and replays the request on next launch.
+  //
+  // Normal flow (Book Ambulance) auto-marks paid at booking creation since
+  // the patient already saw and agreed to the fare upfront. The auto-mark
+  // happens in the POST /bookings handler above.
+  const markPaidSchema = z.object({
+    couponCode: z.string().max(40).optional().nullable()
+  });
+  app.post(
+    "/api/v1/bookings/:id/mark-paid",
+    { preHandler: [(app as any).authenticate] },
+    async (req: any, reply) => {
+      const { sub, role } = req.user;
+      if (role !== "user") return reply.code(403).send({ error: "user_only" });
+      const id = req.params.id as string;
+      const parsed = markPaidSchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+      }
+      const [existing] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
+      if (!existing) return reply.code(404).send({ error: "not_found" });
+      if (existing.userId !== sub) return reply.code(403).send({ error: "forbidden" });
+      // Idempotent — return the existing payment shape if already paid.
+      if (existing.paidAt) {
+        return reply.send({
+          booking: existing,
+          paid: {
+            inr: existing.paidInr ?? 0,
+            at: existing.paidAt,
+            coupon: existing.paidCoupon ?? null
+          }
+        });
+      }
+      if (existing.status !== "COMPLETED") {
+        return reply.code(409).send({
+          error: "wrong_state",
+          message: "Trip isn't complete yet. Wait for the driver to mark it complete."
+        });
+      }
+      // Recompute discount + payable against the booking's final fare. Coupon
+      // can come from this POST OR fall back to whatever was on the booking
+      // already (normal flow stored it at creation).
+      const finalFare = existing.fareFinalInr ?? existing.fareEstimateInr ?? 300;
+      const coupon = parsed.data.couponCode ?? existing.couponCode ?? null;
+      const { couponCode: appliedCoupon, discountInr, payableInr } = applyCoupon(finalFare, coupon);
+      const now = new Date();
+      const [updated] = await db
+        .update(bookings)
+        .set({
+          paidInr: payableInr,
+          paidAt: now,
+          paidCoupon: appliedCoupon,
+          // Sync coupon/discount/payable on the booking too so admin's fare
+          // breakdown shows what the patient actually saw.
+          couponCode: appliedCoupon,
+          discountInr,
+          payableInr
+        })
+        .where(eq(bookings.id, id))
+        .returning();
+      await emitBookingEvent(id, "booking.paid", `user:${sub}`, {
+        paidInr: payableInr,
+        couponCode: appliedCoupon,
+        discountInr
+      });
+      return reply.send({
+        booking: updated,
+        paid: { inr: payableInr, at: now, coupon: appliedCoupon },
+        breakdown: { finalFare, couponCode: appliedCoupon, discountInr, payableInr }
+      });
+    }
+  );
+
+  // v1.0.15: SOS cascade rejection. The driver app's <SosIncomingModal />
+  // calls this when the driver taps "Reject" on a pushed SOS request. The
+  // cascade engine reads sos_dispatch_attempts.rejected_at on each wave and
+  // skips drivers that have already rejected — they don't get re-prompted
+  // as the cascade widens.
+  //
+  // Unlike /accept this does NOT change the booking row (the cascade may
+  // still find another driver). It only updates the audit row. If no attempt
+  // row exists (driver wasn't actually pushed), returns 409.
+  app.post(
+    "/api/v1/bookings/:id/reject",
+    { preHandler: [(app as any).authenticate] },
+    async (req: any, reply) => {
+      const { sub, role } = req.user;
+      if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
+      const id = req.params.id as string;
+      const [updated] = await db
+        .update(sosDispatchAttempts)
+        .set({ rejectedAt: new Date() })
+        .where(
+          and(
+            eq(sosDispatchAttempts.bookingId, id),
+            eq(sosDispatchAttempts.driverId, sub),
+            // Don't overwrite an existing accept (race guard) or rejection
+            // (second tap should be a no-op idempotent).
+            drizzleSql`${sosDispatchAttempts.acceptedAt} IS NULL`
+          )
+        )
+        .returning();
+      if (!updated) {
+        return reply.code(409).send({
+          error: "no_active_dispatch",
+          message: "This SOS isn't pending for you anymore."
+        });
+      }
+      // Update the in-memory cascade state so the next wave skips this
+      // driver. If the cascade isn't running in this process (e.g. after a
+      // restart and resumeOnBoot hasn't picked up the booking yet), this is
+      // a no-op — the DB rejected_at flag is authoritative.
+      try {
+        const { noteCascadeReject } = await import("../sos-cascade.js");
+        noteCascadeReject(id, sub);
+      } catch {
+        /* ignore — DB row is the truth */
+      }
+      await emitBookingEvent(id, "sos.rejected", `driver:${sub}`, {
+        waveNumber: updated.waveNumber
+      });
+      return reply.send({ ok: true });
+    }
+  );
+
   // Cancel — user can cancel their own; driver can cancel only the trip they're assigned to.
   app.post(
     "/api/v1/bookings/:id/cancel",
@@ -698,6 +906,17 @@ export async function registerBookingRoutes(app: FastifyInstance) {
           .update(drivers)
           .set({ status: "AVAILABLE", updatedAt: new Date() })
           .where(eq(drivers.id, existing.driverId));
+      }
+      // Patient cancelling mid-cascade — stop the timer and dismiss any
+      // pushed driver modals so nobody chases a dead booking.
+      if (existing.isSos) {
+        try {
+          const { stopCascade, notifyCascadeLosers } = await import("../sos-cascade.js");
+          stopCascade(id);
+          await notifyCascadeLosers(id, /* winner */ "");
+        } catch {
+          /* best-effort */
+        }
       }
       await emitBookingEvent(id, "booking.cancelled", `${role}:${sub}`);
       return reply.send({ booking: b });

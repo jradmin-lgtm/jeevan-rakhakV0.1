@@ -14,6 +14,10 @@ type JwtPayload = {
 const drivers_room = "drivers:available";
 const userRoom = (userId: string) => `user:${userId}`;
 const bookingRoom = (id: string) => `booking:${id}`;
+// v1.0.15: per-driver room so the SOS cascade engine can push to one driver
+// at a time. Each connected driver auto-joins this on handshake; api-server's
+// cascade engine targets it via POST /internal/emit-to-driver.
+const driverRoom = (driverId: string) => `driver:${driverId}`;
 
 const httpServer = createServer(async (req, res) => {
   if (req.url === "/health") {
@@ -38,6 +42,35 @@ const httpServer = createServer(async (req, res) => {
         return send(res, 401, { error: "unauthorized" });
       }
       io.to(bookingRoom(body.bookingId)).emit("booking:event", body);
+      send(res, 204, null);
+    });
+  }
+  // v1.0.15: targeted emission for SOS cascade. body shape:
+  //   { driverId?: string, userId?: string, event: string, payload: any }
+  // Exactly one of driverId/userId must be set. Used by api-server's cascade
+  // engine to push 'sos:incoming' / 'sos:cancelled' to one driver, and to
+  // notify the patient 'sos:cascade_exhausted' / 'sos:assigned'.
+  if (req.url === "/internal/emit-to-driver" && req.method === "POST") {
+    return readJson(req, res, async (body) => {
+      if (req.headers["x-internal"] !== config.internalApiSecret) {
+        return send(res, 401, { error: "unauthorized" });
+      }
+      if (!body?.driverId || !body?.event) {
+        return send(res, 400, { error: "bad_request" });
+      }
+      io.to(driverRoom(body.driverId)).emit(body.event, body.payload ?? {});
+      send(res, 204, null);
+    });
+  }
+  if (req.url === "/internal/emit-to-user" && req.method === "POST") {
+    return readJson(req, res, async (body) => {
+      if (req.headers["x-internal"] !== config.internalApiSecret) {
+        return send(res, 401, { error: "unauthorized" });
+      }
+      if (!body?.userId || !body?.event) {
+        return send(res, 400, { error: "bad_request" });
+      }
+      io.to(userRoom(body.userId)).emit(body.event, body.payload ?? {});
       send(res, 204, null);
     });
   }
@@ -93,6 +126,9 @@ io.on("connection", async (socket: Socket) => {
   if (user.role === "driver") {
     // Drivers default to listening for offered bookings; they can opt out via availability event.
     socket.join(drivers_room);
+    // v1.0.15: per-driver room for targeted SOS cascade pushes from api-server.
+    // Cascade engine emits 'sos:incoming' here when this driver's wave fires.
+    socket.join(driverRoom(user.sub));
   }
 
   socket.on("driver:availability", async (payload: { available: boolean; lat?: number; lng?: number }) => {

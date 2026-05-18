@@ -66,9 +66,14 @@ function formatElapsed(sec: number): string {
 type Props = {
   booking: Booking;
   onClose: () => void;
+  /** v1.0.15: called when SOS booking completes and still has paidAt=null —
+   *  parent navigates to PaymentScreen for coupon + Mark paid. Normal flow
+   *  bookings (auto-marked-paid at /complete) bypass this and just show the
+   *  rating prompt below. */
+  onPayment?: (booking: Booking) => void;
 };
 
-export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
+export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Props) {
   const [booking, setBooking] = useState<Booking>(initial);
   const [driverPos, setDriverPos] = useState<{ lat: number; lng: number; ts: number } | null>(null);
   const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
@@ -102,6 +107,22 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
       lastStatusRef.current = booking.status;
     }
   }, [booking.status]);
+
+  // v1.0.15: route SOS bookings to the post-completion payment screen as
+  // soon as the driver marks the trip complete. Normal flow auto-pays at
+  // /complete (paidAt is set server-side) so this branch never fires for
+  // non-SOS rides. Re-checks on every booking refresh so we catch the
+  // transition coming via either poll or socket.
+  const navigatedToPayRef = useRef(false);
+  useEffect(() => {
+    if (navigatedToPayRef.current) return;
+    if (!onPayment) return;
+    if (booking.status !== "COMPLETED") return;
+    if (!booking.isSos) return;
+    if (booking.paidAt) return;
+    navigatedToPayRef.current = true;
+    onPayment(booking);
+  }, [booking, onPayment]);
 
   useEffect(() => {
     let mounted = true;
@@ -144,6 +165,16 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
         if (loc.bookingId !== initial.id) return;
         // Socket update wins — always overwrite (it's the freshest signal).
         setDriverPos({ lat: loc.lat, lng: loc.lng, ts: loc.ts ?? Date.now() });
+      });
+      // v1.0.15: SOS-specific events from the cascade engine.
+      sock.on("sos:assigned", (p: any) => {
+        if (p?.bookingId !== initial.id) return;
+        setToast("Driver assigned · on the way");
+        void refreshFromApi();
+      });
+      sock.on("sos:cascade_exhausted", (p: any) => {
+        if (p?.bookingId !== initial.id) return;
+        setToast("No driver yet — please call the support mobile.");
       });
 
       void refreshFromApi();
@@ -209,7 +240,10 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
   let timerLabel = "";
   let timerValue = "";
   if (booking.status === "REQUESTED") {
-    timerLabel = "Looking for driver";
+    // v1.0.15: SOS bookings cascade through drivers one wave at a time (60s
+    // each). Label reflects the expanding search so the patient doesn't
+    // think the app is just spinning.
+    timerLabel = booking.isSos ? "Searching for nearest ambulance" : "Looking for driver";
     timerValue = formatElapsed(elapsedSec);
   } else if (booking.status === "ACCEPTED" && driverPos) {
     const km = haversineKm(driverPos.lat, driverPos.lng, booking.pickupLat, booking.pickupLng);
@@ -295,29 +329,43 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
       {/* Ride OTP — visible from the moment the booking is created so the
         * patient can rehearse the code. Goes prominently red once the driver
         * has actually arrived ("Tell this code to the driver"). Disappears
-        * after PICKED_UP since the OTP has been consumed. */}
+        * after PICKED_UP since the OTP has been consumed.
+        *
+        * v1.0.15: wrapped in an explicit-margin View so the OTP card never
+        * visually butts up against the map card below it. ScrollView's
+        * contentContainerStyle `gap` is unreliable across RN/Android paths;
+        * explicit marginBottom is the safe default. Plus `includeFontPadding:
+        * false` + slightly tighter letterSpacing kill the residual Android
+        * vertical-clip on the 4-digit code. */}
       {booking.rideOtpCode && ["REQUESTED", "ACCEPTED", "ARRIVED"].includes(booking.status) ? (
-        <Card style={
-          booking.status === "ARRIVED"
-            ? { borderColor: colors.primary, borderWidth: 2, backgroundColor: "#FFF5F4" }
-            : undefined
-        }>
-          <View style={{ gap: space.sm, alignItems: "center" }}>
-            <Text variant="label" tone={booking.status === "ARRIVED" ? "danger" : "secondary"}>
-              {booking.status === "ARRIVED" ? "TELL THIS OTP TO THE DRIVER" : "RIDE OTP"}
-            </Text>
-            {/* v1.0.14: textAlign:center compensates for the Android
-              * trailing letter-spacing pad. Without it the 4-digit code
-              * sits visually left of centre inside the alignItems:center
-              * parent (same bug pattern as the SOS button). */}
-            <Text style={{ fontSize: 40, fontWeight: "700", color: colors.primary, letterSpacing: 8, textAlign: "center" }}>
-              {booking.rideOtpCode}
-            </Text>
-            <Text variant="tiny" tone="muted" align="center">
-              The driver will ask you for this 4-digit code before starting the trip.
-            </Text>
-          </View>
-        </Card>
+        <View style={{ marginBottom: space.lg }}>
+          <Card style={
+            booking.status === "ARRIVED"
+              ? { borderColor: colors.primary, borderWidth: 2, backgroundColor: "#FFF5F4" }
+              : undefined
+          }>
+            <View style={{ gap: space.sm, alignItems: "center" }}>
+              <Text variant="label" tone={booking.status === "ARRIVED" ? "danger" : "secondary"}>
+                {booking.status === "ARRIVED" ? "TELL THIS OTP TO THE DRIVER" : "RIDE OTP"}
+              </Text>
+              <Text style={{
+                fontSize: 44,
+                fontWeight: "700",
+                color: colors.primary,
+                letterSpacing: 6,
+                textAlign: "center",
+                includeFontPadding: false,
+                lineHeight: 52,
+                paddingHorizontal: space.md
+              }}>
+                {booking.rideOtpCode}
+              </Text>
+              <Text variant="tiny" tone="muted" align="center">
+                The driver will ask you for this 4-digit code before starting the trip.
+              </Text>
+            </View>
+          </Card>
+        </View>
       ) : null}
 
       <Card padding="md">

@@ -15,6 +15,7 @@ import { LiveTrackingScreen } from "./src/screens/LiveTrackingScreen";
 import { HistoryScreen } from "./src/screens/HistoryScreen";
 import { MedicalProfileScreen } from "./src/screens/MedicalProfileScreen";
 import { SosScreen } from "./src/screens/SosScreen";
+import { PaymentScreen } from "./src/screens/PaymentScreen";
 import { hydrateLang } from "./src/i18n";
 
 type GooglePending = {
@@ -32,6 +33,7 @@ type RootStackParamList = {
   History: undefined;
   Profile: undefined;
   Sos: undefined;
+  Payment: { booking: Booking };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -158,6 +160,15 @@ export default function App() {
                 <LiveTrackingScreen
                   booking={route.params.booking}
                   onClose={() => navigation.popToTop()}
+                  onPayment={(b) => navigation.replace("Payment", { booking: b })}
+                />
+              )}
+            </Stack.Screen>
+            <Stack.Screen name="Payment">
+              {({ route, navigation }) => (
+                <PaymentScreen
+                  booking={route.params.booking}
+                  onPaid={() => navigation.popToTop()}
                 />
               )}
             </Stack.Screen>

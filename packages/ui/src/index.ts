@@ -16,6 +16,8 @@ export { Skeleton } from "./components/Skeleton";
 export { MapPlaceholder } from "./components/MapPlaceholder";
 export { MapEmbed } from "./components/MapEmbed";
 export { ContactSupport, SUPPORT_EMAIL, SUPPORT_PHONE, SUPPORT_PHONE_DISPLAY } from "./components/ContactSupport";
+export { FareBreakdown } from "./components/FareBreakdown";
+export type { FareQuoteForUi } from "./components/FareBreakdown";
 export { OtpInput } from "./components/OtpInput";
 export { OtpToast } from "./components/OtpToast";
 export { RatingPrompt } from "./components/RatingPrompt";

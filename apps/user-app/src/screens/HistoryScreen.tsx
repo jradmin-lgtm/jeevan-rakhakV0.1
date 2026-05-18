@@ -87,7 +87,16 @@ export function HistoryScreen({ onBack, onOpen }: { onBack: () => void; onOpen: 
 function HistoryRow({ item, index, onOpen }: { item: Booking; index: number; onOpen: (b: Booking) => void }) {
   const fade = useFadeIn(Math.min(index * 60, 240));
   const decor = EMERGENCY_DECOR[item.emergencyType] ?? { glyph: "•", tint: colors.primary, tintBg: colors.primaryFaint };
-  const fare = item.fareFinalInr ?? item.fareEstimateInr;
+  // v1.0.15: ride history shows what the patient actually PAID (₹0 in pilot
+  // via PILOT100), not the gross fare. `paidInr` is set on /complete (normal
+  // flow) or /mark-paid (SOS post-completion). Only completed rides show the
+  // chip — in-flight rows leave the slot empty.
+  const paidLabel =
+    item.status === "COMPLETED" && item.paidInr != null
+      ? item.paidInr === 0
+        ? "Paid: ₹0"
+        : `Paid: ₹${item.paidInr}`
+      : null;
   return (
     <Animated.View style={fade}>
       <Card onPress={() => onOpen(item)} padding="md">
@@ -104,8 +113,10 @@ function HistoryRow({ item, index, onOpen }: { item: Booking; index: number; onO
             ) : null}
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
               <Text variant="small" tone="muted">{new Date(item.createdAt).toLocaleString()}</Text>
-              {fare ? (
-                <Text variant="body" weight="bold" tone="primary">₹{fare}</Text>
+              {paidLabel ? (
+                <Text variant="body" weight="bold" tone={item.paidInr === 0 ? "success" : "primary"}>
+                  {paidLabel}
+                </Text>
               ) : null}
             </View>
           </View>

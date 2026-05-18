@@ -105,6 +105,11 @@ export type Booking = {
   rating?: number | null;
   feedback?: string | null;
   rideOtpCode?: string | null;
+  // v1.0.15: SOS marker + post-completion payment state.
+  isSos?: boolean | null;
+  paidInr?: number | null;
+  paidAt?: string | null;
+  paidCoupon?: string | null;
   createdAt: string;
   acceptedAt?: string | null;
   arrivedAt?: string | null;
@@ -205,7 +210,18 @@ export const bookings = {
     dropLng?: number;
     dropAddress?: string;
     couponCode?: string;
+    // v1.0.15: signals an SOS dispatch. Server routes through the cascade
+    // engine instead of the public broadcast pool.
+    isSos?: boolean;
   }) => api<{ booking: Booking }>("/api/v1/bookings", { method: "POST", body: input }),
+  // v1.0.15: post-completion payment for SOS rides. Idempotent — re-calling
+  // with the same booking returns the existing payment shape.
+  markPaid: (id: string, couponCode?: string | null) =>
+    api<{
+      booking: Booking;
+      paid: { inr: number; at: string; coupon: string | null };
+      breakdown?: { finalFare: number; couponCode: string | null; discountInr: number; payableInr: number };
+    }>(`/api/v1/bookings/${id}/mark-paid`, { method: "POST", body: { couponCode } }),
   get: (id: string) => api<{ booking: Booking }>(`/api/v1/bookings/${id}`),
   mine: () => api<{ bookings: Booking[] }>("/api/v1/bookings/mine"),
   pending: () => api<{ bookings: Booking[] }>("/api/v1/bookings/pending"),

@@ -191,6 +191,20 @@ export const bookings = pgTable(
     // perspectives without mixing them up. Either side rates once per trip.
     ratingByDriver: integer("rating_by_driver"),
     feedbackByDriver: text("feedback_by_driver"),
+    // v1.0.15: SOS marker. True when the booking originated from the SOS
+    // panic button (cascade dispatch + post-completion payment screen). False
+    // for normal Book-Ambulance bookings (existing broadcast pool + upfront
+    // fare). Replaces the brittle "pickupAddress starts with 'SOS · '" check
+    // the SOS flow previously relied on.
+    isSos: boolean("is_sos").default(false).notNull(),
+    // v1.0.15: post-completion payment. `paidAt IS NULL` is the derived
+    // "awaiting payment" state — no new status column. SOS rides leave this
+    // null until the patient taps "Mark paid" on PaymentScreen; normal flow
+    // auto-marks paid at /complete since the patient saw the fare upfront.
+    // `paidInr` is what the patient actually paid (₹0 in pilot via PILOT100).
+    paidInr: integer("paid_inr"),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    paidCoupon: text("paid_coupon"),
     isDemo: boolean("is_demo").default(false).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
@@ -267,6 +281,57 @@ export const systemEvents = pgTable(
   })
 );
 
+/**
+ * v1.0.15 — "last known position" heartbeat table. One row per driver,
+ * upserted by POST /driver/heartbeat every 60s while online + foregrounded.
+ * Used by the SOS cascade engine to pick the nearest available drivers via
+ * Haversine on (lat, lng) with a 5-min staleness threshold on updatedAt.
+ *
+ * NOTE: separate from `driverLocations` above which is an append-only
+ * trip-time GPS log (one row per 5s ping during an active ride).
+ */
+export const driverHeartbeats = pgTable(
+  "driver_heartbeats",
+  {
+    driverId: uuid("driver_id")
+      .primaryKey()
+      .references(() => drivers.id, { onDelete: "cascade" }),
+    lat: doublePrecision("lat").notNull(),
+    lng: doublePrecision("lng").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (t) => ({
+    updatedAtIdx: index("driver_heartbeats_updated_at_idx").on(t.updatedAt)
+  })
+);
+
+/**
+ * v1.0.15 — audit trail of every push the SOS cascade engine emitted.
+ * One row per (booking, driver) pair, inserted when the cascade pushes to a
+ * driver. UPDATE timestamps on accept/reject. Lets admin debug "why didn't
+ * driver X get this SOS?" by inspecting wave_number and pushed_at.
+ */
+export const sosDispatchAttempts = pgTable(
+  "sos_dispatch_attempts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    bookingId: uuid("booking_id")
+      .references(() => bookings.id, { onDelete: "cascade" })
+      .notNull(),
+    driverId: uuid("driver_id")
+      .references(() => drivers.id, { onDelete: "cascade" })
+      .notNull(),
+    waveNumber: integer("wave_number").notNull(),
+    distanceKm: doublePrecision("distance_km"),
+    pushedAt: timestamp("pushed_at", { withTimezone: true }).defaultNow().notNull(),
+    rejectedAt: timestamp("rejected_at", { withTimezone: true }),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true })
+  },
+  (t) => ({
+    bookingIdx: index("sos_attempts_booking_idx").on(t.bookingId)
+  })
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Driver = typeof drivers.$inferSelect;
@@ -275,5 +340,7 @@ export type Booking = typeof bookings.$inferSelect;
 export type NewBooking = typeof bookings.$inferInsert;
 export type BookingEvent = typeof bookingEvents.$inferSelect;
 export type DriverLocation = typeof driverLocations.$inferSelect;
+export type DriverHeartbeat = typeof driverHeartbeats.$inferSelect;
+export type SosDispatchAttempt = typeof sosDispatchAttempts.$inferSelect;
 export type SystemEvent = typeof systemEvents.$inferSelect;
 export type NewSystemEvent = typeof systemEvents.$inferInsert;

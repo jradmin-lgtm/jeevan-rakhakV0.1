@@ -20,6 +20,8 @@ import {
 } from "@jr/ui";
 import { Booking, bookings as bookingsApi, clearToken, driver as driverApi, me } from "../api";
 import { getSocket, disconnectSocket } from "../socket";
+import { useDriverHeartbeat } from "../hooks/useDriverHeartbeat";
+import { SosIncomingModal } from "../components/SosIncomingModal";
 
 // v1.0.12: removed DRIVER_DEFAULT (Delhi centroid). When the driver
 // goes online without a GPS lock yet, we now send availability without
@@ -52,6 +54,10 @@ type Props = {
 
 export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnings }: Props) {
   const [available, setAvailable] = useState(profile?.status !== "OFFLINE");
+  // v1.0.15: emit a "I'm online" heartbeat to the SOS cascade engine every
+  // 60s while the toggle is on and the app is foregrounded. Pauses
+  // automatically when backgrounded.
+  useDriverHeartbeat(available);
   const [pending, setPending] = useState<Booking[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -333,7 +339,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
               <Button label="My profile" variant="outline" onPress={onProfile} fullWidth testID="profile-cta" />
             </View>
             <View style={{ flex: 1 }}>
-              <Button label="Earnings" variant="outline" onPress={onEarnings} fullWidth testID="earnings-cta" />
+              <Button label="Trip history" variant="outline" onPress={onEarnings} fullWidth testID="trip-history-cta" />
             </View>
           </View>
           <Button
@@ -382,6 +388,10 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
           />
         </View>
       </Card>
+      {/* v1.0.15: SOS cascade modal — fullscreen overlay that pops in when
+        * the server pushes an SOS request to this driver. Sits outside the
+        * <Screen> scroll so it floats on top regardless of scroll position. */}
+      <SosIncomingModal onAccept={(b) => onTrip(b)} />
     </Screen>
   );
 }

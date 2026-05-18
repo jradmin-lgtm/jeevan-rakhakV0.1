@@ -114,7 +114,66 @@ const en: Dict = {
   "dashboard.incoming": "INCOMING REQUESTS",
   "dashboard.no_requests": "No incoming requests yet.",
   "dashboard.active_trip": "ACTIVE TRIP",
-  "dashboard.open_trip": "Open trip"
+  "dashboard.open_trip": "Open trip",
+  "dashboard.trip_history": "Trip history",
+  "dashboard.profile": "Profile",
+  "dashboard.sign_out": "Sign out",
+
+  // v1.0.15: trip screen + map drop picker + trip history. Symmetric with
+  // user-app's map_picker.* / drop_picker.* keys so the same MapLocationPicker
+  // file renders Hindi when the driver toggles language.
+  "trip.set_drop_required_title": "Set drop hospital",
+  "trip.set_drop_required_body": "Search a hospital or pin it on the map. The patient app updates the moment you save.",
+  "trip.set_drop_open_picker": "Choose drop on map",
+  "trip.complete_locked_no_drop": "Set a drop hospital first to enable this button.",
+  "trip.drive_to_hospital": "Drive to hospital",
+  "trip.drop_completed": "Drop completed",
+
+  "trip_history.title": "Trip history",
+  "trip_history.subtitle": "Your completed trips",
+  "trip_history.empty": "No completed trips yet.",
+  "trip_history.km": "{km} km",
+  "trip_history.duration": "{minutes} min",
+  "trip_history.duration_long": "{hours}h {minutes}m",
+
+  "drop_picker.title": "Pick drop location",
+  "drop_picker.subtitle": "Drag the map · the red pin is your drop",
+  "drop_picker.selected": "DROP LOCATION",
+  "drop_picker.confirm": "Confirm this location",
+  "drop_picker.detecting": "Finding address…",
+  "drop_picker.loading_map": "Loading map…",
+  "drop_picker.open_button": "Pin on the map",
+  "drop_picker.refine_hint": "Drop a pin to set the exact location",
+
+  "map_picker.title_pickup": "Set pickup location",
+  "map_picker.title_drop": "Set drop location",
+  "map_picker.subtitle_pickup": "Search a place or use GPS",
+  "map_picker.subtitle_drop": "Search a hospital or pin on the map",
+  "map_picker.search_placeholder_pickup": "Search address or landmark",
+  "map_picker.search_placeholder_drop": "Search hospital or address",
+  "map_picker.use_current": "Use my current location",
+  "map_picker.gps_busy": "Getting GPS…",
+  "map_picker.gps_denied": "Location permission denied",
+  "map_picker.gps_error": "Couldn't read GPS — pin manually instead",
+  "map_picker.searching": "Searching…",
+  "map_picker.no_results": "No matches in India for this search",
+  "map_picker.selected_pickup": "PICKUP",
+  "map_picker.selected_drop": "DROP",
+  "map_picker.confirm_pickup": "Confirm pickup",
+  "map_picker.confirm_drop": "Confirm drop",
+  "map_picker.pickup_open_button": "Edit pickup on map",
+  "map_picker.pickup_hint": "Tap to set pickup precisely",
+
+  // Lang toggle (mirror of user-app)
+  "lang.title": "Choose your language",
+  "lang.subtitle": "You can change this from your profile",
+  "lang.continue": "Continue",
+  "lang.english": "English",
+  "lang.hindi": "हिन्दी",
+
+  "common.cancel": "Cancel",
+  "common.continue": "Continue",
+  "common.back": "Back"
 };
 
 const hi: Dict = {
@@ -210,7 +269,61 @@ const hi: Dict = {
   "dashboard.incoming": "आने वाले अनुरोध",
   "dashboard.no_requests": "अभी कोई अनुरोध नहीं।",
   "dashboard.active_trip": "सक्रिय यात्रा",
-  "dashboard.open_trip": "यात्रा खोलें"
+  "dashboard.open_trip": "यात्रा खोलें",
+  "dashboard.trip_history": "यात्रा इतिहास",
+  "dashboard.profile": "प्रोफ़ाइल",
+  "dashboard.sign_out": "लॉग आउट",
+
+  // v1.0.15: trip screen + drop picker + trip history (extended)
+  "trip.set_drop_required_title": "ड्रॉप अस्पताल सेट करें",
+  "trip.set_drop_required_body": "अस्पताल खोजें या नक्शे पर पिन करें। सेव करते ही मरीज़ का ऐप अपडेट हो जाएगा।",
+  "trip.set_drop_open_picker": "नक्शे पर ड्रॉप चुनें",
+  "trip.complete_locked_no_drop": "इस बटन को सक्षम करने के लिए पहले ड्रॉप अस्पताल सेट करें।",
+  "trip.drive_to_hospital": "अस्पताल चलें",
+  "trip.drop_completed": "ड्रॉप पूरा हुआ",
+
+  "trip_history.title": "यात्रा इतिहास",
+  "trip_history.subtitle": "आपकी पूरी हुई यात्राएँ",
+  "trip_history.empty": "अभी तक कोई यात्रा पूरी नहीं हुई।",
+  "trip_history.km": "{km} किमी",
+  "trip_history.duration": "{minutes} मिनट",
+  "trip_history.duration_long": "{hours} घं {minutes} मि",
+
+  "drop_picker.title": "ड्रॉप स्थान चुनें",
+  "drop_picker.subtitle": "नक्शा खींचें · लाल पिन आपका ड्रॉप है",
+  "drop_picker.selected": "ड्रॉप स्थान",
+  "drop_picker.confirm": "यह स्थान पुष्टि करें",
+  "drop_picker.detecting": "पता खोजा जा रहा है…",
+  "drop_picker.loading_map": "नक्शा लोड हो रहा है…",
+  "drop_picker.open_button": "नक्शे पर पिन करें",
+  "drop_picker.refine_hint": "सटीक स्थान के लिए नक्शे पर पिन करें",
+
+  "map_picker.title_pickup": "पिकअप स्थान सेट करें",
+  "map_picker.title_drop": "ड्रॉप स्थान सेट करें",
+  "map_picker.subtitle_pickup": "स्थान खोजें या GPS का उपयोग करें",
+  "map_picker.subtitle_drop": "अस्पताल खोजें या नक्शे पर पिन करें",
+  "map_picker.search_placeholder_pickup": "पता या स्थलचिह्न खोजें",
+  "map_picker.search_placeholder_drop": "अस्पताल या पता खोजें",
+  "map_picker.use_current": "मेरी वर्तमान स्थिति उपयोग करें",
+  "map_picker.gps_busy": "GPS लिया जा रहा है…",
+  "map_picker.gps_denied": "स्थान अनुमति अस्वीकार",
+  "map_picker.gps_error": "GPS नहीं मिला — कृपया मैनुअली पिन करें",
+  "map_picker.searching": "खोजा जा रहा है…",
+  "map_picker.no_results": "इस खोज के लिए भारत में कोई मिलान नहीं",
+  "map_picker.selected_pickup": "पिकअप",
+  "map_picker.selected_drop": "ड्रॉप",
+  "map_picker.confirm_pickup": "पिकअप पुष्टि करें",
+  "map_picker.confirm_drop": "ड्रॉप पुष्टि करें",
+  "map_picker.pickup_open_button": "नक्शे पर पिकअप संपादित करें",
+  "map_picker.pickup_hint": "पिकअप को सटीकता से सेट करने के लिए टैप करें",
+
+  "lang.title": "अपनी भाषा चुनें",
+  "lang.subtitle": "आप इसे अपनी प्रोफ़ाइल से बदल सकते हैं",
+  "lang.continue": "जारी रखें",
+
+  "common.cancel": "रद्द करें",
+  "common.continue": "जारी रखें",
+  "common.back": "वापस"
 };
 
 const STRINGS: Record<Lang, Dict> = { en, hi };

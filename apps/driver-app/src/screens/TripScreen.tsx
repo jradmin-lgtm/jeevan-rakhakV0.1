@@ -23,6 +23,7 @@ import {
 import { Booking, bookings as bookingsApi, driver as driverApi } from "../api";
 import { getSocket } from "../socket";
 import { prettyEmergency } from "./DashboardScreen";
+import { MapLocationPicker } from "./MapLocationPicker";
 
 type UserProfile = {
   id: string;
@@ -78,6 +79,10 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
   const [busy, setBusy] = useState(false);
   const [pushedAt, setPushedAt] = useState<number | null>(null);
   const [myPos, setMyPos] = useState<{ lat: number; lng: number } | null>(null);
+  // v1.0.15: SOS map-picker visibility. Opens as a fullscreen modal when the
+  // driver needs to set the drop hospital for an SOS booking that arrived
+  // without one. Confirms via /set-drop and closes itself.
+  const [dropPickerOpen, setDropPickerOpen] = useState(false);
   const ticker = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Push real GPS location every 5s to socket + every 15s to API for persistence.
@@ -451,20 +456,58 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
             <Button label="I have arrived" loading={busy} onPress={() => advance(() => bookingsApi.arrived(booking.id))} fullWidth size="lg" testID="arrived-cta" />
           ) : null}
           {booking.status === "PICKED_UP" ? (
-            <Button
-              label="Drop completed"
-              loading={busy}
-              onPress={() =>
-                advance(() => bookingsApi.complete(booking.id), {
-                  title: "Mark trip complete?",
-                  body: "Confirm patient has been handed over to hospital staff."
-                })
-              }
-              fullWidth
-              variant="primary"
-              size="lg"
-              testID="complete-cta"
-            />
+            (() => {
+              // v1.0.15: SOS bookings arrive without a drop. After the
+              // patient is picked up, the driver MUST set the drop hospital
+              // on the map before the trip can be marked complete. Normal
+              // flow bookings already have dropLat set so this short-circuits.
+              const needsDrop = !!booking.isSos && (booking.dropLat == null || booking.dropLng == null);
+              return needsDrop ? (
+                <>
+                  <Card>
+                    <View style={{ gap: space.sm }}>
+                      <Text variant="label" tone="danger" weight="bold">DROP HOSPITAL REQUIRED</Text>
+                      <Text variant="small" tone="secondary">
+                        Search a hospital or pin it on the map. The patient app updates the moment you save.
+                      </Text>
+                      <Button
+                        label="Choose drop on map"
+                        onPress={() => setDropPickerOpen(true)}
+                        fullWidth
+                        variant="primary"
+                        size="lg"
+                      />
+                    </View>
+                  </Card>
+                  <Button
+                    label="Drop completed"
+                    disabled
+                    fullWidth
+                    variant="primary"
+                    size="lg"
+                    testID="complete-cta"
+                  />
+                  <Text variant="tiny" tone="muted" align="center">
+                    Set the drop hospital above to enable this button.
+                  </Text>
+                </>
+              ) : (
+                <Button
+                  label="Drop completed"
+                  loading={busy}
+                  onPress={() =>
+                    advance(() => bookingsApi.complete(booking.id), {
+                      title: "Mark trip complete?",
+                      body: "Confirm patient has been handed over to hospital staff."
+                    })
+                  }
+                  fullWidth
+                  variant="primary"
+                  size="lg"
+                  testID="complete-cta"
+                />
+              );
+            })()
           ) : null}
           <Text variant="tiny" tone="muted" align="center">
             Tap the button as you complete each stage.
@@ -473,6 +516,30 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
       ) : (
         <Button label="Back to dashboard" onPress={onClose} fullWidth />
       )}
+      {/* v1.0.15: full-screen map picker for SOS drop hospital. Mounted at
+        * Screen root so it overlays everything when opened. Cancel = stays
+        * gated on the drop card; confirm = POST /set-drop + refresh booking. */}
+      <MapLocationPicker
+        visible={dropPickerOpen}
+        mode="drop"
+        initialCenter={
+          booking.dropLat != null && booking.dropLng != null
+            ? { lat: booking.dropLat, lng: booking.dropLng }
+            : myPos
+              ? { lat: myPos.lat, lng: myPos.lng }
+              : { lat: booking.pickupLat, lng: booking.pickupLng }
+        }
+        onCancel={() => setDropPickerOpen(false)}
+        onConfirm={async (picked) => {
+          try {
+            const r = await bookingsApi.setDrop(booking.id, picked.lat, picked.lng, picked.address);
+            setBooking(r.booking);
+            setDropPickerOpen(false);
+          } catch (e: any) {
+            Alert.alert("Could not save drop", e?.message ?? "Try again.");
+          }
+        }}
+      />
     </Screen>
   );
 }

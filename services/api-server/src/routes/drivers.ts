@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
-import { db, drivers } from "@jr/db";
+import { eq, sql as drizzleSql } from "drizzle-orm";
+import { db, drivers, driverHeartbeats } from "@jr/db";
 
 const availabilitySchema = z.object({
   status: z.enum(["OFFLINE", "AVAILABLE", "ON_TRIP"]),
@@ -50,6 +50,58 @@ export async function registerDriverRoutes(app: FastifyInstance) {
         .where(eq(drivers.id, sub))
         .returning();
       return reply.send({ driver: d });
+    }
+  );
+
+  // v1.0.15: "online" heartbeat. Driver app POSTs every 60s while toggled
+  // online AND foregrounded. Upserts into driver_heartbeats so the SOS
+  // cascade engine can pick the nearest available drivers without depending
+  // on the trip-time location stream (which only fires during an active ride).
+  // Returns 204 — body-less, intentional: this is a high-frequency poll, no
+  // payload to negotiate.
+  const heartbeatSchema = z.object({
+    lat: z.number(),
+    lng: z.number()
+  });
+  app.post(
+    "/api/v1/driver/heartbeat",
+    { preHandler: [(app as any).authenticate] },
+    async (req: any, reply) => {
+      const { sub, role } = req.user;
+      if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
+      const parsed = heartbeatSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+      }
+      await db
+        .insert(driverHeartbeats)
+        .values({
+          driverId: sub,
+          lat: parsed.data.lat,
+          lng: parsed.data.lng,
+          updatedAt: new Date()
+        })
+        .onConflictDoUpdate({
+          target: driverHeartbeats.driverId,
+          set: {
+            lat: parsed.data.lat,
+            lng: parsed.data.lng,
+            updatedAt: new Date()
+          }
+        });
+      // Also keep drivers.lastLat / lastLng / lastSeenAt fresh so admin's
+      // existing "where is the driver" UI keeps working without a second
+      // ping path. Doesn't change behavior of trip-time GPS pushes.
+      await db
+        .update(drivers)
+        .set({
+          lastLat: parsed.data.lat,
+          lastLng: parsed.data.lng,
+          lastSeenAt: new Date(),
+          updatedAt: new Date()
+        })
+        .where(eq(drivers.id, sub));
+      return reply.code(204).send();
     }
   );
 

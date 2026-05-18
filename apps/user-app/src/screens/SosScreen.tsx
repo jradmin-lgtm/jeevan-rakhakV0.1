@@ -7,8 +7,8 @@ import { SUPPORT_PHONE, SUPPORT_PHONE_DISPLAY } from "@jr/ui";
 
 // v1.0.12: removed the Delhi-centroid fallback for SOS. Sending an
 // ambulance to the wrong city is worse than refusing to send one — if GPS
-// is unavailable we now show an alert pointing the user at the ops desk
-// landline so they can book over the phone.
+// is unavailable we now show an alert pointing the user at the support
+// mobile number so they can book over the phone.
 async function getPickup(): Promise<{ lat: number; lng: number } | null> {
   try {
     const perm = await Location.requestForegroundPermissionsAsync();
@@ -57,7 +57,7 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
               if (!pickup) {
                 Alert.alert(
                   "Location unavailable",
-                  `We can't send an ambulance without your location. Allow location access and try again, or call ops desk ${SUPPORT_PHONE_DISPLAY} to book by phone.`,
+                  `We can't send an ambulance without your location. Allow location access and try again, or call our mobile ${SUPPORT_PHONE_DISPLAY} to book by phone.`,
                   [
                     { text: "Allow location", onPress: () => Linking.openSettings().catch(() => {}) },
                     { text: `Call ${SUPPORT_PHONE_DISPLAY}`, onPress: () => Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {}) },
@@ -70,7 +70,11 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
                 emergencyType: "CARDIAC",
                 pickupLat: pickup.lat,
                 pickupLng: pickup.lng,
-                pickupAddress: "SOS · current location"
+                pickupAddress: "SOS · current location",
+                // v1.0.15: routes the booking through the cascade engine on
+                // server-side. Without this the server falls back to the
+                // normal broadcast pool and SOS becomes a regular booking.
+                isSos: true
               });
               onBooked(r.booking);
             } catch (e: any) {

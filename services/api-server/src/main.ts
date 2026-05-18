@@ -176,7 +176,61 @@ async function bootstrap() {
     // gives us. Lookup-by-sub is the hot path on every sign-in.
     await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS users_auth_subject_uniq   ON users(auth_subject)   WHERE auth_subject IS NOT NULL`;
     await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS drivers_auth_subject_uniq ON drivers(auth_subject) WHERE auth_subject IS NOT NULL`;
-    app.log.info("[migrate] schema v1.1.0 ready (Google Sign-In identity columns + email/auth_subject unique indexes)");
+    // v1.0.15: SOS cascading dispatch + post-completion payment.
+    // driver_heartbeats is the "last-known position" table — single row per
+    // driver, upserted by /driver/heartbeat every 60s while the driver is
+    // online + foregrounded. NOTE: distinct from the existing driver_locations
+    // table which is an append-only trip-time GPS log (one row per ping during
+    // an active ride). The cascade engine reads driver_heartbeats with a 5-min
+    // staleness window to pick the nearest available drivers (Haversine, top
+    // 10 by default).
+    await pgClient`
+      CREATE TABLE IF NOT EXISTS driver_heartbeats (
+        driver_id  uuid PRIMARY KEY REFERENCES drivers(id) ON DELETE CASCADE,
+        lat        double precision NOT NULL,
+        lng        double precision NOT NULL,
+        updated_at timestamptz      NOT NULL DEFAULT now()
+      )
+    `;
+    await pgClient`CREATE INDEX IF NOT EXISTS driver_heartbeats_updated_at_idx ON driver_heartbeats(updated_at)`;
+    // sos_dispatch_attempts is the audit trail of every push the cascade
+    // emitted. UNIQUE(booking_id, driver_id) prevents double-push if the
+    // engine retries a wave. Insert on first emit; UPDATE the timestamps on
+    // accept/reject.
+    await pgClient`
+      CREATE TABLE IF NOT EXISTS sos_dispatch_attempts (
+        id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        booking_id  uuid NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+        driver_id   uuid NOT NULL REFERENCES drivers(id)  ON DELETE CASCADE,
+        wave_number integer NOT NULL,
+        distance_km double precision,
+        pushed_at   timestamptz NOT NULL DEFAULT now(),
+        rejected_at timestamptz,
+        accepted_at timestamptz
+      )
+    `;
+    await pgClient`CREATE INDEX IF NOT EXISTS sos_attempts_booking_idx ON sos_dispatch_attempts(booking_id)`;
+    await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS sos_attempts_booking_driver_uniq ON sos_dispatch_attempts(booking_id, driver_id)`;
+    // SOS marker — replaces the brittle "pickupAddress starts with SOS · "
+    // convention with a real column the cascade engine + /complete handler
+    // can read. NOT NULL with a default false so backfill is automatic.
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS is_sos boolean NOT NULL DEFAULT false`;
+    // Post-completion payment: SOS rides show a payment screen at the end
+    // (coupon + ₹0 in pilot). Normal flow auto-marks paid at /complete since
+    // the patient saw the fare upfront. `paid_at IS NULL` is the derived
+    // "awaiting payment" state — no new status column needed.
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS paid_inr    integer`;
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS paid_at     timestamptz`;
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS paid_coupon text`;
+    // Backfill completed rows so existing pilot bookings (mostly already at
+    // ₹0 via PILOT100) don't reappear as "awaiting payment" in ride history.
+    await pgClient`
+      UPDATE bookings
+         SET paid_at = COALESCE(updated_at, created_at),
+             paid_inr = 0
+       WHERE status = 'COMPLETED' AND paid_at IS NULL
+    `;
+    app.log.info("[migrate] schema v1.0.15 ready (driver_locations + sos_dispatch_attempts + paid_* columns)");
   } catch (err) {
     // Thumb rule: migrations FATAL-EXIT on failure. Silent catch+warn here
     // previously let the service start with a broken schema (system_events
@@ -235,6 +289,15 @@ async function bootstrap() {
     message: "api-server started",
     context: { port: config.apiPort, env: config.env }
   });
+  // v1.0.15: resume any SOS cascade that was mid-flight when this process
+  // last died. Best-effort — if it fails, the booking stays REQUESTED and
+  // ops can intervene via admin. Run AFTER listen so we don't block boot.
+  try {
+    const { resumeOnBoot } = await import("./sos-cascade.js");
+    void resumeOnBoot(app);
+  } catch (err) {
+    app.log.warn({ err }, "[sos] resumeOnBoot import failed");
+  }
 }
 
 bootstrap().catch((err) => {

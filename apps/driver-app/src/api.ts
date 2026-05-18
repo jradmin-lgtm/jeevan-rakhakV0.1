@@ -79,6 +79,16 @@ export type Booking = {
   feedback?: string | null;
   ratingByDriver?: number | null;
   feedbackByDriver?: string | null;
+  // v1.0.15: SOS marker — drives the "force drop picker after pickup OTP"
+  // gate in TripScreen and the cascade-aware dispatch on Dashboard.
+  isSos?: boolean | null;
+  // Server populates these timestamps; driver app reads acceptedAt/completedAt
+  // for the Trip History km/time row.
+  acceptedAt?: string | null;
+  arrivedAt?: string | null;
+  pickedUpAt?: string | null;
+  completedAt?: string | null;
+  cancelledAt?: string | null;
   createdAt: string;
 };
 
@@ -129,6 +139,11 @@ export const driver = {
       method: "POST",
       body: { status, lat, lng }
     }),
+  // v1.0.15: "online" heartbeat for the SOS cascade engine. Driver app pings
+  // every 60s while online + foregrounded. Server upserts into
+  // driver_heartbeats so the cascade can pick nearest available drivers.
+  heartbeat: (lat: number, lng: number) =>
+    api<void>("/api/v1/driver/heartbeat", { method: "POST", body: { lat, lng } }),
   pushLocation: (
     lat: number,
     lng: number,
@@ -159,6 +174,11 @@ export const bookings = {
   get: (id: string) => api<{ booking: Booking }>(`/api/v1/bookings/${id}`),
   accept: (id: string) =>
     api<{ booking: Booking }>(`/api/v1/bookings/${id}/accept`, { method: "POST", body: {} }),
+  // v1.0.15: driver rejects a pushed SOS request. Server records the
+  // rejection in sos_dispatch_attempts; the cascade engine reads it on the
+  // next wave and skips this driver from further pushes.
+  reject: (id: string) =>
+    api<{ ok: true }>(`/api/v1/bookings/${id}/reject`, { method: "POST", body: {} }),
   arrived: (id: string) =>
     api<{ booking: Booking }>(`/api/v1/bookings/${id}/arrived`, { method: "POST", body: {} }),
   pickup: (id: string, code: string) =>

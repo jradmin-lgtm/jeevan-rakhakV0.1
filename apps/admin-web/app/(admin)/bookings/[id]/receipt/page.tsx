@@ -180,7 +180,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
         <footer className="rcpt-footer">
           <div>Receipt generated {formatIST(new Date().toISOString())} · Internal record · Jeevan Rakshak</div>
           <div className="muted small">
-            For queries, contact ops desk 0581 258 2000 or email contact.jeevanrakshak@gmail.com — quote Booking
+            For queries, contact mobile 0581 258 2000 or email contact.jeevanrakshak@gmail.com — quote Booking
             #{booking.displayId ?? booking.id.slice(0, 8) + "…"}.
           </div>
         </footer>

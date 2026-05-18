@@ -133,6 +133,44 @@ const en: Dict = {
   "lang.english": "English",
   "lang.hindi": "हिन्दी",
 
+  // Emergency type selector (v1.0.15) — labels read in render so they re-translate
+  // when the user toggles language mid-screen.
+  "emergency.cardiac.label": "Cardiac",
+  "emergency.cardiac.sub": "Chest pain, heart attack",
+  "emergency.breathing.label": "Breathing distress",
+  "emergency.breathing.sub": "Asthma, oxygen support",
+  "emergency.accident.label": "Accident / Trauma",
+  "emergency.accident.sub": "Road accident, injury",
+  "emergency.pregnancy.label": "Pregnancy",
+  "emergency.pregnancy.sub": "Labour, neonatal",
+  "emergency.critical_transfer.label": "Critical transfer",
+  "emergency.critical_transfer.sub": "Hospital to hospital",
+
+  // Live tracking — extended for SOS cascade-wait UI + post-completion routing (v1.0.15)
+  "live.searching_title": "Searching for nearest ambulance",
+  "live.searching_sub": "We're notifying drivers nearby and expanding the search every minute.",
+  "live.cascade_exhausted_title": "No driver available right now",
+  "live.cascade_exhausted_sub": "Please call our mobile {phone} for immediate help.",
+  "live.driver_assigned": "Driver assigned · on the way",
+  "live.you_pay": "YOU PAY",
+  "live.cashless_hint": "Cashless · billed in-app on completion",
+
+  // Post-completion payment (v1.0.15)
+  "payment.title": "Trip complete",
+  "payment.complete_label": "✓  TRIP COMPLETE",
+  "payment.review_charges": "Review and pay",
+  "payment.hint": "Apply your coupon and tap Mark paid to finish the ride.",
+  "payment.processing": "Processing…",
+  "payment.finish_free": "Mark paid · finish (₹0)",
+  "payment.finish_amount": "Mark paid · finish · ₹{amount}",
+  "payment.wait_for_driver_to_complete": "The driver hasn't marked the trip complete yet. Try again in a moment.",
+  "payment.paid_label": "Paid",
+  "payment.paid_zero": "Paid: ₹0",
+
+  // History (v1.0.15) — fare label switched to "paid"
+  "history.paid": "Paid",
+  "history.paid_zero": "Paid: ₹0",
+
   // Generic
   "common.cancel": "Cancel",
   "common.continue": "Continue",
@@ -245,6 +283,42 @@ const hi: Dict = {
   "lang.title": "अपनी भाषा चुनें",
   "lang.subtitle": "आप इसे अपनी प्रोफ़ाइल से कभी भी बदल सकते हैं",
   "lang.continue": "जारी रखें",
+
+  // Emergency type selector — extended (v1.0.15)
+  "emergency.cardiac.label": "हृदय संकट",
+  "emergency.cardiac.sub": "सीने में दर्द, हार्ट अटैक",
+  "emergency.breathing.label": "साँस की तकलीफ़",
+  "emergency.breathing.sub": "अस्थमा, ऑक्सीजन सहायता",
+  "emergency.accident.label": "दुर्घटना / चोट",
+  "emergency.accident.sub": "सड़क दुर्घटना, चोट",
+  "emergency.pregnancy.label": "गर्भावस्था",
+  "emergency.pregnancy.sub": "प्रसव, नवजात",
+  "emergency.critical_transfer.label": "अस्पताल स्थानांतरण",
+  "emergency.critical_transfer.sub": "अस्पताल से अस्पताल",
+
+  // Live tracking — extended for v1.0.15 SOS cascade-wait + post-completion
+  "live.searching_title": "नज़दीकी एम्बुलेंस ढूँढी जा रही है",
+  "live.searching_sub": "हम पास के ड्राइवरों को सूचना भेज रहे हैं और हर मिनट खोज बढ़ा रहे हैं।",
+  "live.cascade_exhausted_title": "अभी कोई ड्राइवर उपलब्ध नहीं है",
+  "live.cascade_exhausted_sub": "तत्काल सहायता के लिए कृपया हमारे मोबाइल {phone} पर कॉल करें।",
+  "live.driver_assigned": "ड्राइवर असाइन हो गया · रास्ते में",
+  "live.you_pay": "आप देंगे",
+  "live.cashless_hint": "नकद रहित · पूरा होने पर ऐप में बिल",
+
+  // Post-completion payment — extended (v1.0.15)
+  "payment.title": "यात्रा पूरी हुई",
+  "payment.complete_label": "✓  यात्रा पूरी",
+  "payment.review_charges": "समीक्षा करें और भुगतान करें",
+  "payment.hint": "अपना कूपन लागू करें और यात्रा पूरी करने के लिए भुगतान चिह्नित करें टैप करें।",
+  "payment.processing": "प्रोसेस हो रहा है…",
+  "payment.finish_free": "भुगतान पूर्ण · समाप्त (₹0)",
+  "payment.finish_amount": "भुगतान पूर्ण · समाप्त · ₹{amount}",
+  "payment.wait_for_driver_to_complete": "ड्राइवर ने अभी यात्रा पूरी नहीं की है। कुछ क्षण बाद फिर से कोशिश करें।",
+  "payment.paid_label": "भुगतान",
+  "payment.paid_zero": "भुगतान: ₹0",
+
+  "history.paid": "भुगतान",
+  "history.paid_zero": "भुगतान: ₹0",
 
   "common.cancel": "रद्द करें",
   "common.continue": "जारी रखें",
