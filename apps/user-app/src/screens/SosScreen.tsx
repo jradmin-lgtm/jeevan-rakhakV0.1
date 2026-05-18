@@ -113,7 +113,7 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
                 variant="title"
                 tone="inverse"
                 weight="bold"
-                style={{ fontSize: 48, letterSpacing: 1, textAlign: "center", includeFontPadding: false }}
+                style={{ fontSize: 48, letterSpacing: 1, textAlign: "center" }}
               >
                 SOS
               </Text>

@@ -134,16 +134,17 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
                   accessibilityRole="button"
                   accessibilityLabel="Emergency SOS — dispatch ambulance now"
                 >
-                  {/* v1.0.14: dropped letterSpacing 3 → 1. Android renders
-                    * the "O" off-centre when the trailing letter-spacing pad
-                    * isn't compensated; using includeFontPadding:false + a
-                    * smaller letterSpacing + textAlign:center produces an
-                    * evenly-balanced "SOS" across devices. */}
+                  {/* v1.0.14: dropped letterSpacing 3 → 1 to fix the "O
+                    * off-centre" artifact. Earlier draft also set
+                    * includeFontPadding:false which removed Android's
+                    * baseline padding and shifted the whole text block
+                    * upward inside the circle — leaving empty red space
+                    * below. Reverted; just the letterSpacing fix is enough. */}
                   <Text
                     variant="title"
                     tone="inverse"
                     weight="bold"
-                    style={{ fontSize: 52, letterSpacing: 1, textAlign: "center", includeFontPadding: false }}
+                    style={{ fontSize: 52, letterSpacing: 1, textAlign: "center" }}
                   >
                     SOS
                   </Text>
