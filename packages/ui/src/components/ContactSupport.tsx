@@ -26,10 +26,13 @@ export const SUPPORT_EMAIL = "contact.jeevanrakshak@gmail.com";
 export const SUPPORT_PHONE = "+9105812582000"; // 0581-258-2000 — ops desk landline (default call)
 export const SUPPORT_PHONE_DISPLAY = "+91 581 258 2000";
 
+// v1.0.14 (revised): labels uppercased for the cleaner directory look the
+// team asked for. The urgent row carries an explicit "EMERGENCY" suffix
+// so even users skimming see the priority.
 export const SUPPORT_NUMBERS = [
-  { label: "Ops desk",        phone: "+9105812582000", display: "+91 581 258 2000", primary: true },
-  { label: "Mobile",          phone: "+919458701070",  display: "+91 94587 01070" },
-  { label: "Gynae emergency", phone: "+919045954724",  display: "+91 90459 54724", urgent: true }
+  { label: "OPS DESK",        phone: "+9105812582000", display: "+91 581 258 2000", primary: true },
+  { label: "MOBILE",          phone: "+919458701070",  display: "+91 94587 01070" },
+  { label: "GYNAE EMERGENCY", phone: "+919045954724",  display: "+91 90459 54724", urgent: true }
 ];
 
 type Props = {
@@ -117,20 +120,28 @@ function ContactSupportInner({ bookingId, compact, variant = "user" }: Props) {
             style={[styles.stackedCta, n.urgent ? styles.stackedCtaUrgent : null]}
           >
             <View style={{ flex: 1 }}>
-              <Text variant="body" weight="bold" tone={n.urgent ? "danger" : "primary"}>
-                {n.urgent ? "🚨  " : "📞  "}{n.label}
+              <Text variant="body" weight="bold" tone={n.urgent ? "danger" : "primary"} style={{ letterSpacing: 0.4 }}>
+                {n.label}
               </Text>
               <Text variant="tiny" tone="secondary">{n.display}</Text>
             </View>
-            <Text variant="small" weight="bold" tone={n.urgent ? "danger" : "primary"}>Call ›</Text>
+            {/* v1.0.14 (revised): replaced "Call ›" text with a circular
+              * filled icon button. Brand-coloured (red) on urgent rows,
+              * accent-coloured on the rest. Tap area = full row Pressable
+              * above, the icon is decorative + a visual affordance. */}
+            <View style={[styles.iconBtn, n.urgent ? styles.iconBtnUrgent : styles.iconBtnPrimary]}>
+              <Text style={styles.iconGlyph}>📞</Text>
+            </View>
           </Pressable>
         ))}
         <Pressable onPress={emailSupport} android_ripple={{ color: "rgba(229,50,43,0.1)" }} style={styles.stackedCta}>
           <View style={{ flex: 1 }}>
-            <Text variant="body" weight="bold" tone="primary">✉  Email</Text>
+            <Text variant="body" weight="bold" tone="primary" style={{ letterSpacing: 0.4 }}>EMAIL</Text>
             <Text variant="tiny" tone="secondary">{SUPPORT_EMAIL}</Text>
           </View>
-          <Text variant="small" weight="bold" tone="primary">Open ›</Text>
+          <View style={[styles.iconBtn, styles.iconBtnPrimary]}>
+            <Text style={styles.iconGlyph}>✉</Text>
+          </View>
         </Pressable>
       </View>
     </View>
@@ -178,6 +189,19 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: colors.danger
   },
+  // v1.0.14: round filled call/email icon buttons. Used inside each
+  // SUPPORT_NUMBERS row + the email row. 44dp matches the minimum touch
+  // target Material spec recommends; the icon is centred via flex.
+  iconBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  iconBtnPrimary: { backgroundColor: colors.primary },
+  iconBtnUrgent: { backgroundColor: colors.danger },
+  iconGlyph: { fontSize: 20, color: "#fff", lineHeight: 22 },
   compactRow: { flexDirection: "row", gap: space.sm },
   compactCta: {
     paddingVertical: space.xs,

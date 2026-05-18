@@ -306,7 +306,11 @@ export function LiveTrackingScreen({ booking: initial, onClose }: Props) {
             <Text variant="label" tone={booking.status === "ARRIVED" ? "danger" : "secondary"}>
               {booking.status === "ARRIVED" ? "TELL THIS OTP TO THE DRIVER" : "RIDE OTP"}
             </Text>
-            <Text style={{ fontSize: 40, fontWeight: "700", color: colors.primary, letterSpacing: 8 }}>
+            {/* v1.0.14: textAlign:center compensates for the Android
+              * trailing letter-spacing pad. Without it the 4-digit code
+              * sits visually left of centre inside the alignItems:center
+              * parent (same bug pattern as the SOS button). */}
+            <Text style={{ fontSize: 40, fontWeight: "700", color: colors.primary, letterSpacing: 8, textAlign: "center" }}>
               {booking.rideOtpCode}
             </Text>
             <Text variant="tiny" tone="muted" align="center">
