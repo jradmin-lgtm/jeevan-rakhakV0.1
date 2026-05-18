@@ -224,9 +224,11 @@ async function bootstrap() {
     await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS paid_coupon text`;
     // Backfill completed rows so existing pilot bookings (mostly already at
     // ₹0 via PILOT100) don't reappear as "awaiting payment" in ride history.
+    // Uses `completed_at` when present, otherwise `created_at` — `bookings`
+    // doesn't carry a generic `updated_at` (only the per-state timestamps).
     await pgClient`
       UPDATE bookings
-         SET paid_at = COALESCE(updated_at, created_at),
+         SET paid_at = COALESCE(completed_at, created_at),
              paid_inr = 0
        WHERE status = 'COMPLETED' AND paid_at IS NULL
     `;
