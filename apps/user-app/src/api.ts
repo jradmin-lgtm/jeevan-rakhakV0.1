@@ -162,24 +162,35 @@ export const me = {
 };
 
 export type FareQuote = {
-  baseFareInr: number;
+  baseFareInr: number;            // semantics: minimum-fare floor in v1.0.13 revised
   perKmFareInr: number;
   distanceKm: number | null;
   distanceChargeInr: number;
   totalInr: number;
+  etaMin: number | null;
+  multipliers: {
+    vehicleType: string;
+    vehicleMult: number;
+    emergencyType: string | null;
+    emergencyMult: number;
+    nightSurcharge: number;
+    isNight: boolean;
+  };
   coupon: { couponCode: string | null; discountInr: number; payableInr: number };
 };
 
 export const fares = {
-  // v1.0.13: server-computed fare quote. Mobile shows the breakdown; the
-  // saved fareEstimateInr on the booking row uses the exact same numbers.
-  // Eliminates the ₹250 (hardcoded mobile) vs ₹500 (server default) drift.
+  // v1.0.13 (revised): server-computed dynamic fare quote with multipliers.
+  // Mobile UI mirrors the breakdown so the patient sees exactly what hits the
+  // booking row. Single source of truth — no more "₹250 in app, ₹500 admin".
   quote: (input: {
     pickupLat: number;
     pickupLng: number;
     dropLat?: number | null;
     dropLng?: number | null;
     couponCode?: string | null;
+    vehicleType?: string | null;
+    emergencyType?: string | null;
   }) =>
     api<FareQuote>("/api/v1/fares/quote", { method: "POST", body: input })
 };

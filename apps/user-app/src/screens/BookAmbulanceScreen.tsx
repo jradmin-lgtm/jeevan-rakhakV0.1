@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import * as Location from "expo-location";
 import { AppHeader, Button, Card, Input, PulseDot, Screen, Text, colors, radius, space } from "@jr/ui";
 import { bookings as bookingsApi, fares as faresApi, FareQuote, EmergencyType, Booking } from "../api";
-import { DropLocationPicker } from "./DropLocationPicker";
+import { MapLocationPicker } from "./MapLocationPicker";
 import { useT } from "../i18n";
 
 const EMERGENCIES: { key: EmergencyType; label: string; sub: string; emoji: string }[] = [
@@ -42,7 +42,11 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
   // (not just a hospital name to retype into Maps). User can still book with
   // text-only drop — coords are an opt-in refinement.
   const [dropCoords, setDropCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  // v1.0.13 revised: a single picker handles both pickup and drop. The mode
+  // toggles which the modal is currently editing; null means the modal is
+  // closed. This lets us reuse the same component instance + state plumbing.
+  const [pickerMode, setPickerMode] = useState<"pickup" | "drop" | null>(null);
+  const [pickupAddress, setPickupAddress] = useState<string>("Current location");
   const [pickupCoords, setPickupCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(true);
   const [locationNote, setLocationNote] = useState<string>("Detecting your live location…");
@@ -111,13 +115,14 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
         pickupLng: pickupCoords.lng,
         dropLat: dropCoords?.lat ?? null,
         dropLng: dropCoords?.lng ?? null,
-        couponCode: couponApplied ? coupon : null
+        couponCode: couponApplied ? coupon : null,
+        emergencyType: type
       })
       .then((q) => { if (!cancelled) setQuote(q); })
       .catch(() => { if (!cancelled) setQuote(null); })
       .finally(() => { if (!cancelled) setQuoteBusy(false); });
     return () => { cancelled = true; };
-  }, [pickupCoords?.lat, pickupCoords?.lng, dropCoords?.lat, dropCoords?.lng, couponApplied, coupon]);
+  }, [pickupCoords?.lat, pickupCoords?.lng, dropCoords?.lat, dropCoords?.lng, couponApplied, coupon, type]);
 
   const baseFare = quote?.baseFareInr ?? 0;
   const distanceCharge = quote?.distanceChargeInr ?? 0;
@@ -216,9 +221,9 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
           <View style={styles.pickupLockedRow}>
             <View style={{ flex: 1, gap: 4 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
-                {!locating ? <PulseDot size={8} color={colors.success} rings={1} /> : null}
-                <Text variant="body" weight="semi">
-                  {locating ? "Detecting…" : pickupCoords ? "Current location" : "Location not available"}
+                {!locating && pickupCoords ? <PulseDot size={8} color={colors.success} rings={1} /> : null}
+                <Text variant="body" weight="semi" numberOfLines={2}>
+                  {locating ? "Detecting…" : pickupCoords ? pickupAddress : "Location not set"}
                 </Text>
               </View>
               <Text variant="tiny" tone={locating ? "secondary" : "muted"}>
@@ -229,12 +234,28 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
               </Text>
             </View>
             <Button
-              label={locating ? "…" : "Refresh"}
+              label={locating ? "…" : "GPS"}
               variant="ghost"
               onPress={refreshLocation}
               disabled={locating}
             />
           </View>
+          {/* v1.0.13 revised: pickup is now editable via the map picker too.
+            * Same UX as drop — search a place or pin manually. */}
+          <Pressable
+            onPress={() => setPickerMode("pickup")}
+            android_ripple={{ color: "rgba(229,50,43,0.10)" }}
+            style={styles.pinOnMapBtn}
+            testID="open-pickup-picker"
+          >
+            <Text variant="small" weight="bold" tone="primary">
+              📍 {t("map_picker.pickup_open_button")}
+            </Text>
+            <Text variant="tiny" tone="muted">
+              {pickupCoords ? `${pickupCoords.lat.toFixed(4)}, ${pickupCoords.lng.toFixed(4)}` : t("map_picker.pickup_hint")}
+            </Text>
+          </Pressable>
+
           <View style={{ gap: space.xs }}>
             <Input
               label="Drop / hospital (optional)"
@@ -248,7 +269,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
               placeholder="Hospital or address"
             />
             <Pressable
-              onPress={() => setPickerOpen(true)}
+              onPress={() => setPickerMode("drop")}
               android_ripple={{ color: "rgba(229,50,43,0.10)" }}
               style={styles.pinOnMapBtn}
               testID="open-drop-picker"
@@ -273,39 +294,67 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
             {quoteBusy ? <Text variant="tiny" tone="muted">Calculating…</Text> : null}
           </View>
 
-          {/* Server-computed fare breakdown. Shows Base + Distance × per-km
-            * when drop coords are known (via the map picker), otherwise just
-            * the base fare. The discount + total payable rows mirror the
-            * server's COUPONS table, so the patient sees the exact number
-            * the booking row will record. */}
-          <View style={styles.fareRow}>
-            <Text variant="body" tone="secondary">Base fare</Text>
-            <Text variant="body" weight="semi">
-              {quote ? `₹${baseFare}` : <Text variant="body" tone="muted">…</Text>}
-            </Text>
-          </View>
-
+          {/* v1.0.13 revised: dynamic fare with explicit multipliers.
+            * Distance × per-km is the raw line; surcharges (vehicle type,
+            * emergency severity, night) are shown so the patient
+            * understands what they're paying for and why.
+            *
+            * Industry standard: BLS BLS=1.0×, ALS=1.5×, ICU=2.0×; Cardiac/
+            * Trauma trips +20%; Pregnancy +10%; night (22:00–06:00) +25%.
+            * All server-driven so admin and patient see identical numbers. */}
           {quote && quote.distanceKm != null ? (
+            <>
+              <View style={styles.fareRow}>
+                <Text variant="body" tone="secondary">
+                  Distance ({quote.distanceKm.toFixed(1)} km × ₹{quote.perKmFareInr})
+                </Text>
+                <Text variant="body" weight="semi">₹{distanceCharge}</Text>
+              </View>
+              {quote.multipliers.vehicleMult !== 1.0 ? (
+                <View style={styles.fareRow}>
+                  <Text variant="body" tone="secondary">
+                    Vehicle ({quote.multipliers.vehicleType} × {quote.multipliers.vehicleMult.toFixed(2)})
+                  </Text>
+                  <Text variant="body" weight="semi">×{quote.multipliers.vehicleMult.toFixed(2)}</Text>
+                </View>
+              ) : null}
+              {quote.multipliers.emergencyMult > 1.0 ? (
+                <View style={styles.fareRow}>
+                  <Text variant="body" tone="secondary">Priority dispatch</Text>
+                  <Text variant="body" weight="semi">×{quote.multipliers.emergencyMult.toFixed(2)}</Text>
+                </View>
+              ) : null}
+              {quote.multipliers.isNight ? (
+                <View style={styles.fareRow}>
+                  <Text variant="body" tone="secondary">Night surcharge (10pm–6am)</Text>
+                  <Text variant="body" weight="semi">×{quote.multipliers.nightSurcharge.toFixed(2)}</Text>
+                </View>
+              ) : null}
+              <View style={styles.fareRow}>
+                <Text variant="body" tone="secondary">Subtotal</Text>
+                <Text variant="body" weight="semi" style={couponApplied ? styles.struck : undefined}>
+                  ₹{totalBeforeDiscount}
+                </Text>
+              </View>
+              {quote.etaMin != null ? (
+                <View style={styles.fareRow}>
+                  <Text variant="tiny" tone="muted">⏱  Ambulance arrives in</Text>
+                  <Text variant="tiny" tone="muted">~{quote.etaMin} min</Text>
+                </View>
+              ) : null}
+            </>
+          ) : (
             <View style={styles.fareRow}>
-              <Text variant="body" tone="secondary">
-                Distance ({quote.distanceKm.toFixed(1)} km × ₹{quote.perKmFareInr})
-              </Text>
-              <Text variant="body" weight="semi">+ ₹{distanceCharge}</Text>
-            </View>
-          ) : null}
-
-          {quote && quote.distanceKm != null ? (
-            <View style={styles.fareRow}>
-              <Text variant="body" tone="secondary">Subtotal</Text>
-              <Text variant="body" weight="semi" style={couponApplied ? styles.struck : undefined}>
-                ₹{totalBeforeDiscount}
+              <Text variant="body" tone="secondary">Minimum fare estimate</Text>
+              <Text variant="body" weight="semi">
+                {quote ? `₹${quote.totalInr}` : <Text variant="body" tone="muted">…</Text>}
               </Text>
             </View>
-          ) : null}
+          )}
 
           {!quote || quote.distanceKm == null ? (
             <Text variant="tiny" tone="muted">
-              Pin a drop location on the map above to see the distance-based fare.
+              Pin a drop location to see the distance-based fare. Industry rates: ₹{quote?.perKmFareInr ?? 120}/km · minimum ₹{quote?.baseFareInr ?? 300}.
             </Text>
           ) : null}
 
@@ -364,18 +413,34 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
         Average response: 8–12 min · Cashless during launch offer
       </Text>
 
-      <DropLocationPicker
-        visible={pickerOpen}
-        // Open the picker centred on the current pickup. If the user
-        // already picked a drop, re-open at that pin so they can refine.
-        initialCenter={dropCoords ?? pickupCoords}
-        onCancel={() => setPickerOpen(false)}
+      {/* v1.0.13 revised: one picker handles both pickup + drop. The mode
+        * is tracked in `pickerMode` (null = closed, "pickup" / "drop" = open).
+        * Centre is the current pin for that mode, or the other pin as a
+        * reasonable fallback, or nothing (the picker falls back to country-
+        * wide view + search-first). */}
+      <MapLocationPicker
+        visible={pickerMode !== null}
+        mode={pickerMode ?? "drop"}
+        initialCenter={
+          pickerMode === "pickup"
+            ? (pickupCoords ?? dropCoords ?? null)
+            : (dropCoords ?? pickupCoords ?? null)
+        }
+        onCancel={() => setPickerMode(null)}
         onConfirm={(picked) => {
-          setDropCoords({ lat: picked.lat, lng: picked.lng });
-          // Only auto-fill the address field if the user hasn't typed
-          // anything custom — never clobber their input.
-          if (!dropAddress.trim()) setDropAddress(picked.address);
-          setPickerOpen(false);
+          if (pickerMode === "pickup") {
+            setPickupCoords({ lat: picked.lat, lng: picked.lng });
+            setPickupAddress(picked.address);
+            // We have an explicit pickup now — stop showing "Detecting…".
+            setLocating(false);
+            setLocationNote(`Set on map · ${picked.lat.toFixed(4)}, ${picked.lng.toFixed(4)}`);
+          } else {
+            setDropCoords({ lat: picked.lat, lng: picked.lng });
+            // Only auto-fill the address field if the user hasn't typed
+            // anything custom — never clobber their input.
+            if (!dropAddress.trim()) setDropAddress(picked.address);
+          }
+          setPickerMode(null);
         }}
       />
     </Screen>

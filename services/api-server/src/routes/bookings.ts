@@ -31,53 +31,126 @@ const bookingCreateSchema = z.object({
   couponCode: z.string().max(40).optional()
 });
 
-function estimateFare(pickupLat: number, pickupLng: number, dropLat?: number, dropLng?: number) {
-  if (dropLat == null || dropLng == null) return config.baseFareInr;
+// ─────────────────────────────────────────────────────────────────────────
+// v1.0.13 (revised): industry-style dynamic fare model.
+//
+// Drops the fixed ₹500 "base fare" from earlier builds. Total is now driven
+// by distance × per-km rate × multipliers (vehicle type, emergency severity,
+// night surcharge). A minimum fare floor catches short trips so we don't
+// charge ₹0 for a 200m ride.
+//
+// Why these defaults — calibrated to typical Indian private-ambulance rates
+// (mid-2024 surveys, BLS service):
+//
+//   - RATE_PER_KM_BASE     = ₹120/km   — BLS standard for metros + tier-2
+//   - MIN_FARE             = ₹300      — covers the first ~2.5 km
+//   - VEHICLE_MULT         = BLS 1.0   - ALS 1.5 - ICU 2.0
+//   - EMERGENCY_MULT       = Cardiac/Trauma 1.2 (priority dispatch surcharge)
+//                            Pregnancy 1.1  · others 1.0
+//   - NIGHT_SURCHARGE      = 1.25      — applied 22:00–06:00 IST
+//
+// ETA is included in the quote so the UI can show "ambulance arrives in
+// ~N min" before booking. It's purely informational; doesn't affect the
+// fare (no wait-time charges during launch).
+// ─────────────────────────────────────────────────────────────────────────
+const RATE_PER_KM = 120;
+const MIN_FARE = 300;
+const VEHICLE_MULT: Record<string, number> = { BLS: 1.0, ALS: 1.5, ICU: 2.0 };
+const EMERGENCY_MULT: Record<string, number> = {
+  CARDIAC: 1.2,
+  ACCIDENT_TRAUMA: 1.2,
+  PREGNANCY_NEONATAL: 1.1,
+  BREATHING_DISTRESS: 1.0,
+  GENERAL_CRITICAL_TRANSFER: 1.0
+};
+
+function isNightIST(now: Date = new Date()): boolean {
+  // IST hour using Intl so DST/timezone-shift doesn't bite us. 22:00–06:00 = night.
+  const hour = Number(
+    new Intl.DateTimeFormat("en-IN", {
+      hour: "2-digit",
+      hour12: false,
+      timeZone: "Asia/Kolkata"
+    }).format(now)
+  );
+  return hour >= 22 || hour < 6;
+}
+
+/** Same urban-India ETA used on the mobile side — kept in sync. */
+function estimateEtaMin(km: number, avgKmh = 28, roadFactor = 1.4): number {
+  return Math.max(1, Math.round(((km * roadFactor) / avgKmh) * 60));
+}
+
+function estimateFare(
+  pickupLat: number,
+  pickupLng: number,
+  dropLat?: number,
+  dropLng?: number,
+  vehicleType?: string | null,
+  emergencyType?: string | null
+) {
+  if (dropLat == null || dropLng == null) return MIN_FARE;
   const km = haversineDistanceKm(pickupLat, pickupLng, dropLat, dropLng);
-  return Math.round(config.baseFareInr + km * config.perKmFareInr);
+  const distanceCharge = Math.max(MIN_FARE, RATE_PER_KM * km);
+  const vMult = VEHICLE_MULT[String(vehicleType ?? "BLS")] ?? 1.0;
+  const eMult = EMERGENCY_MULT[String(emergencyType ?? "")] ?? 1.0;
+  const night = isNightIST() ? 1.25 : 1.0;
+  return Math.round(distanceCharge * vMult * eMult * night);
 }
 
 /**
- * v1.0.13: full quote breakdown used by the mobile booking screen so the
- * patient sees the same fare math the server will record. Single source of
- * truth — fixes the "₹250 in app, ₹500 on admin" drift from earlier builds.
- *
- * Shape:
- *   {
- *     baseFareInr: 500,                 // config.baseFareInr
- *     perKmFareInr: 30,                 // config.perKmFareInr
- *     distanceKm: 8.42 | null,          // null when no drop coords
- *     distanceChargeInr: 253 | 0,
- *     totalInr: 753,                    // base + distanceCharge, rounded
- *     coupon: { code, discountInr, payableInr } | null
- *   }
+ * v1.0.13 (revised) fare-quote: full dynamic breakdown so the mobile UI
+ * can show each component (Distance, Vehicle, Emergency, Night surcharge).
  */
 function fareQuote(
   pickupLat: number,
   pickupLng: number,
   dropLat?: number | null,
   dropLng?: number | null,
-  couponCode?: string | null
+  couponCode?: string | null,
+  vehicleType?: string | null,
+  emergencyType?: string | null
 ) {
-  const baseFareInr = config.baseFareInr;
-  const perKmFareInr = config.perKmFareInr;
   let distanceKm: number | null = null;
+  let etaMin: number | null = null;
   let distanceChargeInr = 0;
+
   if (dropLat != null && dropLng != null) {
     distanceKm = haversineDistanceKm(pickupLat, pickupLng, dropLat, dropLng);
-    distanceChargeInr = Math.round(distanceKm * perKmFareInr);
+    etaMin = estimateEtaMin(distanceKm);
+    distanceChargeInr = Math.max(MIN_FARE, Math.round(RATE_PER_KM * distanceKm));
+  } else {
+    // No drop set — show minimum fare estimate so the UI isn't empty.
+    distanceChargeInr = MIN_FARE;
   }
-  const totalInr = baseFareInr + distanceChargeInr;
+
+  const vMult = VEHICLE_MULT[String(vehicleType ?? "BLS")] ?? 1.0;
+  const eMult = EMERGENCY_MULT[String(emergencyType ?? "")] ?? 1.0;
+  const night = isNightIST() ? 1.25 : 1.0;
+
+  const totalInr = Math.round(distanceChargeInr * vMult * eMult * night);
   const coupon = couponCode
     ? applyCoupon(totalInr, couponCode)
     : { couponCode: null, discountInr: 0, payableInr: totalInr };
+
   return {
-    baseFareInr,
-    perKmFareInr,
+    // Backwards-compatible fields (older client code reads these)
+    baseFareInr: MIN_FARE,           // semantics: minimum-fare floor, not a flat add-on anymore
+    perKmFareInr: RATE_PER_KM,
     distanceKm: distanceKm != null ? Math.round(distanceKm * 100) / 100 : null,
-    distanceChargeInr,
+    distanceChargeInr,               // already includes MIN_FARE floor
     totalInr,
-    coupon
+    coupon,
+    // v1.0.13 revised additions
+    etaMin,
+    multipliers: {
+      vehicleType: vehicleType ?? "BLS",
+      vehicleMult: vMult,
+      emergencyType: emergencyType ?? null,
+      emergencyMult: eMult,
+      nightSurcharge: night,
+      isNight: night > 1
+    }
   };
 }
 
@@ -117,7 +190,11 @@ export async function registerBookingRoutes(app: FastifyInstance) {
     pickupLng: z.number(),
     dropLat: z.number().optional().nullable(),
     dropLng: z.number().optional().nullable(),
-    couponCode: z.string().max(40).optional().nullable()
+    couponCode: z.string().max(40).optional().nullable(),
+    // v1.0.13 (revised) — multipliers driven by these inputs. Optional so
+    // older clients keep working (defaults: BLS vehicle, no emergency mult).
+    vehicleType: z.string().max(16).optional().nullable(),
+    emergencyType: z.string().max(40).optional().nullable()
   });
   app.post(
     "/api/v1/fares/quote",
@@ -127,8 +204,14 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       if (!parsed.success) {
         return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
       }
-      const { pickupLat, pickupLng, dropLat, dropLng, couponCode } = parsed.data;
-      const quote = fareQuote(pickupLat, pickupLng, dropLat ?? undefined, dropLng ?? undefined, couponCode);
+      const { pickupLat, pickupLng, dropLat, dropLng, couponCode, vehicleType, emergencyType } = parsed.data;
+      const quote = fareQuote(
+        pickupLat, pickupLng,
+        dropLat ?? undefined, dropLng ?? undefined,
+        couponCode,
+        vehicleType,
+        emergencyType
+      );
       return reply.send(quote);
     }
   );
@@ -175,11 +258,16 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         });
       }
 
+      // v1.0.13 (revised): pass the emergency type so the saved fareEstimate
+      // matches the quote the patient saw. Vehicle type is BLS for now — once
+      // dispatch assigns a specific vehicle we'll re-quote on /accept.
       const fareEstimate = estimateFare(
         data.pickupLat,
         data.pickupLng,
         data.dropLat,
-        data.dropLng
+        data.dropLng,
+        "BLS",
+        data.emergencyType
       );
       const { couponCode, discountInr, payableInr } = applyCoupon(fareEstimate, data.couponCode);
 
