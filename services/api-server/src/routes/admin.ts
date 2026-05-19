@@ -69,8 +69,14 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const bookingFilter = sourceClause(source, bookings.isDemo);
     const driverFilter = sourceClause(source, drivers.isDemo);
 
-    const startToday = new Date();
-    startToday.setHours(0, 0, 0, 0);
+    // v1.0.15.1: IST midnight today, not UTC. Render servers run in UTC;
+    // `new Date(); setHours(0,0,0,0)` was producing UTC midnight, so the
+    // "bookings today" headline number dropped IST 00:00–05:30 bookings.
+    const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+    const y = istNow.getUTCFullYear();
+    const m = String(istNow.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(istNow.getUTCDate()).padStart(2, "0");
+    const startToday = new Date(`${y}-${m}-${d}T00:00:00.000+05:30`);
 
     const [activeRow] = await db
       .select({ c: count() })
@@ -166,12 +172,19 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     return reply.send({ booking: b, events, user: u, driver: d });
   });
 
+  // v1.0.15.1: drivers list filtered by ACTIVITY (lastSeenAt within range),
+  // not signup date. "Today" should show drivers who pinged location, came
+  // online, or did a heartbeat today. drivers.lastSeenAt is bumped by
+  // /driver/availability, /driver/location, and the new /driver/heartbeat
+  // (v1.0.15) so it's a clean activity signal post-v1.0.15. Drivers who've
+  // never been seen (lastSeenAt IS NULL) are excluded from date-bounded
+  // queries — that matches the "active in range" intent.
   app.get("/api/v1/admin/drivers", adminGuard, async (req, reply) => {
     const source = pickSource(req);
     const range = pickDateRange(req);
     const filter = and(
       sourceClause(source, drivers.isDemo),
-      dateRangeClause(drivers.createdAt, range)
+      dateRangeClause(drivers.lastSeenAt, range)
     );
 
     const rows = await db
@@ -183,12 +196,36 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     return reply.send({ source, drivers: rows });
   });
 
+  // v1.0.15.1: users list filtered by ACTIVITY (booked at least once within
+  // the range), not signup date. users table doesn't carry a lastSeenAt
+  // column — closest proxy for "active today" is "booked today". Two-step
+  // lookup: first the distinct user_ids whose bookings fall in the range,
+  // then the users in that set + source filter. The two-query approach is
+  // simple, indexed (bookings_user_idx + bookings_created_at_idx) and safe
+  // when the set is empty (FALSE clause short-circuits the second query).
   app.get("/api/v1/admin/users", adminGuard, async (req, reply) => {
     const source = pickSource(req);
     const range = pickDateRange(req);
+
+    let activeIdsClause: any = undefined;
+    if (range.since || range.until) {
+      const activeRows = await db
+        .selectDistinct({ uid: bookings.userId })
+        .from(bookings)
+        .where(dateRangeClause(bookings.createdAt, range));
+      const ids = activeRows.map((r) => r.uid).filter(Boolean) as string[];
+      if (ids.length === 0) {
+        return reply.send({ source, users: [] });
+      }
+      activeIdsClause = drizzleSql`${users.id} IN (${drizzleSql.join(
+        ids.map((id) => drizzleSql`${id}`),
+        drizzleSql`, `
+      )})`;
+    }
+
     const filter = and(
       sourceClause(source, users.isDemo),
-      dateRangeClause(users.createdAt, range)
+      activeIdsClause
     );
 
     const rows = await db
