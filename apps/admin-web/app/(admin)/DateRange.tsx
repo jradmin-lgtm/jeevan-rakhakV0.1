@@ -20,7 +20,17 @@ const PRESETS: { key: Preset; label: string }[] = [
 
 export function presetToRange(p: Preset): DateRange {
   const today = new Date();
-  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  // v1.0.15 fix: use the LOCAL Y-M-D, not the UTC slice.
+  // `toISOString().slice(0,10)` converted to UTC first → at 04:24 IST on
+  // 19 May the UTC date is still 18 May, so "Today" sent the wrong day
+  // and the bookings list returned 0-in-range. Reading local components
+  // matches what the user sees on the clock + the IST-aware server parser.
+  const iso = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
   if (p === "today") {
     return { since: iso(today), until: iso(today) };
   }

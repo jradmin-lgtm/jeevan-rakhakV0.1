@@ -19,12 +19,18 @@ function pickSource(req: any): Source {
 
 /**
  * Parse since/until query params into a [start, end] range. Accepts:
- *   ?since=2026-05-10           → 2026-05-10T00:00:00Z
- *   ?until=2026-05-17           → 2026-05-17T23:59:59.999Z (end-of-day)
- *   ?since=2026-05-10T08:30:00  → exact timestamp
- * Returns null bounds if the param is missing/invalid (caller treats as
- * "no filter on that side"). Always allows the caller to opt out of either
- * side independently.
+ *   ?since=2026-05-10           → 2026-05-10T00:00:00+05:30 (IST midnight)
+ *   ?until=2026-05-17           → 2026-05-17T23:59:59.999+05:30 (IST end-of-day)
+ *   ?since=2026-05-10T08:30:00Z → exact timestamp (passed through to Date())
+ * Returns null bounds if the param is missing/invalid.
+ *
+ * v1.0.15 fix: bare YYYY-MM-DD is now interpreted as IST (UTC+05:30), not
+ * UTC. Previously a "today" filter at 04:24 IST sent `since=2026-05-19` →
+ * server parsed as `2026-05-19T00:00:00Z` (= 05:30 IST), which excluded
+ * everything between IST midnight and 05:30 IST today. Bookings created
+ * before 05:30 IST appeared to vanish until the user clicked "Last 7 days".
+ * Pilot is India-only so hardcoding IST is the right tradeoff vs accepting
+ * a TZ from the client.
  */
 function pickDateRange(req: any): { since: Date | null; until: Date | null } {
   const q = (req as any)?.query ?? {};
@@ -32,9 +38,9 @@ function pickDateRange(req: any): { since: Date | null; until: Date | null } {
     if (!s) return null;
     let raw = String(s).trim();
     if (!raw) return null;
-    // Bare YYYY-MM-DD → fill in time component.
+    // Bare YYYY-MM-DD → fill in IST time component.
     if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-      raw = endOfDay ? `${raw}T23:59:59.999Z` : `${raw}T00:00:00.000Z`;
+      raw = endOfDay ? `${raw}T23:59:59.999+05:30` : `${raw}T00:00:00.000+05:30`;
     }
     const d = new Date(raw);
     return isNaN(d.getTime()) ? null : d;
