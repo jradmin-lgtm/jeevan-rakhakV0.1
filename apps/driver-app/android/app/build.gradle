@@ -92,8 +92,8 @@ android {
         applicationId 'com.jeevanrakshak.driver'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 26
-        versionName "1.0.15"
+        versionCode 27
+        versionName "1.1.0"
     }
     signingConfigs {
         debug {

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { eq, sql as drizzleSql } from "drizzle-orm";
-import { db, drivers, driverHeartbeats } from "@jr/db";
+import { and, desc, eq, isNull, sql as drizzleSql } from "drizzle-orm";
+import { db, bookings, drivers, driverHeartbeats, sosDispatchAttempts } from "@jr/db";
 
 const availabilitySchema = z.object({
   status: z.enum(["OFFLINE", "AVAILABLE", "ON_TRIP"]),
@@ -102,6 +102,49 @@ export async function registerDriverRoutes(app: FastifyInstance) {
         })
         .where(eq(drivers.id, sub));
       return reply.code(204).send();
+    }
+  );
+
+  // v1.1.0 (CR#4): polling fallback for SOS dispatch. The driver app polls
+  // this on the same tick as /bookings/pending. Returns the SOS bookings this
+  // driver was pushed by the cascade (an attempt row exists) that are still
+  // REQUESTED + unassigned + not rejected by this driver. This survives a
+  // cold/sleeping socket-server or a dropped `sos:incoming` emit — the #1
+  // reason SOS requests silently never reached drivers before. Payload shape
+  // mirrors the `sos:incoming` socket event so the app feeds both into the
+  // same SosIncomingModal path.
+  app.get(
+    "/api/v1/driver/sos-pending",
+    { preHandler: [(app as any).authenticate] },
+    async (req: any, reply) => {
+      const { sub, role } = req.user;
+      if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
+      const rows = await db
+        .select({ booking: bookings, attempt: sosDispatchAttempts })
+        .from(sosDispatchAttempts)
+        .innerJoin(bookings, eq(bookings.id, sosDispatchAttempts.bookingId))
+        .where(
+          and(
+            eq(sosDispatchAttempts.driverId, sub),
+            isNull(sosDispatchAttempts.rejectedAt),
+            isNull(sosDispatchAttempts.acceptedAt),
+            eq(bookings.status, "REQUESTED"),
+            isNull(bookings.driverId),
+            eq(bookings.isSos, true)
+          )
+        )
+        .orderBy(desc(sosDispatchAttempts.pushedAt))
+        .limit(5);
+      const sos = rows.map((r) => ({
+        bookingId: r.booking.id,
+        emergencyType: r.booking.emergencyType,
+        pickupLat: r.booking.pickupLat,
+        pickupLng: r.booking.pickupLng,
+        pickupAddress: r.booking.pickupAddress,
+        distanceKm: r.attempt.distanceKm,
+        waveNumber: r.attempt.waveNumber
+      }));
+      return reply.send({ sos });
     }
   );
 

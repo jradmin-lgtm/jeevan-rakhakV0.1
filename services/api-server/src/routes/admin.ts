@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, count, desc, eq, gte, lte, sql as drizzleSql } from "drizzle-orm";
-import { bookingEvents, bookings, drivers, db, users, systemEvents } from "@jr/db";
+import { bookingEvents, bookings, drivers, db, hospitals, users, systemEvents } from "@jr/db";
 
 type Source = "all" | "real" | "demo";
 
@@ -861,6 +861,136 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       drizzleSql`DELETE FROM system_events WHERE ts < ${cutoffIso}::timestamptz`
     );
     return reply.send({ deletedBefore: cutoffIso, result: (result as any).rowCount ?? null });
+  });
+
+  // ─── Hospitals (v1.1.0, CR#3/#6) ────────────────────────────────────────────
+  // Destination hospitals ops can onboard/edit. The single `isDefault` row is
+  // what every ride is auto-assigned to at PICKED_UP (see bookings.ts pickup
+  // handler). Setting a hospital default atomically clears the flag on all
+  // others so there is never more than one default.
+
+  app.get("/api/v1/admin/hospitals", adminGuard, async (_req, reply) => {
+    const rows = await db
+      .select()
+      .from(hospitals)
+      .orderBy(desc(hospitals.isDefault), hospitals.name);
+    return reply.send({ hospitals: rows });
+  });
+
+  const hospitalCreateSchema = z.object({
+    name: z.string().min(2).max(200),
+    lat: z.number().min(-90).max(90),
+    lng: z.number().min(-180).max(180),
+    address: z.string().max(500).optional(),
+    city: z.string().max(120).optional(),
+    phone: z.string().max(40).optional(),
+    active: z.boolean().optional(),
+    isDefault: z.boolean().optional()
+  });
+  app.post("/api/v1/admin/hospitals", adminGuard, async (req, reply) => {
+    const parsed = hospitalCreateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+    }
+    if (parsed.data.isDefault) {
+      await db.update(hospitals).set({ isDefault: false, updatedAt: new Date() }).where(eq(hospitals.isDefault, true));
+    }
+    const [created] = await db.insert(hospitals).values(parsed.data).returning();
+    return reply.code(201).send({ hospital: created });
+  });
+
+  const hospitalPatchSchema = z.object({
+    name: z.string().min(2).max(200).optional(),
+    lat: z.number().min(-90).max(90).optional(),
+    lng: z.number().min(-180).max(180).optional(),
+    address: z.string().max(500).optional(),
+    city: z.string().max(120).optional(),
+    phone: z.string().max(40).optional(),
+    active: z.boolean().optional(),
+    isDefault: z.boolean().optional()
+  }).refine((d) => Object.values(d).some((v) => v !== undefined), {
+    message: "at_least_one_field_required"
+  });
+  app.patch("/api/v1/admin/hospitals/:id", adminGuard, async (req, reply) => {
+    const id = (req.params as any).id as string;
+    const parsed = hospitalPatchSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+    }
+    if (parsed.data.isDefault === true) {
+      await db.update(hospitals).set({ isDefault: false, updatedAt: new Date() }).where(eq(hospitals.isDefault, true));
+    }
+    const [updated] = await db
+      .update(hospitals)
+      .set({ ...parsed.data, updatedAt: new Date() })
+      .where(eq(hospitals.id, id))
+      .returning();
+    if (!updated) return reply.code(404).send({ error: "not_found" });
+    return reply.send({ hospital: updated });
+  });
+
+  // ─── Unified medical record (v1.1.0, CR#9a) ──────────────────────────────────
+  // One read that returns Section A (patient-submitted), Section B (paramedic
+  // assessment), and the derived timeline so the admin can show + share a
+  // single pre-arrival medical record while the patient is still in transit.
+  app.get("/api/v1/admin/bookings/:id/medical", adminGuard, async (req, reply) => {
+    const id = (req.params as any).id as string;
+    const [b] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
+    if (!b) return reply.code(404).send({ error: "not_found" });
+
+    const events = await db
+      .select()
+      .from(bookingEvents)
+      .where(eq(bookingEvents.bookingId, id))
+      .orderBy(bookingEvents.createdAt);
+
+    const [u] = b.userId
+      ? await db.select().from(users).where(eq(users.id, b.userId)).limit(1)
+      : [null];
+    const [d] = b.driverId
+      ? await db.select().from(drivers).where(eq(drivers.id, b.driverId)).limit(1)
+      : [null];
+
+    // Patient fields lock once the ambulance has arrived / picked up — surface
+    // that so the admin UI can show a "locked" badge.
+    const patientLocked = b.status === "ARRIVED" || b.status === "PICKED_UP" ||
+      b.status === "COMPLETED";
+    const assessment = (b.paramedicAssessment ?? null) as any;
+    const assessmentStatus = assessment
+      ? "submitted"
+      : (b.status === "ARRIVED" || b.status === "PICKED_UP")
+        ? "in_progress"
+        : "pending";
+
+    return reply.send({
+      bookingId: b.id,
+      displayId: b.displayId,
+      status: b.status,
+      ride: {
+        displayId: b.displayId,
+        emergencyType: b.emergencyType,
+        createdAt: b.createdAt,
+        pickupAddress: b.pickupAddress,
+        destHospitalId: b.destHospitalId,
+        dropAddress: b.dropAddress,
+        driver: d ? { name: d.name, phone: d.phone, vehicleNumber: d.vehicleNumber } : null
+      },
+      // Section A — patient-submitted
+      patient: {
+        name: b.patientName ?? u?.name ?? null,
+        age: b.patientAge,
+        gender: b.patientGender,
+        condition: b.patientCondition,
+        notes: b.patientNotes,
+        phone: u?.phone ?? null,
+        bloodGroup: u?.bloodGroup ?? null,
+        allergies: u?.allergies ?? null,
+        locked: patientLocked
+      },
+      // Section B — paramedic assessment
+      assessment: { status: assessmentStatus, data: assessment },
+      timeline: events.map((e) => ({ type: e.type, at: e.createdAt, actor: e.actor }))
+    });
   });
 
   // Mobile clients post their own anomalies here so we have a single timeline.

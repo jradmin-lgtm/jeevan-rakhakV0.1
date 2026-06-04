@@ -5,7 +5,7 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { colors, ErrorBoundary, configureGoogleSignIn, signOutFromGoogle } from "@jr/ui";
-import { Booking, getToken, me, clearToken } from "./src/api";
+import { Booking, getToken, me, clearToken, getCachedProfile, setCachedProfile } from "./src/api";
 import { SplashScreen } from "./src/screens/SplashScreen";
 import { GoogleLoginScreen } from "./src/screens/GoogleLoginScreen";
 import { ProfileSetupScreen } from "./src/screens/ProfileSetupScreen";
@@ -50,7 +50,7 @@ function hasSubmittedKyc(p: any) {
 async function refreshProfile(setter: (p: any) => void) {
   try {
     const r = await me.get();
-    if (r?.profile) setter(r.profile);
+    if (r?.profile) { setter(r.profile); void setCachedProfile(r.profile); }
   } catch { /* ignore — next refresh tick will retry */ }
 }
 
@@ -67,15 +67,23 @@ export default function App() {
       try { configureGoogleSignIn(); } catch { /* dev-only — see user-app for rationale */ }
       const token = await getToken();
       if (token) {
-        // 4s cap — see user-app App.tsx for the rationale (Render cold-starts).
+        // v1.1.0 (CR#12 / CR#5B): a valid token means logged-in. Render from
+        // the cached profile immediately (no Google re-pick, no KYC re-prompt)
+        // and refresh /me in the background. 4s cap — see user-app for the
+        // Render cold-start rationale. Only an explicit 401 drops to Login.
+        const cached = await getCachedProfile();
+        if (cached) setProfile(cached);
         const TIMEOUT_MS = 4000;
         try {
           const r = await Promise.race<any>([
             me.get(),
             new Promise((_res, rej) => setTimeout(() => rej(new Error("hydrate_timeout")), TIMEOUT_MS))
           ]);
-          if (r?.profile) setProfile(r.profile);
-        } catch { /* fall through to Login; later refreshes will pick up the session */ }
+          if (r?.profile) { setProfile(r.profile); void setCachedProfile(r.profile); }
+        } catch (e: any) {
+          if (e?.status === 401) { await clearToken(); setProfile(null); }
+          /* else keep cached session; later refreshes pick it up */
+        }
       }
       setHydrated(true);
     })();
@@ -106,7 +114,7 @@ export default function App() {
             <Stack.Screen name="Login">
               {() => (
                 <GoogleLoginScreen
-                  onAuthenticated={(p) => setProfile(p)}
+                  onAuthenticated={(p) => { setProfile(p); void setCachedProfile(p); }}
                   onProfileSetupRequired={(input) => setGooglePending(input)}
                 />
               )}
@@ -120,18 +128,24 @@ export default function App() {
                 google={googlePending.google}
                 onSetupComplete={(p) => {
                   setProfile(p);
+                  void setCachedProfile(p);
                   setGooglePending(null);
                 }}
                 onBack={() => setGooglePending(null)}
               />
             )}
           </Stack.Screen>
-        ) : !hasSubmittedKyc(profile) ? (
+        ) : !profile.kycVerified && !hasSubmittedKyc(profile) ? (
+          // CR#5B: routing keys off kycVerified FIRST. An admin-approved
+          // driver always reaches the Dashboard (final branch) — even after
+          // reinstall/login and even if a cached KYC field looks blank.
+          // Only un-approved drivers are routed through KYC: onboarding if
+          // they haven't submitted, pending review if they have.
           <Stack.Screen name="KycOnboarding">
             {() => (
               <KycOnboardingScreen
                 initial={profile}
-                onSubmitted={(p) => setProfile(p)}
+                onSubmitted={(p) => { setProfile(p); void setCachedProfile(p); }}
               />
             )}
           </Stack.Screen>
@@ -172,7 +186,7 @@ export default function App() {
                 <ProfileScreen
                   initial={profile}
                   onBack={() => navigation.goBack()}
-                  onUpdated={(p) => setProfile(p)}
+                  onUpdated={(p) => { setProfile(p); void setCachedProfile(p); }}
                 />
               )}
             </Stack.Screen>

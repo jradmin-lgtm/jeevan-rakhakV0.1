@@ -34,6 +34,13 @@ export default async function BookingDetail({ params }: { params: Promise<{ id: 
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Link
+            href={`/bookings/${id}/medical`}
+            title="Live pre-arrival medical record (CR#9a)"
+            style={{ fontSize: 13, color: "var(--ink)", fontWeight: 600, padding: "8px 12px", border: "1px solid var(--border)", borderRadius: 6, textDecoration: "none", background: "#fff" }}
+          >
+            🩺 Medical record
+          </Link>
+          <Link
             href={`/bookings/${id}/receipt`}
             target="_blank"
             title="Open printable trip receipt"

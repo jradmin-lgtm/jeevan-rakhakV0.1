@@ -18,12 +18,14 @@ import {
   Text,
   colors,
   radius,
-  space
+  space,
+  fetchOsrmRoute
 } from "@jr/ui";
 import { Booking, bookings as bookingsApi, driver as driverApi } from "../api";
 import { getSocket } from "../socket";
 import { prettyEmergency } from "./DashboardScreen";
 import { MapLocationPicker } from "./MapLocationPicker";
+import { LangToggle } from "../components/LangToggle";
 
 type UserProfile = {
   id: string;
@@ -83,6 +85,12 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
   // driver needs to set the drop hospital for an SOS booking that arrived
   // without one. Confirms via /set-drop and closes itself.
   const [dropPickerOpen, setDropPickerOpen] = useState(false);
+  // v1.1.0 (CR#6): road route + ETA to the destination hospital, plus a
+  // one-shot auto-launch of Google Maps turn-by-turn once the patient is
+  // picked up (destination auto-assigned server-side at pickup).
+  const [navRoute, setNavRoute] = useState<Array<[number, number]> | null>(null);
+  const [navEta, setNavEta] = useState<{ km: number; min: number } | null>(null);
+  const autoNavFiredRef = useRef(false);
   const ticker = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Push real GPS location every 5s to socket + every 15s to API for persistence.
@@ -162,6 +170,33 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
     return () => clearInterval(id);
   }, [booking.id]);
 
+  // CR#6: once picked up, fetch the road route to the (auto-assigned) hospital
+  // and auto-launch Google Maps turn-by-turn exactly once. Free OSRM; falls
+  // back silently to the haversine ETA if unavailable.
+  useEffect(() => {
+    if (booking.status !== "PICKED_UP" || booking.dropLat == null || booking.dropLng == null) {
+      setNavRoute(null);
+      setNavEta(null);
+      return;
+    }
+    if (!autoNavFiredRef.current) {
+      autoNavFiredRef.current = true;
+      openTurnByTurn(booking.dropLat, booking.dropLng);
+    }
+    const from = myPos ?? { lat: booking.pickupLat, lng: booking.pickupLng };
+    const to = { lat: booking.dropLat, lng: booking.dropLng };
+    const controller = new AbortController();
+    (async () => {
+      const r = await fetchOsrmRoute(from, to, { signal: controller.signal });
+      if (r) {
+        setNavRoute(r.coords);
+        setNavEta({ km: r.distanceKm, min: Math.max(1, Math.round(r.durationMin)) });
+      }
+    })();
+    return () => controller.abort();
+    // Not keyed on myPos — one fetch + one auto-launch per PICKED_UP entry.
+  }, [booking.status, booking.dropLat, booking.dropLng]);
+
   const advance = async (
     fn: () => Promise<{ booking: Booking }>,
     confirm?: { title: string; body: string }
@@ -198,7 +233,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
 
   return (
     <Screen>
-      <AppHeader title="Active trip" subtitle={`#${booking.id.slice(0, 8)}`} onBack={onClose} />
+      <AppHeader title="Active trip" subtitle={`#${booking.displayId ?? booking.id.slice(0, 8)}`} onBack={onClose} right={<LangToggle />} />
 
       <Card>
         <View style={{ gap: space.md }}>
@@ -220,6 +255,10 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
               const km = haversineKm(myPos.lat, myPos.lng, booking.pickupLat, booking.pickupLng);
               label = "ETA to pickup";
               value = `~${estimateEtaMin(km)} min · ${km.toFixed(1)} km`;
+            } else if (booking.status === "PICKED_UP" && navEta) {
+              // Prefer the OSRM road-based ETA when available (CR#6).
+              label = "ETA to hospital";
+              value = `~${navEta.min} min · ${navEta.km.toFixed(1)} km`;
             } else if (booking.status === "PICKED_UP" && booking.dropLat != null && booking.dropLng != null) {
               const km = haversineKm(myPos.lat, myPos.lng, booking.dropLat, booking.dropLng);
               label = "ETA to hospital";
@@ -250,8 +289,9 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
           pickup={{ lat: booking.pickupLat, lng: booking.pickupLng, label: "Patient" }}
           driver={myPos ? { lat: myPos.lat, lng: myPos.lng, label: "You" } : null}
           drop={booking.dropLat != null && booking.dropLng != null
-            ? { lat: booking.dropLat, lng: booking.dropLng, label: "Hospital" }
+            ? { lat: booking.dropLat, lng: booking.dropLng, label: booking.dropAddress ?? "Hospital" }
             : null}
+          routePath={navRoute}
           height={280}
         />
         {myPos && booking.status === "ACCEPTED" ? (

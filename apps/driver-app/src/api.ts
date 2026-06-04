@@ -11,6 +11,10 @@ export const SOCKET_BASE =
   process.env.EXPO_PUBLIC_SOCKET_BASE_URL ?? (__DEV__ ? "http://localhost:4001" : "");
 
 const TOKEN_KEY = "jr.driver.token";
+// v1.1.0 (CR#12): cache the last driver profile so a cold-start with a valid
+// token routes straight to the right screen (Dashboard / KYC-pending) without
+// a Google re-pick. Cleared on explicit logout / 401.
+const PROFILE_KEY = "jr.driver.profile";
 
 let inMemoryToken: string | null = null;
 
@@ -29,6 +33,24 @@ export async function setToken(token: string) {
 export async function clearToken() {
   inMemoryToken = null;
   await AsyncStorage.removeItem(TOKEN_KEY);
+  await AsyncStorage.removeItem(PROFILE_KEY);
+}
+
+export async function setCachedProfile(profile: unknown) {
+  try {
+    await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  } catch {
+    /* best-effort cache */
+  }
+}
+
+export async function getCachedProfile(): Promise<any | null> {
+  try {
+    const raw = await AsyncStorage.getItem(PROFILE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
 }
 
 type RequestOpts = { method?: string; body?: unknown; auth?: boolean };
@@ -56,6 +78,8 @@ export async function api<T = any>(path: string, opts: RequestOpts = {}): Promis
 
 export type Booking = {
   id: string;
+  // v1.1.0: human-readable sequential booking number (#1000xx).
+  displayId?: string | null;
   userId: string;
   driverId: string | null;
   emergencyType: string;
@@ -66,6 +90,8 @@ export type Booking = {
   dropLat?: number | null;
   dropLng?: number | null;
   dropAddress?: string | null;
+  // v1.1.0 (CR#6): destination hospital FK (auto-assigned at pickup).
+  destHospitalId?: string | null;
   fareEstimateInr?: number | null;
   fareFinalInr?: number | null;
   rideOtpCode?: string | null;
@@ -168,8 +194,22 @@ export const driver = {
   }) => api<{ driver: any }>("/api/v1/driver/kyc", { method: "POST", body: data })
 };
 
+export type SosPending = {
+  bookingId: string;
+  emergencyType: string;
+  pickupLat: number;
+  pickupLng: number;
+  pickupAddress: string | null;
+  distanceKm: number | null;
+  waveNumber: number;
+};
+
 export const bookings = {
   pending: () => api<{ bookings: Booking[] }>("/api/v1/bookings/pending"),
+  // v1.1.0 (CR#4): polling fallback for SOS dispatch — surfaces SOS requests
+  // pushed to this driver even if the `sos:incoming` socket event was missed
+  // (cold/sleeping socket-server). Payload mirrors the socket event.
+  sosPending: () => api<{ sos: SosPending[] }>("/api/v1/driver/sos-pending"),
   mine: () => api<{ bookings: Booking[] }>("/api/v1/bookings/mine"),
   get: (id: string) => api<{ booking: Booking }>(`/api/v1/bookings/${id}`),
   accept: (id: string) =>

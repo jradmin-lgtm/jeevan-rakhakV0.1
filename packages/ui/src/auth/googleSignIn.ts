@@ -141,3 +141,23 @@ export async function signOutFromGoogle(): Promise<void> {
     /* ignore — logout is fire-and-forget by design */
   }
 }
+
+/**
+ * v1.1.0 (CR#1/#5A): "Use another Google account". Signs the current Google
+ * session out first so `signIn()` re-opens the native account *picker*
+ * instead of silently reusing the cached account — the exact friction the
+ * team flagged (a user who picked the wrong Gmail was locked into it through
+ * onboarding). Returns the freshly-picked account's token + profile, same
+ * shape as `signInWithGoogle()`. Propagates the typed errors (including
+ * `cancelled` when the user backs out of the picker) so callers can no-op.
+ */
+export async function switchGoogleAccount(): Promise<{
+  idToken: string;
+  email: string;
+  name: string | null;
+  picture: string | null;
+  sub: string | null;
+}> {
+  await signOutFromGoogle();
+  return signInWithGoogle();
+}

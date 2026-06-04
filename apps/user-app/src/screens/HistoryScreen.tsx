@@ -107,6 +107,9 @@ function HistoryRow({ item, index, onOpen }: { item: Booking; index: number; onO
               <Pill label={prettyEmergency(item.emergencyType)} color={decor.tint} bg={decor.tintBg} />
               <StatusBadge status={item.status} />
             </View>
+            {item.displayId ? (
+              <Text variant="tiny" tone="muted">#{item.displayId}</Text>
+            ) : null}
             <Text variant="body" weight="semi">{item.pickupAddress ?? "Pickup location"}</Text>
             {item.dropAddress ? (
               <Text variant="small" tone="secondary">→ {item.dropAddress}</Text>

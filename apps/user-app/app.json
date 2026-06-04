@@ -2,7 +2,7 @@
   "expo": {
     "name": "Jeevan Rakshak",
     "slug": "jr-user-app",
-    "version": "1.0.15",
+    "version": "1.1.0",
     "orientation": "portrait",
     "scheme": "jruser",
     "userInterfaceStyle": "light",
@@ -27,7 +27,7 @@
     "owner": "jradmin29",
     "android": {
       "package": "com.jeevanrakshak.user",
-      "versionCode": 26,
+      "versionCode": 27,
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",

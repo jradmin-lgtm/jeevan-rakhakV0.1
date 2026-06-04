@@ -154,6 +154,15 @@ export const bookings = pgTable(
     dropLat: doublePrecision("drop_lat"),
     dropLng: doublePrecision("drop_lng"),
     dropAddress: text("drop_address"),
+    // v1.1.0 (CR#3/#6): destination hospital. In the current operational phase
+    // every ride goes to the single active default hospital (SRMS IMS,
+    // Bareilly); auto-assigned on the PICKED_UP transition. FK is nullable +
+    // ON DELETE SET NULL so deactivating a hospital never orphans a booking.
+    // dropLat/dropLng/dropAddress hold the resolved snapshot (so historical
+    // bookings keep their destination even if the hospital row later moves).
+    destHospitalId: uuid("dest_hospital_id").references((): any => hospitals.id, {
+      onDelete: "set null"
+    }),
     fareEstimateInr: integer("fare_estimate_inr"),
     fareFinalInr: integer("fare_final_inr"),
     // Coupon applied at booking time (e.g. PILOT100). Captured so admin can
@@ -331,6 +340,36 @@ export const sosDispatchAttempts = pgTable(
     bookingIdx: index("sos_attempts_booking_idx").on(t.bookingId)
   })
 );
+
+/**
+ * v1.1.0 (CR#3/#6) — destination hospitals. In the current phase there is one
+ * active default (SRMS IMS Hospital, Bareilly) that every ride is routed to;
+ * the schema supports onboarding more hospitals later (admin CRUD + a future
+ * dynamic-assignment step). `isDefault` marks the single auto-assigned row;
+ * `active` gates whether it shows in pickers / can be assigned.
+ */
+export const hospitals = pgTable(
+  "hospitals",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: text("name").notNull(),
+    lat: doublePrecision("lat").notNull(),
+    lng: doublePrecision("lng").notNull(),
+    address: text("address"),
+    city: text("city"),
+    phone: text("phone"),
+    active: boolean("active").default(true).notNull(),
+    isDefault: boolean("is_default").default(false).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (t) => ({
+    activeIdx: index("hospitals_active_idx").on(t.active)
+  })
+);
+
+export type Hospital = typeof hospitals.$inferSelect;
+export type NewHospital = typeof hospitals.$inferInsert;
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;

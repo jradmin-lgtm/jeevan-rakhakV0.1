@@ -4,6 +4,7 @@ import { AppHeader, Card, EmptyState, Pill, Screen, Text, colors, space } from "
 import { Booking, bookings as bookingsApi } from "../api";
 import { prettyEmergency } from "./DashboardScreen";
 import { useT } from "../i18n";
+import { LangToggle } from "../components/LangToggle";
 
 /**
  * v1.0.15 — replaces EarningsScreen. The pilot doesn't pay drivers through
@@ -38,7 +39,7 @@ export function TripHistoryScreen({ onBack }: { onBack: () => void }) {
   return (
     <Screen scroll={false} padding={0}>
       <View style={{ paddingHorizontal: space.lg, paddingTop: space.lg, gap: space.md }}>
-        <AppHeader title={t("trip_history.title")} onBack={onBack} />
+        <AppHeader title={t("trip_history.title")} onBack={onBack} right={<LangToggle />} />
         <Card>
           <View style={{ gap: space.sm }}>
             <Text variant="label" tone="secondary">{t("trip_history.subtitle").toUpperCase()}</Text>

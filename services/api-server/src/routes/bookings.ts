@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, count, desc, eq, isNull, sql as drizzleSql } from "drizzle-orm";
-import { db, bookingEvents, bookings, driverLocations, drivers, sosDispatchAttempts, users } from "@jr/db";
+import { db, bookingEvents, bookings, driverLocations, drivers, hospitals, sosDispatchAttempts, users } from "@jr/db";
 
 // Pilot cap: any single user may hold only 1 active (un-terminal) booking at
 // a time. The earlier value of 3 confused testers — they'd dispatch a second
@@ -78,6 +78,22 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         emergencyType
       );
       return reply.send(quote);
+    }
+  );
+
+  // v1.1.0 (CR#3/#6): list active destination hospitals. Auth-required (any
+  // role) so the apps can render the destination label/pin and admin can read
+  // the same list. Default hospital sorts first.
+  app.get(
+    "/api/v1/hospitals",
+    { preHandler: [(app as any).authenticate] },
+    async (_req: any, reply) => {
+      const rows = await db
+        .select()
+        .from(hospitals)
+        .where(eq(hospitals.active, true))
+        .orderBy(desc(hospitals.isDefault), hospitals.name);
+      return reply.send({ hospitals: rows });
     }
   );
 
@@ -468,13 +484,39 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       } else if (current.rideOtpCode !== parsed.data.code) {
         return reply.code(401).send({ error: "otp_mismatch", message: "OTP didn't match. Ask the patient to read it again." });
       }
+      // v1.1.0 (CR#3/#6): auto-assign the destination hospital at pickup.
+      // In the current operational phase every ride goes to the single active
+      // default hospital. We snapshot its coords into drop* so historical
+      // bookings keep their destination even if the hospital row later moves,
+      // and so the map/route code can read drop* uniformly. We only fill drop*
+      // when the driver hasn't already set a manual drop (SOS /set-drop wins).
+      let destPatch: Record<string, unknown> = {};
+      try {
+        const [hosp] = await db
+          .select()
+          .from(hospitals)
+          .where(and(eq(hospitals.isDefault, true), eq(hospitals.active, true)))
+          .limit(1);
+        if (hosp) {
+          destPatch = {
+            destHospitalId: hosp.id,
+            ...(current.dropLat == null || current.dropLng == null
+              ? { dropLat: hosp.lat, dropLng: hosp.lng, dropAddress: hosp.name }
+              : {})
+          };
+        }
+      } catch (err) {
+        app.log.warn({ err, bookingId: id }, "[pickup] hospital auto-assign skipped");
+      }
       const [b] = await db
         .update(bookings)
-        .set({ status: "PICKED_UP", pickedUpAt: new Date() })
+        .set({ status: "PICKED_UP", pickedUpAt: new Date(), ...destPatch })
         .where(and(eq(bookings.id, id), eq(bookings.driverId, sub)))
         .returning();
       if (!b) return reply.code(404).send({ error: "not_found_or_forbidden" });
-      await emitBookingEvent(id, "booking.picked_up", `driver:${sub}`);
+      await emitBookingEvent(id, "booking.picked_up", `driver:${sub}`, {
+        destHospitalId: destPatch.destHospitalId ?? null
+      });
       return reply.send({ booking: b });
     }
   );
@@ -549,9 +591,15 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         .update(bookings)
         .set({ fareFinalInr: finalFare, discountInr, payableInr, ...autoPay })
         .where(eq(bookings.id, id));
+      // v1.1.0 (CR#7): return the driver to AVAILABLE AND refresh lastSeenAt.
+      // Without the lastSeenAt bump, the worker's 90s stale-reap could flip a
+      // just-completed driver to OFFLINE before their Dashboard heartbeat
+      // re-armed — silently dropping them from the SOS dispatch pool after a
+      // few back-to-back rides. Bumping it here grants a fresh window each
+      // trip; the re-armed heartbeat then keeps it fresh.
       await db
         .update(drivers)
-        .set({ status: "AVAILABLE", updatedAt: new Date() })
+        .set({ status: "AVAILABLE", lastSeenAt: new Date(), updatedAt: new Date() })
         .where(eq(drivers.id, sub));
       await emitBookingEvent(id, "booking.completed", `driver:${sub}`, {
         finalFare,
@@ -585,6 +633,21 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       const parsed = patientInfoSchema.safeParse(req.body);
       if (!parsed.success) {
         return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+      }
+      // v1.1.0 (CR#9a): the patient can edit medical details only until the
+      // ambulance reaches them. At ARRIVED the info is locked + Receipt A is
+      // effectively final, so the hospital sees a stable record in transit.
+      const [current] = await db
+        .select({ status: bookings.status })
+        .from(bookings)
+        .where(and(eq(bookings.id, id), eq(bookings.userId, sub)))
+        .limit(1);
+      if (!current) return reply.code(404).send({ error: "not_found_or_forbidden" });
+      if (["ARRIVED", "PICKED_UP", "COMPLETED", "CANCELLED"].includes(current.status)) {
+        return reply.code(409).send({
+          error: "patient_info_locked",
+          message: "Medical details are locked once the ambulance has arrived."
+        });
       }
       const [b] = await db
         .update(bookings)

@@ -3,6 +3,7 @@ import { Alert, Pressable, View } from "react-native";
 import { AppHeader, Button, Card, Input, Pill, Screen, Text, colors, space } from "@jr/ui";
 import { me } from "../api";
 import { useT, setLang, type Lang } from "../i18n";
+import { LangToggle } from "../components/LangToggle";
 
 type Props = {
   initial: any;
@@ -35,7 +36,7 @@ export function ProfileScreen({ initial, onBack, onUpdated }: Props) {
 
   return (
     <Screen>
-      <AppHeader title="My profile" subtitle="Driver account details" onBack={onBack} />
+      <AppHeader title="My profile" subtitle="Driver account details" onBack={onBack} right={<LangToggle />} />
 
       <Card>
         <View style={{ gap: space.md }}>

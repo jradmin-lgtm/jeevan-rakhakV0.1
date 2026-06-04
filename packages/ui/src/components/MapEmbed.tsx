@@ -12,6 +12,13 @@ type Props = {
   drop?: Point | null;
   height?: number;
   /**
+   * v1.1.0 (CR#3/#6): optional real road-route geometry as an ordered list of
+   * [lat, lng] pairs (e.g. from OSRM via `fetchOsrmRoute`). When provided it's
+   * drawn as the primary navigation route and the straight driver→pickup line
+   * is suppressed. When omitted, behaviour is unchanged (straight line).
+   */
+  routePath?: Array<[number, number]> | null;
+  /**
    * Map tiles. Default: CartoDB Voyager (free, no API key, friendlier
    * cartography for Indian cities than raw OSM). Pass any `{z}/{x}/{y}`
    * tile URL pattern to switch sources without changing call sites.
@@ -45,6 +52,7 @@ function MapEmbedInner({
   driver,
   drop,
   height = 240,
+  routePath = null,
   tileUrl = DEFAULT_TILE_URL,
   tileAttribution = DEFAULT_TILE_ATTR
 }: Props) {
@@ -64,6 +72,7 @@ function MapEmbedInner({
     drLat: drop ? Number(drop.lat) : null,
     drLng: drop ? Number(drop.lng) : null,
     drLabel: drop?.label ?? "Drop",
+    routePath: routePath ?? null,
     tileUrl,
     tileAttribution
   });
@@ -72,16 +81,26 @@ function MapEmbedInner({
 
   // Push driver/pickup/drop updates into the WebView without rebuilding.
   // Each call runs JS inside the existing Leaflet map → smooth animation.
+  // Cheap stable key for the route geometry so the effect only re-injects
+  // when the path actually changes (not on every parent re-render).
+  const routeKey = useMemo(() => {
+    if (!routePath || routePath.length === 0) return "";
+    const a = routePath[0];
+    const b = routePath[routePath.length - 1];
+    return `${routePath.length}:${a[0]},${a[1]}>${b[0]},${b[1]}`;
+  }, [routePath]);
+
   useEffect(() => {
     if (!loaded || !webRef.current) return;
     const payload = JSON.stringify({
       pickup: { lat: pickup.lat, lng: pickup.lng, label: pickup.label ?? "Pickup" },
       driver: driver ? { lat: driver.lat, lng: driver.lng, label: driver.label ?? "Driver" } : null,
-      drop: drop ? { lat: drop.lat, lng: drop.lng, label: drop.label ?? "Drop" } : null
+      drop: drop ? { lat: drop.lat, lng: drop.lng, label: drop.label ?? "Drop" } : null,
+      routePath: routePath && routePath.length > 1 ? routePath : null
     });
     // `true;` at the end suppresses the warning about non-undefined eval.
     webRef.current.injectJavaScript(`window.jrMap && window.jrMap.update(${payload}); true;`);
-  }, [loaded, pickup.lat, pickup.lng, pickup.label, driver?.lat, driver?.lng, driver?.label, drop?.lat, drop?.lng, drop?.label]);
+  }, [loaded, pickup.lat, pickup.lng, pickup.label, driver?.lat, driver?.lng, driver?.label, drop?.lat, drop?.lng, drop?.label, routeKey]);
 
   const recenter = () => {
     if (!webRef.current) return;
@@ -130,6 +149,7 @@ function buildHtml(init: {
   pLat: number; pLng: number; pLabel: string;
   dLat: number | null; dLng: number | null; dLabel: string;
   drLat: number | null; drLng: number | null; drLabel: string;
+  routePath: Array<[number, number]> | null;
   tileUrl: string; tileAttribution: string;
 }): string {
   // All initial values inlined into the HTML; subsequent updates come via
@@ -157,6 +177,7 @@ html,body,#map{height:100%;margin:0;padding:0;background:#eef2f7;font-family:-ap
 }
 .jr-route{stroke:#1E5EFF;stroke-width:4;stroke-linecap:round;fill:none;opacity:.85}
 .jr-trail{stroke:#1E5EFF;stroke-width:3;stroke-linecap:round;fill:none;opacity:.45}
+.jr-navroute{stroke:#0F8A3C;stroke-width:5;stroke-linecap:round;fill:none;opacity:.9}
 </style>
 </head>
 <body>
@@ -191,9 +212,23 @@ html,body,#map{height:100%;margin:0;padding:0;background:#eef2f7;font-family:-ap
   var dropMarker   = initialDrop   ? L.marker(initialDrop,   { icon: makePin(INIT.drLabel, 'drop')   }).addTo(map) : null;
   var route = null;
   var trail = null;
+  var navRoute = null;
   var trailCoords = initialDriver ? [initialDriver.slice()] : [];
 
+  // v1.1.0 (CR#3/#6): a real road-route polyline (green). When present it is
+  // the primary route and the straight driver→pickup line is suppressed.
+  function setNavRoute(coords){
+    if (coords && coords.length > 1){
+      if (navRoute){ navRoute.setLatLngs(coords); }
+      else { navRoute = L.polyline(coords, { className:'jr-navroute', color:'#0F8A3C', weight:5, opacity:.9 }).addTo(map); }
+      if (route){ map.removeLayer(route); route = null; }
+    } else if (navRoute){
+      map.removeLayer(navRoute); navRoute = null;
+    }
+  }
+
   function refreshRoute(){
+    if (navRoute) { if (route) { map.removeLayer(route); route = null; } return; }
     if (!driverMarker) {
       if (route) { map.removeLayer(route); route = null; }
       return;
@@ -217,11 +252,13 @@ html,body,#map{height:100%;margin:0;padding:0;background:#eef2f7;font-family:-ap
     var pts = [pickupMarker];
     if (driverMarker) pts.push(driverMarker);
     if (dropMarker) pts.push(dropMarker);
+    if (navRoute) pts.push(navRoute);
     if (pts.length < 2) return;
     var group = L.featureGroup(pts);
     map.fitBounds(group.getBounds().pad(0.4), { animate: !!animate, duration: 0.7 });
   }
 
+  if (INIT.routePath) setNavRoute(INIT.routePath);
   refreshRoute();
   fitAll(false);
 
@@ -292,6 +329,9 @@ html,body,#map{height:100%;margin:0;padding:0;background:#eef2f7;font-family:-ap
         } else if (dropMarker) {
           map.removeLayer(dropMarker);
           dropMarker = null;
+        }
+        if (Object.prototype.hasOwnProperty.call(payload, 'routePath')) {
+          setNavRoute(payload.routePath || null);
         }
       } catch (e) {
         // Don't crash the WebView on a bad update — drop it and keep the

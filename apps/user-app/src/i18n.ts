@@ -74,6 +74,7 @@ const en: Dict = {
   "auth.google.error_email_used": "This Google account is already registered. If you don't recognise the account, contact support.",
   "auth.google.error_phone_used": "This phone number is already linked to a different Google account. Contact support if you've lost access.",
   "auth.google.error_generic": "Couldn't sign in. Please try again.",
+  "auth.google.switch_account": "Use another Google account",
 
   // Profile setup (first sign-in)
   "profile_setup.title": "Complete your profile",
@@ -228,6 +229,7 @@ const hi: Dict = {
   "auth.google.error_email_used": "यह Google खाता पहले से पंजीकृत है। यदि आप इसे नहीं पहचानते, तो सहायता से संपर्क करें।",
   "auth.google.error_phone_used": "यह मोबाइल नंबर पहले से किसी अन्य Google खाते से जुड़ा है। यदि आपका एक्सेस खो गया है, तो सहायता से संपर्क करें।",
   "auth.google.error_generic": "साइन इन नहीं हो सका। कृपया फिर से कोशिश करें।",
+  "auth.google.switch_account": "दूसरे Google खाते का उपयोग करें",
 
   // Profile setup (first sign-in) — extended
   "profile_setup.title": "अपनी प्रोफ़ाइल पूरी करें",

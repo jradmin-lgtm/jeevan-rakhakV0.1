@@ -43,6 +43,7 @@ const en: Dict = {
   "auth.google.error_email_used": "This Google account is already registered as a driver.",
   "auth.google.error_phone_used": "This phone number is already linked to a different driver account.",
   "auth.google.error_generic": "Couldn't sign in. Please try again.",
+  "auth.google.switch_account": "Use another Google account",
 
   // Profile setup (first sign-in)
   "profile_setup.title": "Complete driver profile",
@@ -202,6 +203,7 @@ const hi: Dict = {
   "auth.google.error_email_used": "यह Google खाता पहले से ड्राइवर के रूप में पंजीकृत है।",
   "auth.google.error_phone_used": "यह मोबाइल नंबर पहले से किसी अन्य ड्राइवर खाते से जुड़ा है।",
   "auth.google.error_generic": "साइन इन नहीं हो सका। कृपया फिर से कोशिश करें।",
+  "auth.google.switch_account": "दूसरे Google खाते का उपयोग करें",
 
   // Profile setup
   "profile_setup.title": "ड्राइवर प्रोफ़ाइल पूरी करें",

@@ -22,6 +22,7 @@ import { Booking, bookings as bookingsApi, clearToken, driver as driverApi, me }
 import { getSocket, disconnectSocket } from "../socket";
 import { useDriverHeartbeat } from "../hooks/useDriverHeartbeat";
 import { SosIncomingModal } from "../components/SosIncomingModal";
+import { LangToggle } from "../components/LangToggle";
 
 // v1.0.12: removed DRIVER_DEFAULT (Delhi centroid). When the driver
 // goes online without a GPS lock yet, we now send availability without
@@ -184,6 +185,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
         subtitle={profile?.vehicleNumber ?? "Welcome to Jeevan Rakshak"}
         right={
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <LangToggle />
             {available ? <PulseDot size={8} color={colors.success} rings={1} /> : null}
             <Pill
               label={available ? "ONLINE" : "OFFLINE"}

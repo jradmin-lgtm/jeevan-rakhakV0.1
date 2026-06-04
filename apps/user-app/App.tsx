@@ -5,7 +5,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { ActivityIndicator, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { colors, ErrorBoundary, configureGoogleSignIn, signOutFromGoogle } from "@jr/ui";
-import { Booking, getToken, me, clearToken } from "./src/api";
+import { Booking, getToken, me, clearToken, getCachedProfile, setCachedProfile } from "./src/api";
 import { SplashScreen } from "./src/screens/SplashScreen";
 import { GoogleLoginScreen } from "./src/screens/GoogleLoginScreen";
 import { ProfileSetupScreen } from "./src/screens/ProfileSetupScreen";
@@ -61,19 +61,33 @@ export default function App() {
       }
       const token = await getToken();
       if (token) {
-        // Render free-tier dynos cold-start in ~30s. Cap the wait at 4s so the
-        // user sees the Login screen instead of staring at a spinner. If the
-        // backend responds later, HomeScreen's own refresh() picks up the
-        // hydrated profile next.
+        // v1.1.0 (CR#12): a valid stored token means the user is logged in.
+        // Render Home immediately from the cached profile (no Google re-pick)
+        // and refresh /me in the background. Render free-tier dynos cold-start
+        // in ~30s, so we don't block boot on the network. We only drop to the
+        // Login screen on an explicit 401 (token actually invalid) — handled
+        // below — or when there's no token at all.
+        const cached = await getCachedProfile();
+        if (cached) setProfile(cached);
         const TIMEOUT_MS = 4000;
         try {
           const r = await Promise.race<any>([
             me.get(),
             new Promise((_res, rej) => setTimeout(() => rej(new Error("hydrate_timeout")), TIMEOUT_MS))
           ]);
-          if (r?.profile) setProfile(r.profile);
-        } catch {
-          /* token still valid client-side; the cached session lets login skip if profile lands later */
+          if (r?.profile) {
+            setProfile(r.profile);
+            void setCachedProfile(r.profile);
+          }
+        } catch (e: any) {
+          // 401 = token genuinely invalid (revoked / rotated secret) → sign
+          // out so the user re-authenticates. Any other error (timeout, cold
+          // start, offline) keeps the cached session and retries later.
+          if (e?.status === 401) {
+            await clearToken();
+            setProfile(null);
+          }
+          /* else: keep cached profile; HomeScreen.refresh() picks up later */
         }
       }
       setHydrated(true);
@@ -105,7 +119,7 @@ export default function App() {
             <Stack.Screen name="Login">
               {() => (
                 <GoogleLoginScreen
-                  onAuthenticated={(p) => setProfile(p)}
+                  onAuthenticated={(p) => { setProfile(p); void setCachedProfile(p); }}
                   onProfileSetupRequired={(input) => setGooglePending(input)}
                 />
               )}
@@ -119,6 +133,7 @@ export default function App() {
                 google={googlePending.google}
                 onSetupComplete={(p) => {
                   setProfile(p);
+                  void setCachedProfile(p);
                   setGooglePending(null);
                 }}
                 onBack={() => setGooglePending(null)}
@@ -185,7 +200,7 @@ export default function App() {
                 <MedicalProfileScreen
                   initial={profile}
                   onBack={() => navigation.goBack()}
-                  onUpdated={(p) => setProfile(p)}
+                  onUpdated={(p) => { setProfile(p); void setCachedProfile(p); }}
                 />
               )}
             </Stack.Screen>

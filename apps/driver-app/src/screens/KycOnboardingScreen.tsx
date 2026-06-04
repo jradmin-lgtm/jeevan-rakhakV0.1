@@ -3,6 +3,7 @@ import { Alert, Pressable, ScrollView, View } from "react-native";
 import { AppHeader, Button, Card, Input, Screen, Text, colors, space } from "@jr/ui";
 import { driver as driverApi } from "../api";
 import { useT } from "../i18n";
+import { LangToggle } from "../components/LangToggle";
 
 type Props = {
   initial: any;
@@ -183,7 +184,7 @@ export function KycPendingScreen({ onProfileRefresh }: { onProfileRefresh: () =>
 
   return (
     <Screen>
-      <AppHeader title={t("kyc_pending.title")} subtitle={t("kyc_pending.subtitle")} />
+      <AppHeader title={t("kyc_pending.title")} subtitle={t("kyc_pending.subtitle")} right={<LangToggle />} />
       <Card>
         <View style={{ gap: space.md, alignItems: "center", paddingVertical: space.lg }}>
           <Text variant="title" align="center">⏳</Text>

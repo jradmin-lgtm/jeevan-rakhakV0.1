@@ -15,6 +15,8 @@ export { IconBadge } from "./components/IconBadge";
 export { Skeleton } from "./components/Skeleton";
 export { MapPlaceholder } from "./components/MapPlaceholder";
 export { MapEmbed } from "./components/MapEmbed";
+export { fetchOsrmRoute } from "./maps/osrmRoute";
+export type { OsrmRoute } from "./maps/osrmRoute";
 export { ContactSupport, SUPPORT_EMAIL, SUPPORT_PHONE, SUPPORT_PHONE_DISPLAY } from "./components/ContactSupport";
 export { FareBreakdown } from "./components/FareBreakdown";
 export type { FareQuoteForUi } from "./components/FareBreakdown";
@@ -27,6 +29,7 @@ export {
   configureGoogleSignIn,
   signInWithGoogle,
   signOutFromGoogle,
+  switchGoogleAccount,
   JrGoogleSignInError
 } from "./auth/googleSignIn";
 export type { JrSignInError } from "./auth/googleSignIn";

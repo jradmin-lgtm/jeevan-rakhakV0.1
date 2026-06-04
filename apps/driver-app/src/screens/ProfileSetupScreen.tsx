@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { Animated, Image, View } from "react-native";
-import { AppHeader, Button, Card, IconBadge, Input, Screen, Text, colors, radius, space, useFadeIn } from "@jr/ui";
+import { Animated, Image, Pressable, View } from "react-native";
+import { AppHeader, Button, Card, IconBadge, Input, Screen, Text, colors, radius, space, useFadeIn, switchGoogleAccount, JrGoogleSignInError } from "@jr/ui";
 import { auth as authApi, setToken } from "../api";
 import { useT } from "../i18n";
 
@@ -27,20 +27,46 @@ type Props = {
  */
 export function ProfileSetupScreen({ idToken, google, onSetupComplete, onBack }: Props) {
   const { t } = useT();
+  const [g, setG] = useState<GoogleProfile>(google);
+  const [tok, setTok] = useState(idToken);
   const [name, setName] = useState(google.name ?? "");
   const [phone, setPhone] = useState("");
   const [busy, setBusy] = useState(false);
+  const [switching, setSwitching] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const fade = useFadeIn();
 
   const canSubmit = name.trim().length >= 2 && phone.replace(/\D/g, "").length >= 10;
+
+  // CR#5A: reopen the Google account picker and re-run the start handshake.
+  const switchAccount = async () => {
+    setErr(null);
+    setSwitching(true);
+    try {
+      const res = await switchGoogleAccount();
+      const r = await authApi.googleStart(res.idToken);
+      if (r.needsProfile) {
+        setG(r.googleProfile);
+        setTok(res.idToken);
+        setName(r.googleProfile?.name ?? "");
+      } else if (r.accessToken) {
+        await setToken(r.accessToken);
+        onSetupComplete(r.profile);
+      }
+    } catch (e) {
+      const code = e instanceof JrGoogleSignInError ? e.code : null;
+      if (code !== "cancelled") setErr(t("auth.google.error_generic"));
+    } finally {
+      setSwitching(false);
+    }
+  };
 
   const submit = async () => {
     if (!canSubmit) return;
     setBusy(true);
     setErr(null);
     try {
-      const r = await authApi.googleComplete({ idToken, phone, name: name.trim() });
+      const r = await authApi.googleComplete({ idToken: tok, phone, name: name.trim() });
       await setToken(r.accessToken);
       onSetupComplete(r.profile);
     } catch (e: any) {
@@ -58,8 +84,8 @@ export function ProfileSetupScreen({ idToken, google, onSetupComplete, onBack }:
       <AppHeader title={t("profile_setup.title")} subtitle={t("profile_setup.subtitle")} onBack={onBack} />
 
       <Animated.View style={[fade, { alignItems: "center", paddingVertical: space.md, gap: space.sm }]}>
-        {google.picture ? (
-          <Image source={{ uri: google.picture }} style={{ width: 84, height: 84, borderRadius: 42, backgroundColor: colors.primaryFaint }} />
+        {g.picture ? (
+          <Image source={{ uri: g.picture }} style={{ width: 84, height: 84, borderRadius: 42, backgroundColor: colors.primaryFaint }} />
         ) : (
           <IconBadge glyph="✓" size={84} bg={colors.primaryFaint} color={colors.primary} />
         )}
@@ -77,8 +103,13 @@ export function ProfileSetupScreen({ idToken, google, onSetupComplete, onBack }:
           }}
         >
           <Text variant="tiny" tone="muted">{t("profile_setup.signed_in_as")}</Text>
-          <Text variant="tiny" weight="bold" style={{ color: colors.textPrimary }}>{google.email}</Text>
+          <Text variant="tiny" weight="bold" style={{ color: colors.textPrimary }}>{g.email}</Text>
         </View>
+        <Pressable onPress={switchAccount} disabled={switching || busy} hitSlop={8}>
+          <Text variant="tiny" weight="bold" align="center" style={{ color: switching || busy ? "#94A3B8" : colors.accent }}>
+            {switching ? t("auth.google.busy") : t("auth.google.switch_account")}
+          </Text>
+        </Pressable>
       </Animated.View>
 
       <Card>

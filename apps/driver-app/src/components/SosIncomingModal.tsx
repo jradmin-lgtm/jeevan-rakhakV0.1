@@ -72,6 +72,43 @@ export function SosIncomingModal({ onAccept }: Props) {
     };
   }, []);
 
+  // v1.1.0 (CR#4): polling fallback. The socket `sos:incoming` push is
+  // best-effort and silently fails when the socket-server is cold (Render
+  // free-tier) — the #1 reason SOS never reached drivers. Poll the server
+  // every 8s for any SOS pushed to this driver and surface the nearest one if
+  // the modal isn't already showing it. Cheap; stops the moment one is shown.
+  useEffect(() => {
+    let mounted = true;
+    const poll = async () => {
+      try {
+        const r = await bookingsApi.sosPending();
+        if (!mounted || !r.sos?.length) return;
+        const next = r.sos[0];
+        setActive((prev) =>
+          prev
+            ? prev
+            : {
+                bookingId: next.bookingId,
+                emergencyType: next.emergencyType,
+                pickupLat: next.pickupLat,
+                pickupLng: next.pickupLng,
+                pickupAddress: next.pickupAddress,
+                distanceKm: next.distanceKm ?? 0,
+                waveNumber: next.waveNumber
+              }
+        );
+      } catch {
+        /* keep last state — next tick retries */
+      }
+    };
+    void poll();
+    const id = setInterval(poll, 8000);
+    return () => {
+      mounted = false;
+      clearInterval(id);
+    };
+  }, []);
+
   // Slow breathing pulse on the modal CTA whenever it's visible.
   useEffect(() => {
     if (!active) return;
@@ -177,7 +214,7 @@ export function SosIncomingModal({ onAccept }: Props) {
             </Pressable>
           </View>
           <Text variant="tiny" tone="muted" align="center">
-            Wave {active.waveNumber} · auto-expanding every 60s
+            Wave {active.waveNumber} · auto-expanding every 20s
           </Text>
         </View>
       </View>

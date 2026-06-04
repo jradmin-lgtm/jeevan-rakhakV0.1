@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { Animated, Image, Linking, Pressable, View } from "react-native";
-import { AppHeader, Button, Card, IconBadge, Screen, Text, colors, radius, space, useFadeIn, signInWithGoogle, JrGoogleSignInError } from "@jr/ui";
+import { ActivityIndicator, Animated, Image, Linking, Pressable, View } from "react-native";
+import { AppHeader, Button, Card, IconBadge, Screen, Text, colors, radius, space, useFadeIn, signInWithGoogle, switchGoogleAccount, JrGoogleSignInError } from "@jr/ui";
 import { auth as authApi, setToken } from "../api";
 import { useT } from "../i18n";
 
@@ -36,11 +36,14 @@ export function GoogleLoginScreen({ onAuthenticated, onProfileSetupRequired }: P
   const [err, setErr] = useState<string | null>(null);
   const fade = useFadeIn();
 
-  const onPressSignIn = async () => {
+  // Shared sign-in runner. `picker` is either the normal Google sign-in
+  // (reuses the cached account if present) or switchGoogleAccount (signs out
+  // first so the native account chooser always reopens — CR#1).
+  const runGoogle = async (picker: typeof signInWithGoogle) => {
     setErr(null);
     setStage({ kind: "google_busy" });
     try {
-      const googleResult = await signInWithGoogle();
+      const googleResult = await picker();
       const r = await authApi.googleStart(googleResult.idToken, "user");
 
       if (r.needsProfile) {
@@ -76,6 +79,9 @@ export function GoogleLoginScreen({ onAuthenticated, onProfileSetupRequired }: P
       setStage({ kind: "idle" });
     }
   };
+
+  const onPressSignIn = () => void runGoogle(signInWithGoogle);
+  const onPressSwitch = () => void runGoogle(switchGoogleAccount);
 
   const busy = stage.kind === "google_busy";
 
@@ -116,6 +122,12 @@ export function GoogleLoginScreen({ onAuthenticated, onProfileSetupRequired }: P
           </Text>
 
           <GoogleSignInButton onPress={onPressSignIn} busy={busy} label={busy ? t("auth.google.busy") : t("auth.google.button")} />
+
+          <Pressable onPress={onPressSwitch} disabled={busy} hitSlop={8}>
+            <Text variant="small" weight="bold" align="center" style={{ color: busy ? "#94A3B8" : colors.accent }}>
+              {t("auth.google.switch_account")}
+            </Text>
+          </Pressable>
 
           {err ? (
             <View style={{ paddingHorizontal: space.sm }}>
@@ -172,7 +184,7 @@ function GoogleSignInButton({ onPress, busy, label }: { onPress: () => void; bus
         elevation: 1
       })}
     >
-      <GoogleGlyph size={22} />
+      {busy ? <ActivityIndicator size="small" color="#4285F4" /> : <GoogleGlyph size={22} />}
       <Text variant="body" weight="bold" style={{ color: "#3C4043", letterSpacing: 0.2 }}>{label}</Text>
     </Pressable>
   );

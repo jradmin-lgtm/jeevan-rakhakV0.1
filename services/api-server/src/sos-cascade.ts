@@ -2,13 +2,14 @@
  * SOS Cascading Dispatch Engine (v1.0.15)
  *
  * SOS bookings skip the public broadcast pool and instead get pushed to drivers
- * in expanding waves:
+ * in expanding waves (v1.1.0 / CR#2 — wave interval cut 60s → 20s for faster
+ * emergency escalation):
  *   t=0    : push to nearest driver
- *   t=60s  : also push to 2nd nearest
- *   t=120s : also push to 3rd nearest
+ *   t=20s  : also push to 2nd nearest
+ *   t=40s  : also push to 3rd nearest
  *   …
- *   t=540s : push to 10th (cap)
- *   t=600s : if still no accept → fire critical alert, patient sees
+ *   t=180s : push to 10th (cap)
+ *   t=200s : if still no accept → fire critical alert, patient sees
  *            "no driver yet — call the mobile line", booking stays REQUESTED
  *
  * Drivers who reject are removed from future waves. The eligible-driver list
@@ -36,7 +37,8 @@ import { haversineDistanceKm } from "@jr/utils";
 import { emitEvent } from "./events";
 
 const MAX_DRIVERS = Number(process.env.SOS_CASCADE_MAX_DRIVERS ?? 10);
-const WAVE_INTERVAL_MS = Number(process.env.SOS_CASCADE_WAVE_INTERVAL_S ?? 60) * 1000;
+// v1.1.0 (CR#2): default cut 60s → 20s. Still env-overridable on Render.
+const WAVE_INTERVAL_MS = Number(process.env.SOS_CASCADE_WAVE_INTERVAL_S ?? 20) * 1000;
 const STALENESS_MIN = Number(process.env.SOS_CASCADE_STALENESS_MIN ?? 5);
 
 type EligibleDriver = { driverId: string; distanceKm: number };
@@ -59,26 +61,49 @@ const runners = new Map<string, RunnerState>();
 
 async function getEligibleDrivers(pickupLat: number, pickupLng: number): Promise<EligibleDriver[]> {
   const staleness = new Date(Date.now() - STALENESS_MIN * 60 * 1000);
+  // v1.1.0 (CR#4): drive eligibility off the `drivers` table (the source of
+  // truth for AVAILABLE/kyc/disabled) and LEFT JOIN heartbeats, instead of
+  // INNER-joining heartbeats. The old INNER join silently dropped any
+  // AVAILABLE driver whose heartbeat hadn't landed in the last 5 min (the
+  // heartbeat hook only fires while online + foregrounded), producing an
+  // empty eligible set → "sos_no_drivers_available" while drivers were in
+  // fact online. We now fall back to the driver's last-known GPS
+  // (drivers.lastLat/lastLng, bumped by /availability + /location) when the
+  // heartbeat is stale or missing.
   const candidates = await db
     .select({
-      driverId: driverHeartbeats.driverId,
-      lat: driverHeartbeats.lat,
-      lng: driverHeartbeats.lng
+      driverId: drivers.id,
+      hbLat: driverHeartbeats.lat,
+      hbLng: driverHeartbeats.lng,
+      hbAt: driverHeartbeats.updatedAt,
+      lastLat: drivers.lastLat,
+      lastLng: drivers.lastLng,
+      lastSeenAt: drivers.lastSeenAt
     })
-    .from(driverHeartbeats)
-    .innerJoin(drivers, eq(drivers.id, driverHeartbeats.driverId))
+    .from(drivers)
+    .leftJoin(driverHeartbeats, eq(driverHeartbeats.driverId, drivers.id))
     .where(
       and(
-        gte(driverHeartbeats.updatedAt, staleness),
         eq(drivers.status, "AVAILABLE"),
         eq(drivers.disabled, false),
         eq(drivers.kycVerified, true)
       )
     );
-  const withDistance = candidates.map((c) => ({
-    driverId: c.driverId,
-    distanceKm: haversineDistanceKm(c.lat, c.lng, pickupLat, pickupLng)
-  }));
+  const withDistance = candidates
+    .map((c) => {
+      const hbFresh = c.hbAt != null && c.hbAt >= staleness;
+      const seenFresh = c.lastSeenAt != null && c.lastSeenAt >= staleness;
+      // Prefer the heartbeat position; fall back to last-known GPS. Skip a
+      // driver only when we have NO usable recent position at all.
+      const lat = hbFresh ? c.hbLat : seenFresh ? c.lastLat : null;
+      const lng = hbFresh ? c.hbLng : seenFresh ? c.lastLng : null;
+      if (lat == null || lng == null) return null;
+      return {
+        driverId: c.driverId,
+        distanceKm: haversineDistanceKm(lat, lng, pickupLat, pickupLng)
+      } as EligibleDriver;
+    })
+    .filter((d): d is EligibleDriver => d !== null);
   withDistance.sort((a, b) => a.distanceKm - b.distanceKm);
   return withDistance.slice(0, MAX_DRIVERS);
 }

@@ -16,7 +16,8 @@ import {
   Text,
   colors,
   radius,
-  space
+  space,
+  fetchOsrmRoute
 } from "@jr/ui";
 import { Booking, bookings as bookingsApi } from "../api";
 import { getSocket } from "../socket";
@@ -79,6 +80,11 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
   const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [nowTs, setNowTs] = useState<number>(Date.now());
+  // v1.1.0 (CR#3): real road route + ETA to the destination hospital, drawn
+  // once the patient is picked up. Free OSRM; null until fetched / on failure
+  // (we then fall back to the straight-line haversine ETA).
+  const [navRoute, setNavRoute] = useState<Array<[number, number]> | null>(null);
+  const [navEta, setNavEta] = useState<{ km: number; min: number } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastStatusRef = useRef<string>(initial.status);
@@ -123,6 +129,32 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
     navigatedToPayRef.current = true;
     onPayment(booking);
   }, [booking, onPayment]);
+
+  // v1.1.0 (CR#3): once picked up, fetch the road route to the destination
+  // hospital (auto-assigned server-side at pickup). One OSRM call per trip —
+  // the live driver marker glides along the drawn route. Falls back silently
+  // to the straight-line haversine ETA if OSRM is unavailable.
+  useEffect(() => {
+    if (booking.status !== "PICKED_UP" || booking.dropLat == null || booking.dropLng == null) {
+      setNavRoute(null);
+      setNavEta(null);
+      return;
+    }
+    const from = driverPos
+      ? { lat: driverPos.lat, lng: driverPos.lng }
+      : { lat: booking.pickupLat, lng: booking.pickupLng };
+    const to = { lat: booking.dropLat, lng: booking.dropLng };
+    const controller = new AbortController();
+    (async () => {
+      const r = await fetchOsrmRoute(from, to, { signal: controller.signal });
+      if (r) {
+        setNavRoute(r.coords);
+        setNavEta({ km: r.distanceKm, min: Math.max(1, Math.round(r.durationMin)) });
+      }
+    })();
+    return () => controller.abort();
+    // Intentionally not keyed on driverPos — one fetch per PICKED_UP entry.
+  }, [booking.status, booking.dropLat, booking.dropLng]);
 
   useEffect(() => {
     let mounted = true;
@@ -252,6 +284,10 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
   } else if (booking.status === "ARRIVED") {
     timerLabel = "Driver waiting";
     timerValue = "at pickup";
+  } else if (booking.status === "PICKED_UP" && navEta) {
+    // Prefer the OSRM road-based ETA when we have it (CR#3).
+    timerLabel = "Hospital ETA";
+    timerValue = `~${navEta.min} min`;
   } else if (booking.status === "PICKED_UP" && driverPos && booking.dropLat != null && booking.dropLng != null) {
     const km = haversineKm(driverPos.lat, driverPos.lng, booking.dropLat, booking.dropLng);
     timerLabel = "Hospital ETA";
@@ -263,7 +299,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
 
   return (
     <Screen>
-      <AppHeader title="Live tracking" subtitle={`Booking ${booking.id.slice(0, 8)}…`} onBack={onClose} />
+      <AppHeader title="Live tracking" subtitle={`Booking #${booking.displayId ?? booking.id.slice(0, 8)}`} onBack={onClose} />
 
       <Card>
         <View style={{ gap: space.sm }}>
@@ -288,7 +324,9 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
           <Text variant="body">{booking.pickupAddress ?? `${booking.pickupLat.toFixed(4)}, ${booking.pickupLng.toFixed(4)}`}</Text>
           {booking.dropAddress ? (
             <>
-              <Text variant="label" tone="secondary">DROP</Text>
+              <Text variant="label" tone="secondary">
+                {booking.destHospitalId || booking.status === "PICKED_UP" ? "DESTINATION HOSPITAL" : "DROP"}
+              </Text>
               <Text variant="body">{booking.dropAddress}</Text>
             </>
           ) : null}
@@ -387,8 +425,9 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
             pickup={{ lat: booking.pickupLat, lng: booking.pickupLng, label: "Pickup" }}
             driver={driverPos ? { lat: driverPos.lat, lng: driverPos.lng, label: "Driver" } : null}
             drop={booking.dropLat != null && booking.dropLng != null
-              ? { lat: booking.dropLat, lng: booking.dropLng, label: "Hospital" }
+              ? { lat: booking.dropLat, lng: booking.dropLng, label: booking.dropAddress ?? "Hospital" }
               : null}
+            routePath={navRoute}
             height={280}
           />
           {driverPos ? (

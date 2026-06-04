@@ -18,6 +18,10 @@ export const SOCKET_BASE =
   process.env.EXPO_PUBLIC_SOCKET_BASE_URL ?? (__DEV__ ? "http://localhost:4001" : "");
 
 const TOKEN_KEY = "jr.user.token";
+// v1.1.0 (CR#12): cache the last profile so a cold-start with a valid token
+// can render Home immediately (no Google re-pick) while /me refreshes in the
+// background. Cleared on explicit logout / 401.
+const PROFILE_KEY = "jr.user.profile";
 
 let inMemoryToken: string | null = null;
 
@@ -36,6 +40,24 @@ export async function setToken(token: string) {
 export async function clearToken() {
   inMemoryToken = null;
   await AsyncStorage.removeItem(TOKEN_KEY);
+  await AsyncStorage.removeItem(PROFILE_KEY);
+}
+
+export async function setCachedProfile(profile: unknown) {
+  try {
+    await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  } catch {
+    /* best-effort cache */
+  }
+}
+
+export async function getCachedProfile(): Promise<any | null> {
+  try {
+    const raw = await AsyncStorage.getItem(PROFILE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
 }
 
 type RequestOpts = { method?: string; body?: unknown; auth?: boolean };
@@ -82,6 +104,9 @@ export type BookingStatus =
 
 export type Booking = {
   id: string;
+  // v1.1.0: human-readable sequential booking number (#1000xx). Shown to the
+  // patient instead of the UUID. May be absent on very old rows.
+  displayId?: string | null;
   userId: string;
   driverId: string | null;
   emergencyType: EmergencyType;
@@ -92,6 +117,8 @@ export type Booking = {
   dropLat?: number | null;
   dropLng?: number | null;
   dropAddress?: string | null;
+  // v1.1.0 (CR#3/#6): destination hospital FK (auto-assigned at pickup).
+  destHospitalId?: string | null;
   fareEstimateInr?: number | null;
   fareFinalInr?: number | null;
   couponCode?: string | null;

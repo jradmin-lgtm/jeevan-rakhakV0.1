@@ -232,7 +232,37 @@ async function bootstrap() {
              paid_inr = 0
        WHERE status = 'COMPLETED' AND paid_at IS NULL
     `;
-    app.log.info("[migrate] schema v1.0.15 ready (driver_locations + sos_dispatch_attempts + paid_* columns)");
+    // v1.1.0 (CR#3/#6): destination hospitals. One active default
+    // (SRMS IMS, Bareilly) is auto-assigned at PICKED_UP; schema supports
+    // onboarding more later via the admin /hospitals CRUD. The seed coords
+    // are the Bhojipura / Nainital Road anchor (SRMS sits on that road) —
+    // APPROXIMATE, pending exact-pin confirmation from ops via admin edit.
+    await pgClient`
+      CREATE TABLE IF NOT EXISTS hospitals (
+        id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        name       text NOT NULL,
+        lat        double precision NOT NULL,
+        lng        double precision NOT NULL,
+        address    text,
+        city       text,
+        phone      text,
+        active     boolean NOT NULL DEFAULT true,
+        is_default boolean NOT NULL DEFAULT false,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `;
+    await pgClient`CREATE INDEX IF NOT EXISTS hospitals_active_idx ON hospitals(active)`;
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS dest_hospital_id uuid REFERENCES hospitals(id) ON DELETE SET NULL`;
+    // Idempotent seed — only inserts the default if none exists yet, so an
+    // ops edit to the coords/name survives every redeploy.
+    await pgClient`
+      INSERT INTO hospitals (name, lat, lng, address, city, is_default, active)
+      SELECT 'SRMS IMS Hospital, Bareilly', 28.4875, 79.4452,
+             'Nainital Road, Bhojipura, Bareilly', 'Bareilly', true, true
+      WHERE NOT EXISTS (SELECT 1 FROM hospitals WHERE is_default = true)
+    `;
+    app.log.info("[migrate] schema v1.1.0 ready (hospitals + dest_hospital_id; driver_heartbeats + sos_dispatch_attempts + paid_* columns)");
   } catch (err) {
     // Thumb rule: migrations FATAL-EXIT on failure. Silent catch+warn here
     // previously let the service start with a broken schema (system_events
