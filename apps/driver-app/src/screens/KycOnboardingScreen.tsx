@@ -1,7 +1,7 @@
-import React, { useState } from "react";
-import { Alert, Pressable, ScrollView, View } from "react-native";
-import { AppHeader, Button, Card, Input, Screen, Text, colors, space } from "@jr/ui";
-import { driver as driverApi } from "../api";
+import React, { useEffect, useState } from "react";
+import { ActivityIndicator, Alert, Pressable, ScrollView, View } from "react-native";
+import { AppHeader, Button, Card, Input, Screen, Text, colors, radius, space } from "@jr/ui";
+import { driver as driverApi, hospitals as hospitalsApi, type HospitalOption } from "../api";
 import { useT } from "../i18n";
 import { LangToggle } from "../components/LangToggle";
 
@@ -31,8 +31,25 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
   const [insuranceNumber, setInsuranceNumber] = useState<string>(initial?.insuranceNumber ?? "");
   const [hospitalId, setHospitalId] = useState<string>(initial?.hospitalId ?? "");
   const [hospitalName, setHospitalName] = useState<string>(initial?.hospitalName ?? "");
+  const [hospitalList, setHospitalList] = useState<HospitalOption[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // v1.1.0: load the onboarded hospitals so the driver picks one (tags
+  // drivers.hospitalId to the hospital's UUID). Falls back to null (the
+  // picker then shows a retry hint) if the network is unavailable.
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const r = await hospitalsApi.list();
+        if (mounted) setHospitalList(r.hospitals ?? []);
+      } catch {
+        if (mounted) setHospitalList([]);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   const canSubmit =
     licenseNumber.trim().length >= 4 &&
@@ -132,18 +149,50 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
         <Card>
           <View style={{ gap: space.md }}>
             <Text variant="label" tone="primary">{t("kyc.section.hospital")}</Text>
-            <Input
-              label={t("kyc.field.hospital_name")}
-              value={hospitalName}
-              onChangeText={setHospitalName}
-              placeholder="e.g., Apollo Indraprastha"
-            />
-            <Input
-              label={t("kyc.field.hospital_id")}
-              value={hospitalId}
-              onChangeText={setHospitalId}
-              placeholder="Employee ID / staff number"
-            />
+            <Text variant="tiny" tone="muted">{t("kyc.hospital.pick_help")}</Text>
+            {hospitalList === null ? (
+              <View style={{ paddingVertical: space.md, alignItems: "center" }}>
+                <ActivityIndicator color={colors.primary} />
+              </View>
+            ) : hospitalList.length === 0 ? (
+              <Text variant="small" tone="danger">{t("kyc.hospital.none")}</Text>
+            ) : (
+              <View style={{ gap: space.sm }}>
+                {hospitalList.map((h) => {
+                  const selected = hospitalId === h.id;
+                  return (
+                    <Pressable
+                      key={h.id}
+                      onPress={() => { setHospitalId(h.id); setHospitalName(h.name); }}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: space.sm,
+                        padding: space.md,
+                        borderRadius: radius.md,
+                        borderWidth: selected ? 2 : 1,
+                        borderColor: selected ? colors.primary : colors.border,
+                        backgroundColor: selected ? "#FFF5F4" : colors.surface
+                      }}
+                    >
+                      <View style={{
+                        width: 18, height: 18, borderRadius: 9, borderWidth: 2,
+                        borderColor: selected ? colors.primary : colors.border,
+                        alignItems: "center", justifyContent: "center"
+                      }}>
+                        {selected ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary }} /> : null}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text variant="body" weight="semi">{h.name}</Text>
+                        {h.city || h.address ? (
+                          <Text variant="tiny" tone="muted">{[h.address, h.city].filter(Boolean).join(", ")}</Text>
+                        ) : null}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
           </View>
         </Card>
 

@@ -874,7 +874,60 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       .select()
       .from(hospitals)
       .orderBy(desc(hospitals.isDefault), hospitals.name);
-    return reply.send({ hospitals: rows });
+    // Enrich each hospital with how many drivers are tagged to it and how many
+    // bookings have been routed to it — so the admin list doubles as a
+    // capacity-at-a-glance view as more hospitals are onboarded.
+    const driverCounts = await db
+      .select({ hospitalId: drivers.hospitalId, c: count() })
+      .from(drivers)
+      .groupBy(drivers.hospitalId);
+    const bookingCounts = await db
+      .select({ hospitalId: bookings.destHospitalId, c: count() })
+      .from(bookings)
+      .groupBy(bookings.destHospitalId);
+    const dMap = new Map(driverCounts.map((r) => [String(r.hospitalId), Number(r.c)]));
+    const bMap = new Map(bookingCounts.map((r) => [String(r.hospitalId), Number(r.c)]));
+    const enriched = rows.map((h) => ({
+      ...h,
+      driverCount: dMap.get(String(h.id)) ?? 0,
+      bookingCount: bMap.get(String(h.id)) ?? 0
+    }));
+    return reply.send({ hospitals: enriched });
+  });
+
+  // Hospital detail — like /admin/users/:id and /admin/drivers/:id. Returns
+  // the hospital + the drivers tagged to it + the bookings routed to it +
+  // rollups, so ops can manage a hospital as a first-class entity and the
+  // system scales cleanly as new hospitals are onboarded.
+  app.get("/api/v1/admin/hospitals/:id", adminGuard, async (req, reply) => {
+    const id = (req.params as any).id as string;
+    const [h] = await db.select().from(hospitals).where(eq(hospitals.id, id)).limit(1);
+    if (!h) return reply.code(404).send({ error: "not_found" });
+
+    const taggedDrivers = await db
+      .select()
+      .from(drivers)
+      .where(eq(drivers.hospitalId, id))
+      .orderBy(desc(drivers.lastSeenAt))
+      .limit(200);
+
+    const routedBookings = await db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.destHospitalId, id))
+      .orderBy(desc(bookings.createdAt))
+      .limit(100);
+
+    const totals = {
+      drivers: taggedDrivers.length,
+      verifiedDrivers: taggedDrivers.filter((d) => d.kycVerified).length,
+      onlineDrivers: taggedDrivers.filter((d) => d.status === "AVAILABLE" || d.status === "ON_TRIP").length,
+      bookings: routedBookings.length,
+      completed: routedBookings.filter((b) => b.status === "COMPLETED").length,
+      active: routedBookings.filter((b) => ["REQUESTED", "ACCEPTED", "ARRIVED", "PICKED_UP"].includes(b.status)).length
+    };
+
+    return reply.send({ hospital: h, drivers: taggedDrivers, bookings: routedBookings, totals });
   });
 
   const hospitalCreateSchema = z.object({

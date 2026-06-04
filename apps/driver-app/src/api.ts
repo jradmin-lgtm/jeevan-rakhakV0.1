@@ -204,6 +204,23 @@ export type SosPending = {
   waveNumber: number;
 };
 
+export type HospitalOption = {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  address?: string | null;
+  city?: string | null;
+  isDefault: boolean;
+};
+
+// v1.1.0 (CR#3/#6): onboarded destination hospitals. KYC uses this so a
+// driver is tagged to a real hospital entity (drivers.hospitalId = hospital
+// UUID) rather than typing a free-text name — keeps the network scalable.
+export const hospitals = {
+  list: () => api<{ hospitals: HospitalOption[] }>("/api/v1/hospitals")
+};
+
 export const bookings = {
   pending: () => api<{ bookings: Booking[] }>("/api/v1/bookings/pending"),
   // v1.1.0 (CR#4): polling fallback for SOS dispatch — surfaces SOS requests

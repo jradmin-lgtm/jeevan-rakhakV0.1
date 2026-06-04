@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import { adminFetch } from "../../../lib/adminFetch";
 
 type Hospital = {
@@ -13,6 +14,8 @@ type Hospital = {
   phone?: string | null;
   active: boolean;
   isDefault: boolean;
+  driverCount?: number;
+  bookingCount?: number;
 };
 
 const blank = { name: "", lat: "", lng: "", address: "", city: "", phone: "", isDefault: false };
@@ -92,7 +95,8 @@ export function HospitalsManager({ initial, apiBase }: { initial: Hospital[]; ap
           <thead>
             <tr style={{ textAlign: "left", color: "var(--muted)" }}>
               <th style={{ padding: "6px 8px" }}>Name</th>
-              <th style={{ padding: "6px 8px" }}>Lat, Lng</th>
+              <th style={{ padding: "6px 8px" }}>Drivers</th>
+              <th style={{ padding: "6px 8px" }}>Bookings</th>
               <th style={{ padding: "6px 8px" }}>City</th>
               <th style={{ padding: "6px 8px" }}>Default</th>
               <th style={{ padding: "6px 8px" }}>Active</th>
@@ -104,7 +108,7 @@ export function HospitalsManager({ initial, apiBase }: { initial: Hospital[]; ap
               <HospitalRow key={h.id} h={h} busy={busy} onPatch={patch} />
             ))}
             {rows.length === 0 ? (
-              <tr><td colSpan={6} className="muted" style={{ padding: 12 }}>No hospitals yet.</td></tr>
+              <tr><td colSpan={7} className="muted" style={{ padding: 12 }}>No hospitals yet.</td></tr>
             ) : null}
           </tbody>
         </table>
@@ -138,8 +142,12 @@ function HospitalRow({ h, busy, onPatch }: { h: Hospital; busy: boolean; onPatch
   const dirty = lat !== String(h.lat) || lng !== String(h.lng);
   return (
     <tr style={{ borderTop: "1px solid var(--border)" }}>
-      <td style={{ padding: "6px 8px", fontWeight: 600 }}>{h.name}</td>
-      <td style={{ padding: "6px 8px" }} className="mono">{h.lat.toFixed(4)}, {h.lng.toFixed(4)}</td>
+      <td style={{ padding: "6px 8px", fontWeight: 600 }}>
+        <Link href={`/hospitals/${h.id}`} style={{ color: "var(--accent)", textDecoration: "none" }}>{h.name}</Link>
+        <div className="mono" style={{ fontSize: 10, color: "var(--muted)" }}>{h.lat.toFixed(4)}, {h.lng.toFixed(4)}</div>
+      </td>
+      <td style={{ padding: "6px 8px" }}>{h.driverCount ?? 0}</td>
+      <td style={{ padding: "6px 8px" }}>{h.bookingCount ?? 0}</td>
       <td style={{ padding: "6px 8px" }}>{h.city ?? "—"}</td>
       <td style={{ padding: "6px 8px" }}>
         {h.isDefault ? (
