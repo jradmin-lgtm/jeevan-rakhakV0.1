@@ -41,8 +41,13 @@ ICON_BG_HEX = "#FFFFFF"  # adaptive background — white, to match the logo
 
 CANVAS = 1024
 WHITE = (255, 255, 255, 255)
-ICON_FILL = 0.88        # logo occupies this fraction of the full icon
-ADAPTIVE_FILL = 0.64    # logo stays inside the adaptive safe-zone
+ICON_FILL = 0.82        # square launcher/Play-Store icon (full logo, slight margin)
+# The "DRIVER" wordmark is wide + low, so a circular mask clips it unless the
+# whole logo fits inside the safe-zone circle. 0.50 is the largest fill where
+# the full logo (heart + road + DRIVER) is visible on a circle (verified by
+# rendering the circle-masked preview). Used for the adaptive foreground AND
+# the legacy round icon.
+ADAPTIVE_FILL = 0.50
 
 
 def content_bbox(img: Image.Image):
@@ -104,11 +109,14 @@ def write_native(logo: Image.Image) -> None:
         d = RES / f"mipmap-{dens}"
         if not d.exists():
             continue
-        # Legacy square + round both use the full white-bg icon (the launcher
-        # applies its own circular mask on round).
+        # Legacy SQUARE icon: full logo at ICON_FILL on white.
         legacy = fit_centered(logo, ICON_FILL, WHITE).resize((legacy_px, legacy_px), Image.LANCZOS)
         legacy.convert("RGB").save(d / "ic_launcher.webp", format="WEBP", lossless=True)
-        legacy.convert("RGB").save(d / "ic_launcher_round.webp", format="WEBP", lossless=True)
+        # Legacy ROUND icon: the launcher renders this as a circle, so use the
+        # circle-safe fill (same as the adaptive foreground) — otherwise the
+        # wide "DRIVER" wordmark clips.
+        roundIcon = fit_centered(logo, ADAPTIVE_FILL, WHITE).resize((legacy_px, legacy_px), Image.LANCZOS)
+        roundIcon.convert("RGB").save(d / "ic_launcher_round.webp", format="WEBP", lossless=True)
         # Adaptive foreground keeps transparency + safe-zone fill.
         fg = fit_centered(logo, ADAPTIVE_FILL, (255, 255, 255, 0)).resize((fg_px, fg_px), Image.LANCZOS)
         fg.save(d / "ic_launcher_foreground.webp", format="WEBP", lossless=True)

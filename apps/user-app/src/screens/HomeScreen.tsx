@@ -144,7 +144,7 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
                     variant="title"
                     tone="inverse"
                     weight="bold"
-                    style={{ fontSize: 52, letterSpacing: 1, textAlign: "center" }}
+                    style={{ fontSize: 52, lineHeight: 60, letterSpacing: 1, textAlign: "center" }}
                   >
                     SOS
                   </Text>
