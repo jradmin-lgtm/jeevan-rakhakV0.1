@@ -193,18 +193,15 @@ export async function registerAuthRoutes(app: FastifyInstance) {
           { sub: existing.id, role, phone: existing.phone },
           { expiresIn: config.jwtAccessTtlSec }
         );
+        // v1.1.4 FIX: return the FULL row (matching /me) — not a hand-picked
+        // subset. The old minimal profile dropped kycVerified + all KYC
+        // fields, so an existing/approved driver who signed out and back in
+        // was wrongly routed through KYC again (signin/signup mixed up).
         return reply.send({
           accessToken,
           tokenType: "Bearer",
           expiresIn: config.jwtAccessTtlSec,
-          profile: {
-            id: existing.id,
-            role,
-            phone: existing.phone,
-            name: existing.name ?? gp.name,
-            email: existing.email,
-            pictureUrl: gp.picture
-          }
+          profile: { ...existing, role, name: existing.name ?? gp.name, pictureUrl: gp.picture }
         });
       }
 
@@ -268,11 +265,12 @@ export async function registerAuthRoutes(app: FastifyInstance) {
           { sub: bySub.id, role, phone: bySub.phone },
           { expiresIn: config.jwtAccessTtlSec }
         );
+        // Full row (see fix above) so re-login restores KYC state.
         return reply.send({
           accessToken,
           tokenType: "Bearer",
           expiresIn: config.jwtAccessTtlSec,
-          profile: { id: bySub.id, role, phone: bySub.phone, name: bySub.name, email: bySub.email, pictureUrl: bySub.pictureUrl }
+          profile: { ...bySub, role }
         });
       }
 
@@ -330,18 +328,13 @@ export async function registerAuthRoutes(app: FastifyInstance) {
         { sub: created.id, role, phone },
         { expiresIn: config.jwtAccessTtlSec }
       );
+      // Full row for consistency with /me (a brand-new driver still has
+      // kycVerified=false + no KYC fields, so they correctly land on KYC).
       return reply.send({
         accessToken,
         tokenType: "Bearer",
         expiresIn: config.jwtAccessTtlSec,
-        profile: {
-          id: created.id,
-          role,
-          phone,
-          name,
-          email: gp.email,
-          pictureUrl: gp.picture
-        }
+        profile: { ...created, role }
       });
     }
   );
