@@ -10,6 +10,7 @@ import { db, bookingEvents, bookings, driverLocations, drivers, hospitals, sosDi
 const MAX_ACTIVE_BOOKINGS_PER_USER = 1;
 import { config } from "@jr/config";
 import { haversineDistanceKm } from "@jr/utils";
+import { pushToUser, sendPush } from "../push";
 // v1.0.14: fare logic is in services/api-server/src/fare-config.ts —
 // the single editable spot for rates, multipliers, surcharges. Change a
 // constant there → redeploy → mobile UI re-quotes on next mount. No APK
@@ -213,6 +214,22 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         } catch (err) {
           app.log.warn({ err }, "socket fan-out hint failed");
         }
+        // v1.1.0 push: alert available drivers even if their app is
+        // backgrounded/killed (the socket/poll only reaches a foregrounded
+        // app). Best-effort broadcast to AVAILABLE, KYC-verified drivers.
+        void (async () => {
+          try {
+            const avail = await db
+              .select({ t: drivers.pushToken })
+              .from(drivers)
+              .where(and(eq(drivers.status, "AVAILABLE"), eq(drivers.disabled, false), eq(drivers.kycVerified, true)));
+            for (const d of avail) {
+              if (d.t) void sendPush(d.t, "New ambulance request 🚑", "A patient nearby needs an ambulance — open the app to accept.", { bookingId: created.id, kind: "booking" });
+            }
+          } catch {
+            /* best-effort */
+          }
+        })();
       }
 
       return reply.code(201).send({ booking: created });
@@ -401,6 +418,8 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         .set({ status: "ON_TRIP", updatedAt: new Date() })
         .where(eq(drivers.id, sub));
       await emitBookingEvent(id, "booking.accepted", `driver:${sub}`);
+      // v1.1.0 push: wake the patient even if their app is backgrounded.
+      void pushToUser(updated.userId, "Ambulance assigned 🚑", "A driver accepted your request and is on the way.", { bookingId: id, status: "ACCEPTED" });
       // Mark this driver's attempt row accepted (for SOS) + notify the
       // patient + dismiss losers' modals. Wrapped so a normal-flow accept
       // (not via cascade) still goes through cleanly.
@@ -451,6 +470,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         .returning();
       if (!b) return reply.code(404).send({ error: "not_found_or_forbidden" });
       await emitBookingEvent(id, "booking.arrived", `driver:${sub}`);
+      void pushToUser(b.userId, "Driver has arrived 📍", "Your ambulance is at the pickup point — share your ride OTP with the driver.", { bookingId: id, status: "ARRIVED" });
       return reply.send({ booking: b });
     }
   );
@@ -517,6 +537,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       await emitBookingEvent(id, "booking.picked_up", `driver:${sub}`, {
         destHospitalId: destPatch.destHospitalId ?? null
       });
+      void pushToUser(b.userId, "On the way to hospital 🏥", `En route to ${b.dropAddress ?? "the hospital"}.`, { bookingId: id, status: "PICKED_UP" });
       return reply.send({ booking: b });
     }
   );
@@ -607,6 +628,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         discountInr,
         payableInr
       });
+      void pushToUser(b.userId, "Trip complete 💚", "You've reached the hospital. Thank you for using Jeevan Rakshak.", { bookingId: id, status: "COMPLETED" });
       return reply.send({ booking: { ...b, fareFinalInr: finalFare, discountInr, payableInr } });
     }
   );

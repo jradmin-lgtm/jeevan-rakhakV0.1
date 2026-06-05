@@ -184,6 +184,8 @@ export const auth = {
 
 export const me = {
   get: () => api<{ role: string; profile: any }>("/api/v1/me"),
+  registerPushToken: (token: string) =>
+    api<{ ok: true }>("/api/v1/me/push-token", { method: "POST", body: { token } }),
   update: (patch: Partial<{ name: string; bloodGroup: string; allergies: string; emergencyContact: string }>) =>
     api<{ role: string; profile: any }>("/api/v1/me", { method: "PATCH", body: patch }),
   // v1.0.13: Google Play account-deletion compliance. Soft-deletes the row

@@ -17,6 +17,7 @@ import { MedicalProfileScreen } from "./src/screens/MedicalProfileScreen";
 import { SosScreen } from "./src/screens/SosScreen";
 import { PaymentScreen } from "./src/screens/PaymentScreen";
 import { hydrateLang } from "./src/i18n";
+import { registerPushToken } from "./src/push";
 
 type GooglePending = {
   idToken: string;
@@ -93,6 +94,12 @@ export default function App() {
       setHydrated(true);
     })();
   }, []);
+
+  // v1.1.0 push: once we have an authenticated profile, register the FCM
+  // token so status updates reach the patient even when backgrounded.
+  useEffect(() => {
+    if (profile) void registerPushToken();
+  }, [profile]);
 
   if (!hydrated) {
     return (

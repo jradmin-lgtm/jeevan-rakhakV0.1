@@ -54,6 +54,10 @@ export const users = pgTable(
     allergies: text("allergies"),
     emergencyContact: text("emergency_contact"),
     isDemo: boolean("is_demo").default(false).notNull(),
+    // v1.1.0 push: FCM device token (from expo-notifications
+    // getDevicePushTokenAsync on Android). Used to send status-change
+    // notifications even when the app is backgrounded/killed.
+    pushToken: text("push_token"),
     // Admin-set disable flag. Disabled users are blocked at /auth/verify-otp
     // (they can still request an OTP — the SMS still goes out — but they
     // can't redeem it). Admins toggle this from the user detail page.
@@ -97,6 +101,9 @@ export const drivers = pgTable(
     lastLat: doublePrecision("last_lat"),
     lastLng: doublePrecision("last_lng"),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    // v1.1.0 push: FCM device token — used to alert the driver of a new
+    // SOS/booking even when the app is backgrounded/killed.
+    pushToken: text("push_token"),
     isDemo: boolean("is_demo").default(false).notNull(),
     // Admin-set disable flag. Disabled drivers can't redeem an OTP, can't be
     // matched to bookings, and stop appearing in dispatch fan-out.

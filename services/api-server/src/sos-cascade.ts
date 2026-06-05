@@ -35,6 +35,7 @@ import {
 } from "@jr/db";
 import { haversineDistanceKm } from "@jr/utils";
 import { emitEvent } from "./events";
+import { pushToDriver } from "./push";
 
 const MAX_DRIVERS = Number(process.env.SOS_CASCADE_MAX_DRIVERS ?? 10);
 // v1.1.0 (CR#2): default cut 60s → 20s. Still env-overridable on Render.
@@ -187,6 +188,14 @@ async function runWave(app: FastifyInstance, state: RunnerState): Promise<void> 
         distanceKm: target.distanceKm,
         waveNumber: state.currentWave
       });
+      // v1.1.0 push: wake the driver even if the app is backgrounded/killed —
+      // the socket emit above only reaches a foregrounded app.
+      void pushToDriver(
+        target.driverId,
+        "🚨 New SOS request",
+        `${state.emergencyType} · ${target.distanceKm.toFixed(1)} km away — open to accept.`,
+        { bookingId: state.bookingId, kind: "sos" }
+      );
     } catch (err) {
       app.log.warn(
         { err, driverId: target.driverId, bookingId: state.bookingId },

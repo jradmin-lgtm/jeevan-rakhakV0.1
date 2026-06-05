@@ -262,6 +262,9 @@ async function bootstrap() {
              'Nainital Road, Bhojipura, Bareilly', 'Bareilly', true, true
       WHERE NOT EXISTS (SELECT 1 FROM hospitals WHERE is_default = true)
     `;
+    // v1.1.0 push: FCM device tokens for background/killed-app notifications.
+    await pgClient`ALTER TABLE users   ADD COLUMN IF NOT EXISTS push_token text`;
+    await pgClient`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS push_token text`;
     app.log.info("[migrate] schema v1.1.0 ready (hospitals + dest_hospital_id; driver_heartbeats + sos_dispatch_attempts + paid_* columns)");
   } catch (err) {
     // Thumb rule: migrations FATAL-EXIT on failure. Silent catch+warn here

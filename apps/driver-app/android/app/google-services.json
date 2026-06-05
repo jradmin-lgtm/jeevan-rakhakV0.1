@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "840665180794",
+    "project_id": "jeevan-rakshak-4f6b6",
+    "storage_bucket": "jeevan-rakshak-4f6b6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:840665180794:android:f78d65821d4ec60006e9c3",
+        "android_client_info": {
+          "package_name": "com.jeevanrakshak.driver"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAtqfmFI412OZZbP5KHMXoccuKlABJ6DfM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:840665180794:android:f2fe58868b70171506e9c3",
+        "android_client_info": {
+          "package_name": "com.jeevanrakshak.user"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAtqfmFI412OZZbP5KHMXoccuKlABJ6DfM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -15,6 +15,7 @@ import { TripHistoryScreen } from "./src/screens/TripHistoryScreen";
 import { ProfileScreen } from "./src/screens/ProfileScreen";
 import { KycOnboardingScreen, KycPendingScreen } from "./src/screens/KycOnboardingScreen";
 import { hydrateLang } from "./src/i18n";
+import { registerPushToken } from "./src/push";
 
 type GooglePending = {
   idToken: string;
@@ -88,6 +89,12 @@ export default function App() {
       setHydrated(true);
     })();
   }, []);
+
+  // v1.1.0 push: register the FCM token once authenticated so a new SOS /
+  // booking wakes the driver even with the app backgrounded/killed.
+  useEffect(() => {
+    if (profile) void registerPushToken();
+  }, [profile]);
 
   if (!hydrated) {
     return (

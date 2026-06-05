@@ -9,6 +9,9 @@ buildscript {
     classpath('com.android.tools.build:gradle')
     classpath('com.facebook.react:react-native-gradle-plugin')
     classpath('org.jetbrains.kotlin:kotlin-gradle-plugin')
+    // v1.1.0 push: Google Services plugin so google-services.json is wired
+    // into the FCM SDK (added manually — we don't run `expo prebuild`).
+    classpath('com.google.gms:google-services:4.4.4')
   }
 }
 
