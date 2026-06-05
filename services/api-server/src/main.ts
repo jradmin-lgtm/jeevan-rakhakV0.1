@@ -265,6 +265,30 @@ async function bootstrap() {
     // v1.1.0 push: FCM device tokens for background/killed-app notifications.
     await pgClient`ALTER TABLE users   ADD COLUMN IF NOT EXISTS push_token text`;
     await pgClient`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS push_token text`;
+    // v1.1.2: driver↔hospital many-to-many assignment (admin-managed).
+    await pgClient`
+      CREATE TABLE IF NOT EXISTS driver_hospitals (
+        id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        driver_id   uuid NOT NULL REFERENCES drivers(id)   ON DELETE CASCADE,
+        hospital_id uuid NOT NULL REFERENCES hospitals(id) ON DELETE CASCADE,
+        is_primary  boolean NOT NULL DEFAULT false,
+        created_at  timestamptz NOT NULL DEFAULT now()
+      )
+    `;
+    await pgClient`CREATE INDEX  IF NOT EXISTS driver_hospitals_driver_idx   ON driver_hospitals(driver_id)`;
+    await pgClient`CREATE INDEX  IF NOT EXISTS driver_hospitals_hospital_idx ON driver_hospitals(hospital_id)`;
+    await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS driver_hospitals_uniq   ON driver_hospitals(driver_id, hospital_id)`;
+    // Backfill: seed an assignment row from each driver's existing single
+    // hospitalId (set at KYC) so the new model honours current data.
+    await pgClient`
+      INSERT INTO driver_hospitals (driver_id, hospital_id, is_primary)
+      SELECT d.id, d.hospital_id::uuid, true
+      FROM drivers d
+      WHERE d.hospital_id IS NOT NULL
+        AND d.hospital_id ~ '^[0-9a-f-]{36}$'
+        AND EXISTS (SELECT 1 FROM hospitals h WHERE h.id = d.hospital_id::uuid)
+        AND NOT EXISTS (SELECT 1 FROM driver_hospitals dh WHERE dh.driver_id = d.id)
+    `;
     app.log.info("[migrate] schema v1.1.0 ready (hospitals + dest_hospital_id; driver_heartbeats + sos_dispatch_attempts + paid_* columns)");
   } catch (err) {
     // Thumb rule: migrations FATAL-EXIT on failure. Silent catch+warn here

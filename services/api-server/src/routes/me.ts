@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { and, eq, inArray } from "drizzle-orm";
-import { db, bookings, drivers, users } from "@jr/db";
+import { and, desc, eq, inArray } from "drizzle-orm";
+import { db, bookings, drivers, driverHospitals, hospitals, users } from "@jr/db";
 
 const profileUpdate = z.object({
   name: z.string().min(1).max(120).optional(),
@@ -24,7 +24,15 @@ export async function registerMeRoutes(app: FastifyInstance) {
       if (role === "driver") {
         const [d] = await db.select().from(drivers).where(eq(drivers.id, sub)).limit(1);
         if (!d) return reply.code(404).send({ error: "not_found" });
-        return reply.send({ role, profile: d });
+        // v1.1.2: include the driver's hospital assignments so the app can
+        // show them + reflect admin reassignment on the next /me refresh.
+        const assignedHospitals = await db
+          .select({ id: hospitals.id, name: hospitals.name, isPrimary: driverHospitals.isPrimary })
+          .from(driverHospitals)
+          .innerJoin(hospitals, eq(hospitals.id, driverHospitals.hospitalId))
+          .where(eq(driverHospitals.driverId, sub))
+          .orderBy(desc(driverHospitals.isPrimary), hospitals.name);
+        return reply.send({ role, profile: d, hospitals: assignedHospitals });
       }
       return reply.code(403).send({ error: "forbidden" });
     }

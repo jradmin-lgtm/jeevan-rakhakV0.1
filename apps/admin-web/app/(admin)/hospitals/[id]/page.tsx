@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { adminFetch } from "../../../../lib/adminFetch";
 import { prettyStatus } from "../../../../lib/status";
 import { formatIST } from "../../../../lib/dates";
+import { HospitalDrivers } from "./HospitalDrivers";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
@@ -54,33 +55,8 @@ export default async function HospitalDetail({ params }: { params: Promise<{ id:
         {stat("Active", totals.active)}
       </div>
 
-      <div className="card" style={{ marginBottom: 16, overflowX: "auto" }}>
-        <h3 style={{ marginTop: 0 }}>Drivers tagged to this hospital</h3>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-          <thead>
-            <tr style={{ textAlign: "left", color: "var(--muted)" }}>
-              <th style={{ padding: "6px 8px" }}>Name</th>
-              <th style={{ padding: "6px 8px" }}>Phone</th>
-              <th style={{ padding: "6px 8px" }}>Vehicle</th>
-              <th style={{ padding: "6px 8px" }}>KYC</th>
-              <th style={{ padding: "6px 8px" }}>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ds.map((d: any) => (
-              <tr key={d.id} style={{ borderTop: "1px solid var(--border)" }}>
-                <td style={{ padding: "6px 8px" }}>
-                  <Link href={`/drivers/${d.id}`} style={{ color: "var(--accent)", textDecoration: "none" }}>{d.name ?? "—"}</Link>
-                </td>
-                <td style={{ padding: "6px 8px" }}>{d.phone}</td>
-                <td style={{ padding: "6px 8px" }}>{d.vehicleNumber ?? "—"} {d.vehicleType ? `(${d.vehicleType})` : ""}</td>
-                <td style={{ padding: "6px 8px" }}>{d.kycVerified ? "✓ verified" : "pending"}</td>
-                <td style={{ padding: "6px 8px" }}>{d.status}</td>
-              </tr>
-            ))}
-            {ds.length === 0 ? <tr><td colSpan={5} className="muted" style={{ padding: 12 }}>No drivers tagged yet.</td></tr> : null}
-          </tbody>
-        </table>
+      <div style={{ marginBottom: 16 }}>
+        <HospitalDrivers hospitalId={id} apiBase={API_BASE} initial={ds} />
       </div>
 
       <div className="card" style={{ overflowX: "auto" }}>

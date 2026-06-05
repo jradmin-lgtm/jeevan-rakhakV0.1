@@ -51,9 +51,11 @@ type Props = {
   onTrip: (b: Booking) => void;
   onProfile: () => void;
   onEarnings: () => void;
+  /** v1.1.2: refresh /me so admin hospital reassignment reflects near-realtime. */
+  onProfileRefresh?: () => void;
 };
 
-export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnings }: Props) {
+export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnings, onProfileRefresh }: Props) {
   const [available, setAvailable] = useState(profile?.status !== "OFFLINE");
   // v1.0.15: emit a "I'm online" heartbeat to the SOS cascade engine every
   // 60s while the toggle is on and the app is foregrounded. Pauses
@@ -95,6 +97,14 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
       clearInterval(id);
     };
   }, []);
+
+  // v1.1.2: poll /me every 45s so an admin hospital (re)assignment shows up
+  // in the driver's app without a relaunch.
+  useEffect(() => {
+    if (!onProfileRefresh) return;
+    const id = setInterval(onProfileRefresh, 45_000);
+    return () => clearInterval(id);
+  }, [onProfileRefresh]);
 
   const ignore = (id: string) => setIgnored((prev) => new Set(prev).add(id));
 
@@ -182,7 +192,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
     <Screen refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}>
       <AppHeader
         title={`Hi${profile?.name ? `, ${String(profile.name).split(" ")[0]}` : ""}`}
-        subtitle={profile?.vehicleNumber ?? "Welcome to Jeevan Rakshak"}
+        subtitle={[profile?.vehicleNumber, profile?.hospitalName].filter(Boolean).join(" · ") || "Welcome to Jeevan Rakshak"}
         right={
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <LangToggle />

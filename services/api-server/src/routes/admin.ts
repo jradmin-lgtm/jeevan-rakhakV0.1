@@ -1,7 +1,35 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { and, count, desc, eq, gte, lte, sql as drizzleSql } from "drizzle-orm";
-import { bookingEvents, bookings, drivers, db, hospitals, users, systemEvents } from "@jr/db";
+import { and, count, desc, eq, gte, inArray, lte, sql as drizzleSql } from "drizzle-orm";
+import { bookingEvents, bookings, drivers, db, driverHospitals, hospitals, users, systemEvents } from "@jr/db";
+
+/**
+ * v1.1.2 — recompute a driver's PRIMARY hospital from the join table and
+ * mirror it onto drivers.hospitalId/hospitalName (what the app + dispatch
+ * read). If no primary is flagged, the first assignment becomes primary; if
+ * the driver has no assignments, the mirror is cleared.
+ */
+async function syncDriverPrimaryHospital(driverId: string): Promise<void> {
+  const rows = await db
+    .select({ hospitalId: driverHospitals.hospitalId, isPrimary: driverHospitals.isPrimary, name: hospitals.name })
+    .from(driverHospitals)
+    .innerJoin(hospitals, eq(hospitals.id, driverHospitals.hospitalId))
+    .where(eq(driverHospitals.driverId, driverId));
+  if (rows.length === 0) {
+    await db.update(drivers).set({ hospitalId: null, hospitalName: null, updatedAt: new Date() }).where(eq(drivers.id, driverId));
+    return;
+  }
+  let primary = rows.find((r) => r.isPrimary);
+  if (!primary) {
+    // No primary flagged — promote the first and persist that flag.
+    primary = rows[0];
+    await db.update(driverHospitals).set({ isPrimary: true })
+      .where(and(eq(driverHospitals.driverId, driverId), eq(driverHospitals.hospitalId, primary.hospitalId)));
+  }
+  await db.update(drivers)
+    .set({ hospitalId: primary.hospitalId, hospitalName: primary.name, updatedAt: new Date() })
+    .where(eq(drivers.id, driverId));
+}
 
 type Source = "all" | "real" | "demo";
 
@@ -336,7 +364,20 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         .reduce((s, b) => s + (b.payableInr ?? b.fareFinalInr ?? 0), 0)
     };
 
-    return reply.send({ driver: d, bookings: history, totals });
+    // v1.1.2: the driver's hospital assignments (many-to-many) for the
+    // detail page's multi-select + the full hospital list to pick from.
+    const assignedHospitals = await db
+      .select({ id: hospitals.id, name: hospitals.name, city: hospitals.city, isPrimary: driverHospitals.isPrimary })
+      .from(driverHospitals)
+      .innerJoin(hospitals, eq(hospitals.id, driverHospitals.hospitalId))
+      .where(eq(driverHospitals.driverId, id))
+      .orderBy(desc(driverHospitals.isPrimary), hospitals.name);
+    const allHospitals = await db
+      .select({ id: hospitals.id, name: hospitals.name, city: hospitals.city, active: hospitals.active })
+      .from(hospitals)
+      .orderBy(desc(hospitals.isDefault), hospitals.name);
+
+    return reply.send({ driver: d, bookings: history, totals, assignedHospitals, allHospitals });
   });
 
   app.patch("/api/v1/admin/drivers/:id", adminGuard, async (req, reply) => {
@@ -878,9 +919,9 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     // bookings have been routed to it — so the admin list doubles as a
     // capacity-at-a-glance view as more hospitals are onboarded.
     const driverCounts = await db
-      .select({ hospitalId: drivers.hospitalId, c: count() })
-      .from(drivers)
-      .groupBy(drivers.hospitalId);
+      .select({ hospitalId: driverHospitals.hospitalId, c: count() })
+      .from(driverHospitals)
+      .groupBy(driverHospitals.hospitalId);
     const bookingCounts = await db
       .select({ hospitalId: bookings.destHospitalId, c: count() })
       .from(bookings)
@@ -904,12 +945,16 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const [h] = await db.select().from(hospitals).where(eq(hospitals.id, id)).limit(1);
     if (!h) return reply.code(404).send({ error: "not_found" });
 
-    const taggedDrivers = await db
-      .select()
-      .from(drivers)
-      .where(eq(drivers.hospitalId, id))
+    // v1.1.2: drivers assigned to this hospital come from the join table
+    // (many-to-many), not the single drivers.hospitalId mirror.
+    const taggedRows = await db
+      .select({ driver: drivers, isPrimary: driverHospitals.isPrimary })
+      .from(driverHospitals)
+      .innerJoin(drivers, eq(drivers.id, driverHospitals.driverId))
+      .where(eq(driverHospitals.hospitalId, id))
       .orderBy(desc(drivers.lastSeenAt))
       .limit(200);
+    const taggedDrivers = taggedRows.map((r) => ({ ...r.driver, isPrimary: r.isPrimary }));
 
     const routedBookings = await db
       .select()
@@ -928,6 +973,68 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     };
 
     return reply.send({ hospital: h, drivers: taggedDrivers, bookings: routedBookings, totals });
+  });
+
+  // v1.1.2 — set a driver's FULL hospital assignment set (assign / reassign /
+  // multi-assign in one call). Replaces existing rows. `primaryHospitalId`
+  // (optional) flags the primary; defaults to the first. Mirrors primary to
+  // drivers.hospitalId/Name so the app + dispatch honour it immediately.
+  const setDriverHospitalsSchema = z.object({
+    hospitalIds: z.array(z.string().uuid()).max(50),
+    primaryHospitalId: z.string().uuid().nullable().optional()
+  });
+  app.put("/api/v1/admin/drivers/:id/hospitals", adminGuard, async (req, reply) => {
+    const driverId = (req.params as any).id as string;
+    const parsed = setDriverHospitalsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+    }
+    const [d] = await db.select({ id: drivers.id }).from(drivers).where(eq(drivers.id, driverId)).limit(1);
+    if (!d) return reply.code(404).send({ error: "not_found" });
+    const ids = Array.from(new Set(parsed.data.hospitalIds));
+    // Validate the hospital ids exist (ignore unknown ones).
+    const valid = ids.length
+      ? (await db.select({ id: hospitals.id }).from(hospitals).where(inArray(hospitals.id, ids))).map((h) => h.id)
+      : [];
+    const primary = parsed.data.primaryHospitalId && valid.includes(parsed.data.primaryHospitalId)
+      ? parsed.data.primaryHospitalId
+      : valid[0] ?? null;
+    // Replace the set.
+    await db.delete(driverHospitals).where(eq(driverHospitals.driverId, driverId));
+    if (valid.length) {
+      await db.insert(driverHospitals).values(
+        valid.map((hid) => ({ driverId, hospitalId: hid, isPrimary: hid === primary }))
+      );
+    }
+    await syncDriverPrimaryHospital(driverId);
+    const assigned = await db
+      .select({ id: hospitals.id, name: hospitals.name, isPrimary: driverHospitals.isPrimary })
+      .from(driverHospitals)
+      .innerJoin(hospitals, eq(hospitals.id, driverHospitals.hospitalId))
+      .where(eq(driverHospitals.driverId, driverId));
+    return reply.send({ driverId, hospitals: assigned });
+  });
+
+  // v1.1.2 — add a single driver to this hospital (from the hospital page).
+  app.post("/api/v1/admin/hospitals/:id/drivers", adminGuard, async (req, reply) => {
+    const hospitalId = (req.params as any).id as string;
+    const driverId = String((req as any).body?.driverId ?? "");
+    if (!driverId) return reply.code(400).send({ error: "driverId_required" });
+    const [h] = await db.select({ id: hospitals.id }).from(hospitals).where(eq(hospitals.id, hospitalId)).limit(1);
+    const [d] = await db.select({ id: drivers.id }).from(drivers).where(eq(drivers.id, driverId)).limit(1);
+    if (!h || !d) return reply.code(404).send({ error: "not_found" });
+    await db.insert(driverHospitals).values({ driverId, hospitalId, isPrimary: false }).onConflictDoNothing();
+    await syncDriverPrimaryHospital(driverId); // makes it primary if it's the driver's first
+    return reply.send({ ok: true });
+  });
+
+  // v1.1.2 — remove a driver from this hospital.
+  app.delete("/api/v1/admin/hospitals/:id/drivers/:driverId", adminGuard, async (req, reply) => {
+    const hospitalId = (req.params as any).id as string;
+    const driverId = (req.params as any).driverId as string;
+    await db.delete(driverHospitals).where(and(eq(driverHospitals.hospitalId, hospitalId), eq(driverHospitals.driverId, driverId)));
+    await syncDriverPrimaryHospital(driverId);
+    return reply.send({ ok: true });
   });
 
   const hospitalCreateSchema = z.object({

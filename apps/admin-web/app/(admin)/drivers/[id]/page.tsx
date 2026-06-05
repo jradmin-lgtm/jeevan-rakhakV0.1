@@ -8,6 +8,7 @@ import { resolveAmountPaid } from "../../../../lib/fare";
 import { DisableToggle } from "../../users/[id]/DisableToggle";
 import { KycVerifyToggle } from "./KycVerifyToggle";
 import { EditableField } from "../../EditableField";
+import { DriverHospitals } from "./DriverHospitals";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
@@ -25,7 +26,7 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
   const { id } = await params;
   const data = await getDriver(id);
   if (!data) notFound();
-  const { driver, bookings, totals } = data;
+  const { driver, bookings, totals, assignedHospitals = [], allHospitals = [] } = data;
 
   return (
     <>
@@ -86,8 +87,9 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
           <EditableField label="Licence #" value={driver.licenseNumber} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="licenseNumber" placeholder="DL number" />
           <EditableField label="RC #" value={driver.rcNumber} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="rcNumber" placeholder="RC number" />
           <EditableField label="Insurance #" value={driver.insuranceNumber} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="insuranceNumber" placeholder="Policy number" />
-          <EditableField label="Hospital" value={driver.hospitalName} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="hospitalName" placeholder="Hospital / org" />
-          <EditableField label="Hospital ID" value={driver.hospitalId} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="hospitalId" placeholder="Employee ID" />
+          {/* Hospital assignment moved to the dedicated multi-select card
+            * (DriverHospitals) — replaces the old free-text fields. */}
+          <Field label="Primary hospital" value={driver.hospitalName ?? <span style={{ color: "var(--muted)" }}>— unassigned</span>} />
           <Field label="Rating" value={`⭐ ${(driver.rating ?? 5).toFixed(1)}`} />
           <Field label="Last seen" value={driver.lastSeenAt ? formatIST(driver.lastSeenAt) : "—"} />
           <Field label="Joined" value={formatIST(driver.createdAt)} />
@@ -119,6 +121,7 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
           <Field label="Cancelled" value={String(totals.cancelled)} />
           <Field label="Lifetime earnings" value={`₹${totals.lifetimeEarningsInr}`} />
         </div>
+        <DriverHospitals driverId={driver.id} apiBase={API_BASE} all={allHospitals} assigned={assignedHospitals} />
       </div>
 
       <div className="card" style={{ marginTop: 16, padding: 0 }}>

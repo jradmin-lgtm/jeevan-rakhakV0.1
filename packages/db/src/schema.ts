@@ -378,6 +378,33 @@ export const hospitals = pgTable(
 export type Hospital = typeof hospitals.$inferSelect;
 export type NewHospital = typeof hospitals.$inferInsert;
 
+/**
+ * v1.1.2 — driver↔hospital assignment (many-to-many). A driver can be
+ * assigned to multiple hospitals; exactly one is `isPrimary` (mirrored to
+ * drivers.hospitalId/hospitalName for the app + dispatch). Admin manages this
+ * from the driver/hospital detail pages; KYC seeds a single primary row.
+ */
+export const driverHospitals = pgTable(
+  "driver_hospitals",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    driverId: uuid("driver_id")
+      .references(() => drivers.id, { onDelete: "cascade" })
+      .notNull(),
+    hospitalId: uuid("hospital_id")
+      .references(() => hospitals.id, { onDelete: "cascade" })
+      .notNull(),
+    isPrimary: boolean("is_primary").default(false).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (t) => ({
+    driverIdx: index("driver_hospitals_driver_idx").on(t.driverId),
+    hospitalIdx: index("driver_hospitals_hospital_idx").on(t.hospitalId)
+  })
+);
+
+export type DriverHospital = typeof driverHospitals.$inferSelect;
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Driver = typeof drivers.$inferSelect;

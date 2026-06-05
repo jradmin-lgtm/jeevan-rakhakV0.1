@@ -174,6 +174,7 @@ export default function App() {
                   onTrip={(b) => navigation.navigate("Trip", { booking: b })}
                   onProfile={() => navigation.navigate("Profile")}
                   onEarnings={() => navigation.navigate("TripHistory")}
+                  onProfileRefresh={() => void refreshProfile(setProfile)}
                 />
               )}
             </Stack.Screen>

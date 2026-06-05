@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, desc, eq, isNull, sql as drizzleSql } from "drizzle-orm";
-import { db, bookings, drivers, driverHeartbeats, sosDispatchAttempts } from "@jr/db";
+import { db, bookings, drivers, driverHeartbeats, driverHospitals, sosDispatchAttempts } from "@jr/db";
 
 const availabilitySchema = z.object({
   status: z.enum(["OFFLINE", "AVAILABLE", "ON_TRIP"]),
@@ -164,6 +164,27 @@ export async function registerDriverRoutes(app: FastifyInstance) {
         .set({ ...parsed.data, updatedAt: new Date() })
         .where(eq(drivers.id, sub))
         .returning();
+      // v1.1.2: mirror the KYC hospital pick into the driver↔hospital join
+      // table as the PRIMARY assignment, so admin's multi-assign view + the
+      // hospital pages honour it. Only when a real hospital UUID was picked
+      // and the driver has no assignment yet (admin reassignment wins after).
+      const hid = parsed.data.hospitalId;
+      if (hid && /^[0-9a-f-]{36}$/.test(hid)) {
+        try {
+          const existing = await db
+            .select({ id: driverHospitals.id })
+            .from(driverHospitals)
+            .where(eq(driverHospitals.driverId, sub))
+            .limit(1);
+          if (existing.length === 0) {
+            await db.insert(driverHospitals)
+              .values({ driverId: sub, hospitalId: hid, isPrimary: true })
+              .onConflictDoNothing();
+          }
+        } catch {
+          /* best-effort — drivers.hospitalId is still set as the mirror */
+        }
+      }
       return reply.send({ driver: d });
     }
   );
