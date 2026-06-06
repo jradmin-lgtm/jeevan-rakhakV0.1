@@ -10,6 +10,7 @@ import { registerMeRoutes } from "./routes/me";
 import { registerBookingRoutes } from "./routes/bookings";
 import { registerDriverRoutes } from "./routes/drivers";
 import { registerAdminRoutes } from "./routes/admin";
+import { registerHospitalRoutes } from "./routes/hospital";
 import { emitEvent } from "./events";
 
 declare module "@fastify/jwt" {
@@ -88,12 +89,24 @@ async function bootstrap() {
     }
   });
 
+  app.decorate("requireHospital", async function (request: any, reply: any) {
+    try {
+      await request.jwtVerify();
+      if (request.user?.role !== "hospital" || !request.user?.hospitalId) {
+        return reply.code(403).send({ error: "hospital_only" });
+      }
+    } catch {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+  });
+
   await registerHealthRoutes(app);
   await registerAuthRoutes(app);
   await registerMeRoutes(app);
   await registerBookingRoutes(app);
   await registerDriverRoutes(app);
   await registerAdminRoutes(app);
+  await registerHospitalRoutes(app);
 
   // Idempotent auto-migration so observability + per-ride OTP work on a
   // fresh Neon DB without an out-of-band step. Uses the raw postgres
