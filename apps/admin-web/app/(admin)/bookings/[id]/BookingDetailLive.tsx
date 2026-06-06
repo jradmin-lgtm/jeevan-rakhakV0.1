@@ -79,6 +79,7 @@ export function BookingDetailLive({
 
   useEffect(() => {
     let alive = true;
+    const flashTimers: ReturnType<typeof setTimeout>[] = [];
     const tick = async () => {
       try {
         const res = await adminFetch(`${apiBase}/api/v1/admin/bookings/${bookingId}`);
@@ -91,14 +92,18 @@ export function BookingDetailLive({
           const freshIds = new Set(fresh.map((e) => e.id));
           setNewEventIds(freshIds);
           fresh.forEach((e) => knownEventIds.current.add(e.id));
-          // Clear the flash after 3s.
-          setTimeout(() => {
-            setNewEventIds((prev) => {
-              const out = new Set(prev);
-              freshIds.forEach((id) => out.delete(id));
-              return out;
-            });
-          }, 3000);
+          // Clear the flash after 3s. Tracked + alive-guarded so navigating
+          // away within 3s doesn't set state on an unmounted component.
+          flashTimers.push(
+            setTimeout(() => {
+              if (!alive) return;
+              setNewEventIds((prev) => {
+                const out = new Set(prev);
+                freshIds.forEach((id) => out.delete(id));
+                return out;
+              });
+            }, 3000)
+          );
         }
         setData(next);
         setLastFetch(Date.now());
@@ -110,6 +115,7 @@ export function BookingDetailLive({
     const id = setInterval(tick, POLL_MS);
     return () => {
       alive = false;
+      flashTimers.forEach(clearTimeout);
       clearInterval(id);
     };
   }, [apiBase, bookingId]);

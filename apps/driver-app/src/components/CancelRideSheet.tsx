@@ -95,7 +95,13 @@ export function CancelRideSheet({ bookingId, patientPhone, onCancelled, onClose 
           setRemaining(secs);
         }, 1000);
       } catch (e: any) {
-        Alert.alert("Could not start wait", e?.message ?? "Try again.");
+        // Reset selection so the sheet doesn't sit on a frozen 00:00 with a
+        // permanently-disabled Confirm and no countdown — the driver can re-tap
+        // the reason to retry the wait clock.
+        clearTick();
+        setSelected(null);
+        setRemaining(null);
+        Alert.alert("Could not start wait", e?.message ?? "Tap the reason again to retry.");
       }
     } else {
       // Non-patient reason → no wait gate.

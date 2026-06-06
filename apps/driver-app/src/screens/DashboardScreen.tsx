@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Animated, RefreshControl, View } from "react-native";
 import * as Location from "expo-location";
 import {
@@ -77,6 +77,14 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
   // reject endpoint, so the server row stays REQUESTED and the next
   // /driver/incoming reconcile keeps it in the map — the row persists in the
   // list. Only the per-row Reject button (rejectRequest) actually rejects.
+  //
+  // v1.2.0 (CR#1): session-local dismiss set for NORMAL broadcast rows. A SOS
+  // reject is durable server-side (sos_dispatch_attempts), so a rejected SOS
+  // never comes back from /driver/incoming. A NORMAL booking has no per-driver
+  // reject row, so /driver/incoming would re-return it every poll — we suppress
+  // it client-side for the session (same semantics as the v1.1 "Ignore"). Both
+  // the poll reconcile and the socket merge honour this set.
+  const dismissed = useRef<Set<string>>(new Set());
   const fade = useFadeIn();
 
   // Get driver location once on mount + every 20s so dashboard ETA stays fresh
@@ -126,7 +134,10 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
       // request was resolved / expired / reassigned / cancelled). This is the
       // safety net that both prevents lost requests AND clears stale ones.
       const next: Record<string, IncomingRequest> = {};
-      for (const r of inc.requests) next[r.id] = r;
+      for (const r of inc.requests) {
+        if (dismissed.current.has(r.id)) continue; // session-dismissed normal row
+        next[r.id] = r;
+      }
       setRequests(next);
       const live = my.bookings.find((b) =>
         ["ACCEPTED", "ARRIVED", "PICKED_UP"].includes(b.status)
@@ -168,6 +179,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
 
       const mergeNormal = (msg: { bookingId?: string }) => {
         if (cancel || !msg?.bookingId) return;
+        if (dismissed.current.has(msg.bookingId)) return; // honour session dismiss
         bookingsApi
           .get(msg.bookingId)
           .then((r) => {
@@ -197,6 +209,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
 
       const mergeSos = (p: any) => {
         if (cancel || !p?.bookingId) return;
+        if (dismissed.current.has(p.bookingId)) return; // honour session dismiss
         setRequests((prev) =>
           prev[p.bookingId]
             ? prev
@@ -265,19 +278,29 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
     }
   };
 
-  // v1.2.0 (CR#1): reject from the unified list — fire the existing reject
-  // endpoint (records sos_dispatch_attempts so the cascade skips this driver)
-  // and remove ONLY that id from the map. This is a real reject, distinct from
-  // dismissing the SOS flash (which keeps the row).
+  // v1.2.0 (CR#1): reject from the unified list. Remove the row immediately,
+  // then make it stick:
+  //   • SOS row   → POST /bookings/:id/reject records a sos_dispatch_attempts
+  //                 rejection, so the cascade skips this driver and the next
+  //                 /driver/incoming no longer returns it (durable).
+  //   • NORMAL row → no per-driver reject row exists server-side, so calling
+  //                 /reject would 409. Instead suppress it client-side for the
+  //                 session (dismissed set, honoured by the poll + socket merge)
+  //                 — same behaviour as the v1.1 "Ignore". The booking stays in
+  //                 the broadcast pool for other drivers.
+  // Distinct from dismissing the SOS flash (which keeps the row in the list).
   const rejectRequest = async (req: IncomingRequest) => {
+    dismissed.current.add(req.id);
     setRequests((prev) => {
       const { [req.id]: _gone, ...rest } = prev;
       return rest;
     });
-    try {
-      await bookingsApi.reject(req.id);
-    } catch {
-      /* swallow — the row is already gone locally; next poll reconciles */
+    if (req.is_sos) {
+      try {
+        await bookingsApi.reject(req.id);
+      } catch {
+        /* row already gone locally + dismissed; next poll reconciles */
+      }
     }
   };
 

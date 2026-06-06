@@ -74,6 +74,13 @@ async function bootstrap() {
     keyGenerator: (req) => (req.ip ?? "unknown")
   });
 
+  // SECURITY GUARD-RAIL (v1.2.0): one secret (config.jwtSecret) now signs ALL
+  // four roles — user, driver, admin AND hospital. `authenticate` only proves
+  // the token is valid, NOT which role it carries. Every handler behind this
+  // decorator MUST re-check `request.user.role` (and, for hospital tokens, that
+  // `sub`/`hospitalId` matches the resource) before trusting the caller — a
+  // hospital token must never satisfy a user/driver ownership check. Do not add
+  // an `authenticate`-only route that acts on `sub` without a role check.
   app.decorate("authenticate", async function (request: any, reply: any) {
     try {
       await request.jwtVerify();
@@ -322,7 +329,7 @@ async function bootstrap() {
     `;
     await pgClient`CREATE INDEX IF NOT EXISTS booking_cancellations_driver_idx  ON booking_cancellations(driver_id)`;
     await pgClient`CREATE INDEX IF NOT EXISTS booking_cancellations_booking_idx ON booking_cancellations(booking_id)`;
-    await pgClient`CREATE INDEX IF NOT EXISTS booking_cancellations_created_idx ON booking_cancellations(created_at DESC)`;
+    await pgClient`CREATE INDEX IF NOT EXISTS booking_cancellations_created_at_idx ON booking_cancellations(created_at DESC)`;
     // CR#2: server-side wait-clock anchor for patient-reason cancellations.
     await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS cancel_wait_started_at timestamptz`;
     // CR#3: hospital portal credentials (one login per hospital for pilot).

@@ -51,6 +51,9 @@ type RunnerState = {
   userId: string;
   emergencyType: string;
   pickupAddress: string | null;
+  displayId: string | null;
+  patientName: string | null;
+  createdAt: string;
   eligibleDrivers: EligibleDriver[];
   currentWave: number;
   rejected: Set<string>;
@@ -185,6 +188,12 @@ async function runWave(app: FastifyInstance, state: RunnerState): Promise<void> 
         pickupLat: state.pickupLat,
         pickupLng: state.pickupLng,
         pickupAddress: state.pickupAddress,
+        // v1.2.0 (CR#1): include displayId/patientName/createdAt so the driver's
+        // unified-queue socket merge shows the correct id + request age
+        // immediately, not just after the next /driver/incoming poll reconcile.
+        displayId: state.displayId,
+        patientName: state.patientName,
+        createdAt: state.createdAt,
         distanceKm: target.distanceKm,
         waveNumber: state.currentWave
       });
@@ -245,6 +254,9 @@ export async function startCascade(app: FastifyInstance, bookingId: string): Pro
     userId: b.userId,
     emergencyType: b.emergencyType,
     pickupAddress: b.pickupAddress,
+    displayId: b.displayId ?? null,
+    patientName: b.patientName ?? null,
+    createdAt: b.createdAt ? new Date(b.createdAt).toISOString() : new Date().toISOString(),
     eligibleDrivers: eligible,
     currentWave: 0,
     rejected: new Set(priorRejections.map((r) => r.driverId)),

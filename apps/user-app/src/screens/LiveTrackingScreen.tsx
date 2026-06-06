@@ -208,6 +208,19 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
         if (p?.bookingId !== initial.id) return;
         setToast("No driver yet — please call the support mobile.");
       });
+      // v1.2.0 (CR#2): driver-initiated cancellation outcomes. CLOSED → the
+      // ride is cancelled (patient must re-request); RE_DISPATCHED → we're
+      // finding another ambulance (booking goes back to REQUESTED, no re-book).
+      sock.on("booking:cancelled", (p: any) => {
+        if (p?.bookingId !== initial.id) return;
+        setToast(p?.message ?? "Your booking was closed.");
+        void refreshFromApi();
+      });
+      sock.on("booking:reassigning", (p: any) => {
+        if (p?.bookingId !== initial.id) return;
+        setToast(p?.message ?? "Reassigning to another ambulance…");
+        void refreshFromApi();
+      });
 
       void refreshFromApi();
       pollRef.current = setInterval(refreshFromApi, 5000);

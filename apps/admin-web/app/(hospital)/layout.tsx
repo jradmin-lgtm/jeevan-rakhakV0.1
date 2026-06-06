@@ -11,10 +11,16 @@ import { HospitalSocketProvider } from "./HospitalSocketProvider";
  * CSS from globals.css so it stays visually consistent with the ops dashboard
  * while reading as a clearly separate, hospital-branded portal.
  *
- * Live-socket token (CR#3): the hospital JWT lives in the HTTP-only
- * `jr-hospital-session` cookie, so the browser can't read it. We read it HERE
- * (server-side) and pass it to <HospitalSocketProvider> as a prop — the
- * server-component-prop approach. No token-leaking endpoint is added.
+ * Live-socket token (CR#3): the hospital JWT is stored in the HTTP-only
+ * `jr-hospital-session` cookie (not script-readable via document.cookie). For
+ * the socket.io handshake we read it HERE (server-side) and pass it to
+ * <HospitalSocketProvider> as a prop — the server-component-prop approach, no
+ * token-leaking endpoint. TRADE-OFF: handing the token to a client component
+ * does surface it in the RSC/HTML payload, so for this one value the HttpOnly
+ * guarantee no longer holds end-to-end. Acceptable for the pilot — it is the
+ * hospital's own short-lived (8h), hospital-scoped session token (same trust
+ * level as the data the page already renders), never the admin key. If stricter
+ * isolation is wanted later, mint a separate ~60s socket-handshake token.
  *
  * Open props type — see the comment in (admin)/layout.tsx for the
  * @types/react 19.0.x typed-routes incompatibility this works around.

@@ -319,6 +319,19 @@ export async function registerDriverRoutes(app: FastifyInstance) {
         await redispatchBooking(app, bookingId, sub);
       }
 
+      // Drive the patient's LiveTrackingScreen state live: it subscribes to the
+      // booking room and refetches on `booking:event`. The emit-to-user events
+      // above carry the friendly toast; this one makes the screen reflect the
+      // new status (CANCELLED / back to REQUESTED) without waiting for the poll.
+      await fetch(`${config.socketBaseUrl}/internal/booking-event`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-internal": config.internalApiSecret },
+        body: JSON.stringify({
+          bookingId,
+          type: outcome === "CLOSED" ? "booking.cancelled" : "booking.reassigning"
+        })
+      }).catch(() => {});
+
       return reply.send({ ok: true, outcome });
     }
   );

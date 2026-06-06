@@ -5,12 +5,21 @@ import { config } from "@jr/config";
 import { verifyPassword } from "../password";
 import { resolveParamedic } from "../paramedic";
 
+const RATE_LIMIT_BYPASS = process.env.RATE_LIMIT_BYPASS === "1";
+
 export async function registerHospitalRoutes(app: FastifyInstance) {
   // CR#3: hospital portal login. Signs with the existing app.jwt secret + a
   // role:"hospital" + hospitalId claim so the socket-server validates it for
   // free (no new secret). RBAC downstream derives hospitalId ONLY from this
   // claim — never from query/body.
-  app.post("/api/v1/hospital/login", async (req: any, reply: any) => {
+  // v1.2.0 hardening: per-route IP rate limit (mirrors auth.ts verify-OTP) so a
+  // hospital username — which is admin-set and often guessable (e.g. "srms") —
+  // can't be password-brute-forced. scrypt + 8-char min are the other layers.
+  app.post("/api/v1/hospital/login", {
+    config: RATE_LIMIT_BYPASS
+      ? {}
+      : { rateLimit: { max: config.rateLimitVerifyPerMin, timeWindow: "1 minute" } }
+  }, async (req: any, reply: any) => {
     const username = String(req.body?.username ?? "").trim().toLowerCase();
     const password = String(req.body?.password ?? "");
     if (!username || !password) return reply.code(400).send({ error: "missing_credentials" });
