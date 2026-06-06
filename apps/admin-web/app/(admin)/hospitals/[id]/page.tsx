@@ -5,6 +5,7 @@ import { adminFetch } from "../../../../lib/adminFetch";
 import { prettyStatus } from "../../../../lib/status";
 import { formatIST } from "../../../../lib/dates";
 import { HospitalDrivers } from "./HospitalDrivers";
+import { HospitalPortalCreds } from "./HospitalPortalCreds";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
@@ -57,6 +58,15 @@ export default async function HospitalDetail({ params }: { params: Promise<{ id:
 
       <div style={{ marginBottom: 16 }}>
         <HospitalDrivers hospitalId={id} apiBase={API_BASE} initial={ds} />
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <HospitalPortalCreds
+          hospitalId={id}
+          apiBase={API_BASE}
+          initialUsername={h.portalUsername ?? null}
+          initialEnabled={!!h.portalEnabled}
+        />
       </div>
 
       <div className="card" style={{ overflowX: "auto" }}>

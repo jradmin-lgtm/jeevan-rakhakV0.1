@@ -41,6 +41,10 @@ type Booking = {
   feedback?: string | null;
   ratingByDriver?: number | null;
   feedbackByDriver?: string | null;
+  // v1.2.0 (CR#3): set when the destination hospital acknowledges the inbound
+  // ride from its portal and is preparing for the patient. Comes through on the
+  // existing /admin/bookings/:id payload (full booking row).
+  hospitalAckAt?: string | null;
   isDemo?: boolean;
 };
 
@@ -126,6 +130,7 @@ export function BookingDetailLive({
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span className={`pill ${booking.status.toLowerCase()}`}>{prettyStatus(booking.status)}</span>
           <AssessmentPill badge={assessment} />
+          {booking.hospitalAckAt ? <HospitalPreparingChip ackAt={booking.hospitalAckAt} /> : null}
         </div>
         <span className="muted" style={{ fontSize: 12 }}>
           <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "var(--success)", marginRight: 6 }} />
@@ -460,6 +465,34 @@ function sourceExplanation(source: "override" | "payable" | "final" | "estimate"
     case "estimate": return "Quoted fare; trip not yet closed.";
     case "none":     return "No fare data captured yet.";
   }
+}
+
+/**
+ * v1.2.0 (CR#3): shown once the destination hospital acknowledges the inbound
+ * ride from its portal. Green to read as a positive loop-closer next to the
+ * status / assessment pills.
+ */
+function HospitalPreparingChip({ ackAt }: { ackAt: string }) {
+  return (
+    <span
+      title={`Hospital acknowledged at ${formatIST(ackAt)}`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "4px 10px",
+        borderRadius: 999,
+        fontSize: 11,
+        fontWeight: 700,
+        letterSpacing: 0.4,
+        textTransform: "uppercase",
+        background: "rgba(16,185,129,0.10)",
+        color: "var(--success, #059669)",
+        border: "1px solid rgba(16,185,129,0.30)"
+      }}
+    >
+      🏥 Hospital notified &amp; preparing
+    </span>
+  );
 }
 
 function AssessmentPill({ badge }: { badge: { label: string; variant: "submitted" | "risk" | "awaiting" | "na" } }) {
