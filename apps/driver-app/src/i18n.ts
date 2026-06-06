@@ -132,6 +132,34 @@ const en: Dict = {
   "trip.drive_to_hospital": "Drive to hospital",
   "trip.drop_completed": "Drop completed",
 
+  // v1.2.0 (CR#2): driver-initiated cancellation sheet.
+  "cancel.cancel_ride": "Cancel ride",
+  "cancel.reason_title": "Why are you cancelling?",
+  "cancel.reason.PATIENT_NOT_AVAILABLE": "Patient not at pickup",
+  "cancel.reason.PATIENT_NOT_RESPONDING": "Patient not responding",
+  "cancel.reason.VEHICLE_BREAKDOWN": "Vehicle breakdown / mechanical",
+  "cancel.reason.TYRE_PUNCTURE": "Tyre puncture",
+  "cancel.reason.CANNOT_REACH_PICKUP": "Can't reach pickup",
+  "cancel.reason.OTHER": "Other",
+  "cancel.other_remarks_placeholder": "Tell us briefly what happened (min 10 characters)",
+  "cancel.remarks_min_hint": "{count}/10 characters minimum",
+  "cancel.wait_countdown_hint": "Please wait and try reaching the patient. You can confirm cancellation once the timer ends.",
+  "cancel.call_patient": "Call patient",
+  "cancel.confirm_cancellation": "Confirm cancellation",
+  "cancel.cancelled_redispatch_toast": "Ride released. We're finding another ambulance for the patient.",
+  "cancel.cancelled_closed_toast": "Booking closed. You're free to accept new requests.",
+
+  // v1.2.0 (CR#1): unified incoming-request queue.
+  "incoming.title": "INCOMING REQUESTS",
+  "incoming.sos_badge": "🚨 SOS EMERGENCY",
+  "incoming.normal_badge": "🚑 BOOKING",
+  "incoming.accept": "Accept",
+  "incoming.reject": "Reject",
+  "incoming.request_age_min": "{min}m ago",
+
+  // v1.2.0 (CR#3): hospital "acknowledge — preparing" surface on the trip.
+  "trip.hospital_preparing_banner": "Hospital notified & preparing for arrival",
+
   "trip_history.title": "Trip history",
   "trip_history.subtitle": "Your completed trips",
   "trip_history.empty": "No completed trips yet.",
@@ -287,6 +315,34 @@ const hi: Dict = {
   "trip.complete_locked_no_drop": "इस बटन को सक्षम करने के लिए पहले ड्रॉप अस्पताल सेट करें।",
   "trip.drive_to_hospital": "अस्पताल चलें",
   "trip.drop_completed": "ड्रॉप पूरा हुआ",
+
+  // v1.2.0 (CR#2): ड्राइवर द्वारा रद्द करने की शीट
+  "cancel.cancel_ride": "राइड रद्द करें",
+  "cancel.reason_title": "आप रद्द क्यों कर रहे हैं?",
+  "cancel.reason.PATIENT_NOT_AVAILABLE": "मरीज़ पिकअप पर मौजूद नहीं",
+  "cancel.reason.PATIENT_NOT_RESPONDING": "मरीज़ जवाब नहीं दे रहा",
+  "cancel.reason.VEHICLE_BREAKDOWN": "वाहन खराबी / मैकेनिकल",
+  "cancel.reason.TYRE_PUNCTURE": "टायर पंक्चर",
+  "cancel.reason.CANNOT_REACH_PICKUP": "पिकअप तक नहीं पहुँच सकते",
+  "cancel.reason.OTHER": "अन्य",
+  "cancel.other_remarks_placeholder": "संक्षेप में बताएँ क्या हुआ (कम से कम 10 अक्षर)",
+  "cancel.remarks_min_hint": "{count}/10 अक्षर न्यूनतम",
+  "cancel.wait_countdown_hint": "कृपया प्रतीक्षा करें और मरीज़ तक पहुँचने का प्रयास करें। टाइमर समाप्त होने पर आप रद्दीकरण की पुष्टि कर सकते हैं।",
+  "cancel.call_patient": "मरीज़ को कॉल करें",
+  "cancel.confirm_cancellation": "रद्दीकरण की पुष्टि करें",
+  "cancel.cancelled_redispatch_toast": "राइड जारी की गई। हम मरीज़ के लिए दूसरी एम्बुलेंस खोज रहे हैं।",
+  "cancel.cancelled_closed_toast": "बुकिंग बंद कर दी गई। आप नए अनुरोध स्वीकार करने के लिए स्वतंत्र हैं।",
+
+  // v1.2.0 (CR#1): एकीकृत आने वाले अनुरोध सूची
+  "incoming.title": "आने वाले अनुरोध",
+  "incoming.sos_badge": "🚨 SOS आपातकाल",
+  "incoming.normal_badge": "🚑 बुकिंग",
+  "incoming.accept": "स्वीकार करें",
+  "incoming.reject": "अस्वीकार करें",
+  "incoming.request_age_min": "{min} मिनट पहले",
+
+  // v1.2.0 (CR#3): यात्रा पर अस्पताल "स्वीकृति — तैयारी" सूचना
+  "trip.hospital_preparing_banner": "अस्पताल को सूचित किया गया और वह आगमन की तैयारी कर रहा है",
 
   "trip_history.title": "यात्रा इतिहास",
   "trip_history.subtitle": "आपकी पूरी हुई यात्राएँ",

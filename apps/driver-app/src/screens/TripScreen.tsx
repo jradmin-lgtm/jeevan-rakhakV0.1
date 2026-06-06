@@ -26,6 +26,8 @@ import { getSocket } from "../socket";
 import { prettyEmergency } from "./DashboardScreen";
 import { MapLocationPicker } from "./MapLocationPicker";
 import { LangToggle } from "../components/LangToggle";
+import { CancelRideSheet } from "../components/CancelRideSheet";
+import { useT } from "../i18n";
 
 type UserProfile = {
   id: string;
@@ -76,9 +78,15 @@ function statusToIndex(status: string): number {
 }
 
 export function TripScreen({ booking: initial, onClose }: { booking: Booking; onClose: () => void }) {
+  const { t } = useT();
   const [booking, setBooking] = useState<Booking>(initial);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [busy, setBusy] = useState(false);
+  // v1.2.0 (CR#2): driver-initiated cancellation sheet visibility.
+  const [cancelOpen, setCancelOpen] = useState(false);
+  // v1.2.0 (CR#3): set when the receiving hospital taps "Acknowledge —
+  // preparing"; surfaces a reassuring banner to the driver.
+  const [hospitalPreparing, setHospitalPreparing] = useState(false);
   const [pushedAt, setPushedAt] = useState<number | null>(null);
   const [myPos, setMyPos] = useState<{ lat: number; lng: number } | null>(null);
   // v1.0.15: SOS map-picker visibility. Opens as a fullscreen modal when the
@@ -170,6 +178,33 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
     return () => clearInterval(id);
   }, [booking.id]);
 
+  // v1.2.0 (CR#3): listen for the receiving hospital's "acknowledge —
+  // preparing" event. The api-server fans this out to the assigned driver's
+  // socket as `hospital:preparing` with the booking id; we only react to the
+  // event for THIS trip. Listener is cleared on unmount (audit gate item 4).
+  useEffect(() => {
+    let mounted = true;
+    let cleanup: (() => void) | null = null;
+    (async () => {
+      try {
+        const sock = await getSocket();
+        if (!mounted) return;
+        const onPreparing = (p: { bookingId?: string }) => {
+          if (!mounted) return;
+          if (!p?.bookingId || p.bookingId === booking.id) setHospitalPreparing(true);
+        };
+        sock.on("hospital:preparing", onPreparing);
+        cleanup = () => sock.off("hospital:preparing", onPreparing);
+      } catch {
+        /* socket bootstrap failed — banner simply won't show; non-critical */
+      }
+    })();
+    return () => {
+      mounted = false;
+      cleanup?.();
+    };
+  }, [booking.id]);
+
   // CR#6: once picked up, fetch the road route to the (auto-assigned) hospital
   // and auto-launch Google Maps turn-by-turn exactly once. Free OSRM; falls
   // back silently to the haversine ETA if unavailable.
@@ -234,6 +269,19 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
   return (
     <Screen>
       <AppHeader title="Active trip" subtitle={`#${booking.displayId ?? booking.id.slice(0, 8)}`} onBack={onClose} right={<LangToggle />} />
+
+      {/* v1.2.0 (CR#3): hospital has acknowledged & is preparing — reassures
+        * the driver the receiving end is ready for the patient. */}
+      {!finished && hospitalPreparing ? (
+        <Card style={{ borderColor: colors.success, borderWidth: 1, backgroundColor: "rgba(16,185,129,0.08)" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+            <PulseDot size={10} color={colors.success} rings={1} />
+            <Text variant="small" weight="semi" tone="success" style={{ flex: 1 }}>
+              {t("trip.hospital_preparing_banner")}
+            </Text>
+          </View>
+        </Card>
+      ) : null}
 
       <Card>
         <View style={{ gap: space.md }}>
@@ -552,10 +600,35 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
           <Text variant="tiny" tone="muted" align="center">
             Tap the button as you complete each stage.
           </Text>
+          {/* v1.2.0 (CR#2): driver can cancel only before pickup (ACCEPTED /
+            * ARRIVED). PICKED_UP+ is admin-only. Patient-reason cancels are
+            * server-gated by a wait window inside the sheet. */}
+          {booking.status === "ACCEPTED" || booking.status === "ARRIVED" ? (
+            <Button
+              label={t("cancel.cancel_ride")}
+              onPress={() => setCancelOpen(true)}
+              variant="ghost"
+              fullWidth
+              testID="cancel-ride-cta"
+            />
+          ) : null}
         </View>
       ) : (
         <Button label="Back to dashboard" onPress={onClose} fullWidth />
       )}
+      {/* v1.2.0 (CR#2): cancellation sheet. onCancelled fires after the server
+        * confirms; the driver is now AVAILABLE so we route back to Dashboard. */}
+      {cancelOpen ? (
+        <CancelRideSheet
+          bookingId={booking.id}
+          patientPhone={userProfile?.phone}
+          onCancelled={() => {
+            setCancelOpen(false);
+            onClose();
+          }}
+          onClose={() => setCancelOpen(false)}
+        />
+      ) : null}
       {/* v1.0.15: full-screen map picker for SOS drop hospital. Mounted at
         * Screen root so it overlays everything when opened. Cancel = stays
         * gated on the drop card; confirm = POST /set-drop + refresh booking. */}

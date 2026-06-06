@@ -223,6 +223,47 @@ export const hospitals = {
   list: () => api<{ hospitals: HospitalOption[] }>("/api/v1/hospitals")
 };
 
+// v1.2.0 (CR#1): unified incoming-request row returned by GET /driver/incoming.
+// NOTE: this endpoint streams raw pgClient rows (no camelCase mapping like
+// /sos-pending does), so the fields are snake_case exactly as the SQL aliases
+// them. Keep this type in lockstep with the SELECT column list in the
+// api-server `/api/v1/driver/incoming` handler.
+export type IncomingRequest = {
+  id: string;
+  display_id: string | null;
+  emergency_type: string;
+  pickup_lat: number;
+  pickup_lng: number;
+  pickup_address: string | null;
+  patient_name: string | null;
+  created_at: string;
+  is_sos: boolean;
+};
+
+// v1.2.0 (CR#1): the single source of truth the Dashboard polls so SOS and
+// normal requests share one list and neither can silently overwrite the other.
+// Supersedes the legacy sosPending() poll.
+export const incoming = {
+  list: () => api<{ requests: IncomingRequest[] }>("/api/v1/driver/incoming")
+};
+
+// v1.2.0 (CR#2): driver-initiated cancellation. `startWait` anchors the
+// server-authoritative wait clock for patient-no-show reasons; `cancel` either
+// CLOSES the booking (patient reasons, after the wait) or RE-DISPATCHES it
+// (vehicle / operational / other) and frees this driver.
+export const rideCancel = {
+  startWait: (bookingId: string) =>
+    api<{ waitStartedAt: string; waitSeconds: number }>(
+      `/api/v1/driver/bookings/${bookingId}/cancel/start-wait`,
+      { method: "POST", body: {} }
+    ),
+  cancel: (bookingId: string, reasonCode: string, remarks?: string) =>
+    api<{ ok: true; outcome: string }>(`/api/v1/driver/bookings/${bookingId}/cancel`, {
+      method: "POST",
+      body: { reasonCode, remarks }
+    })
+};
+
 export const bookings = {
   pending: () => api<{ bookings: Booking[] }>("/api/v1/bookings/pending"),
   // v1.1.0 (CR#4): polling fallback for SOS dispatch — surfaces SOS requests

@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Animated, Easing, Pressable, RefreshControl, View } from "react-native";
+import React, { useCallback, useEffect, useState } from "react";
+import { Alert, Animated, RefreshControl, View } from "react-native";
 import * as Location from "expo-location";
 import {
   AppHeader,
@@ -7,7 +7,6 @@ import {
   Card,
   EmptyState,
   IconBadge,
-  MapEmbed,
   Pill,
   PulseDot,
   Screen,
@@ -18,32 +17,31 @@ import {
   space,
   useFadeIn
 } from "@jr/ui";
-import { Booking, bookings as bookingsApi, clearToken, driver as driverApi, me } from "../api";
+import {
+  Booking,
+  bookings as bookingsApi,
+  clearToken,
+  driver as driverApi,
+  incoming as incomingApi,
+  IncomingRequest,
+  me
+} from "../api";
 import { getSocket, disconnectSocket } from "../socket";
 import { useDriverHeartbeat } from "../hooks/useDriverHeartbeat";
 import { SosIncomingModal } from "../components/SosIncomingModal";
+import { IncomingRequestList } from "../components/IncomingRequestList";
 import { LangToggle } from "../components/LangToggle";
+import { useT } from "../i18n";
 
 // v1.0.12: removed DRIVER_DEFAULT (Delhi centroid). When the driver
 // goes online without a GPS lock yet, we now send availability without
 // lat/lng — the server falls back to the driver's stored location and
 // will update on the next location push. No more "you appear in Delhi"
 // edge case for first-launch drivers anywhere outside Delhi.
-
-// Helper duplicated from TripScreen for self-containment.
-function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-function estimateEtaMin(km: number, avgKmh = 28, roadFactor = 1.4): number {
-  return Math.max(1, Math.round(((km * roadFactor) / avgKmh) * 60));
-}
+//
+// v1.2.0 (CR#1): the per-row distance/ETA chips (and their haversine/eta
+// helpers + the inline map) moved out when the closest-first single-card list
+// was replaced by the unified SOS-first IncomingRequestList.
 
 type Props = {
   profile: any;
@@ -56,19 +54,29 @@ type Props = {
 };
 
 export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnings, onProfileRefresh }: Props) {
+  const { t } = useT();
   const [available, setAvailable] = useState(profile?.status !== "OFFLINE");
   // v1.0.15: emit a "I'm online" heartbeat to the SOS cascade engine every
   // 60s while the toggle is on and the app is foregrounded. Pauses
   // automatically when backgrounded.
   useDriverHeartbeat(available);
-  const [pending, setPending] = useState<Booking[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [activeTrip, setActiveTrip] = useState<Booking | null>(null);
   const [todayCompleted, setTodayCompleted] = useState(0);
   const [myPos, setMyPos] = useState<{ lat: number; lng: number } | null>(null);
-  const [ignored, setIgnored] = useState<Set<string>>(new Set());
-  const subscribed = useRef(false);
+  // v1.2.0 (CR#1): unified incoming-request queue, held as a keyed map keyed by
+  // booking id. The /driver/incoming poll is the source of truth (reconcile:
+  // add/update returned ids, drop ids no longer returned → resolved / expired /
+  // reassigned / backend-cancelled). Socket events merge into the SAME map
+  // (instant) but never replace it wholesale, so neither SOS nor normal
+  // requests can silently overwrite the other.
+  const [requests, setRequests] = useState<Record<string, IncomingRequest>>({});
+  // Dismiss ≠ reject: the high-priority SOS flash (SosIncomingModal) is a
+  // separate surface from this list. Dismissing the flash does NOT call the
+  // reject endpoint, so the server row stays REQUESTED and the next
+  // /driver/incoming reconcile keeps it in the map — the row persists in the
+  // list. Only the per-row Reject button (rejectRequest) actually rejects.
   const fade = useFadeIn();
 
   // Get driver location once on mount + every 20s so dashboard ETA stays fresh
@@ -106,16 +114,20 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
     return () => clearInterval(id);
   }, [onProfileRefresh]);
 
-  const ignore = (id: string) => setIgnored((prev) => new Set(prev).add(id));
-
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [pen, my] = await Promise.all([
-        bookingsApi.pending().catch(() => ({ bookings: [] as Booking[] })),
+      const [inc, my] = await Promise.all([
+        incomingApi.list().catch(() => ({ requests: [] as IncomingRequest[] })),
         bookingsApi.mine().catch(() => ({ bookings: [] as Booking[] }))
       ]);
-      setPending(pen.bookings);
+      // Reconcile the keyed map against the authoritative server list: every
+      // returned id is added/updated, every id NOT returned is dropped (the
+      // request was resolved / expired / reassigned / cancelled). This is the
+      // safety net that both prevents lost requests AND clears stale ones.
+      const next: Record<string, IncomingRequest> = {};
+      for (const r of inc.requests) next[r.id] = r;
+      setRequests(next);
       const live = my.bookings.find((b) =>
         ["ACCEPTED", "ARRIVED", "PICKED_UP"].includes(b.status)
       );
@@ -133,31 +145,89 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
     return () => clearInterval(id);
   }, [refresh]);
 
-  // Subscribe to live booking offers via socket. When we already have a
-  // GPS fix (`myPos`) we include it so dispatch's matching algorithm
-  // sees us in the right place; otherwise we omit lat/lng and the next
-  // location push will update it.
+  // v1.2.0 (CR#1): subscribe to live offers via socket and MERGE them into the
+  // keyed `requests` map (instant surfacing), never replacing the whole map —
+  // the /driver/incoming poll remains the reconcile source of truth. We handle
+  // both `booking:offered` (normal broadcast) and `sos:incoming` (cascade push)
+  // so the unified list reflects either kind the moment it lands. When we have
+  // a GPS fix we include it so dispatch's matching sees us in the right place.
+  // Listeners are removed on unmount / availability change (audit gate item 4).
   useEffect(() => {
+    if (!available) return;
     let cancel = false;
+    let cleanup: (() => void) | null = null;
     (async () => {
-      if (!available || subscribed.current) return;
       const sock = await getSocket();
+      if (cancel) return;
       const payload: { available: true; lat?: number; lng?: number } = { available: true };
       if (myPos) {
         payload.lat = myPos.lat;
         payload.lng = myPos.lng;
       }
       sock.emit("driver:availability", payload);
-      sock.on("booking:offered", (msg: any) => {
-        if (cancel) return;
-        bookingsApi.get(msg.bookingId).then((r) => {
-          if (cancel) return;
-          setPending((prev) => (prev.find((b) => b.id === r.booking.id) ? prev : [r.booking, ...prev]));
-        }).catch(() => {});
-      });
-      subscribed.current = true;
+
+      const mergeNormal = (msg: { bookingId?: string }) => {
+        if (cancel || !msg?.bookingId) return;
+        bookingsApi
+          .get(msg.bookingId)
+          .then((r) => {
+            if (cancel) return;
+            const b = r.booking;
+            setRequests((prev) =>
+              prev[b.id]
+                ? prev
+                : {
+                    ...prev,
+                    [b.id]: {
+                      id: b.id,
+                      display_id: b.displayId ?? null,
+                      emergency_type: b.emergencyType,
+                      pickup_lat: b.pickupLat,
+                      pickup_lng: b.pickupLng,
+                      pickup_address: b.pickupAddress ?? null,
+                      patient_name: b.patientName ?? null,
+                      created_at: b.createdAt,
+                      is_sos: !!b.isSos
+                    }
+                  }
+            );
+          })
+          .catch(() => {});
+      };
+
+      const mergeSos = (p: any) => {
+        if (cancel || !p?.bookingId) return;
+        setRequests((prev) =>
+          prev[p.bookingId]
+            ? prev
+            : {
+                ...prev,
+                [p.bookingId]: {
+                  id: p.bookingId,
+                  display_id: p.displayId ?? null,
+                  emergency_type: p.emergencyType,
+                  pickup_lat: p.pickupLat,
+                  pickup_lng: p.pickupLng,
+                  pickup_address: p.pickupAddress ?? null,
+                  patient_name: p.patientName ?? null,
+                  created_at: p.createdAt ?? new Date().toISOString(),
+                  is_sos: true
+                }
+              }
+        );
+      };
+
+      sock.on("booking:offered", mergeNormal);
+      sock.on("sos:incoming", mergeSos);
+      cleanup = () => {
+        sock.off("booking:offered", mergeNormal);
+        sock.off("sos:incoming", mergeSos);
+      };
     })();
-    return () => { cancel = true; };
+    return () => {
+      cancel = true;
+      cleanup?.();
+    };
   }, [available, myPos]);
 
   const toggleAvailable = useCallback(async () => {
@@ -178,13 +248,36 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
     }
   }, [available, myPos]);
 
-  const accept = async (b: Booking) => {
+  // v1.2.0 (CR#1): accept from the unified list — same atomic accept flow as
+  // before; on success route to Trip, on failure drop the (now-taken) row and
+  // resync via refresh.
+  const acceptRequest = async (req: IncomingRequest) => {
     try {
-      const r = await bookingsApi.accept(b.id);
+      const r = await bookingsApi.accept(req.id);
       onTrip(r.booking);
     } catch (e: any) {
       Alert.alert("Could not accept", e?.message ?? "Booking may have been taken.");
+      setRequests((prev) => {
+        const { [req.id]: _gone, ...rest } = prev;
+        return rest;
+      });
       void refresh();
+    }
+  };
+
+  // v1.2.0 (CR#1): reject from the unified list — fire the existing reject
+  // endpoint (records sos_dispatch_attempts so the cascade skips this driver)
+  // and remove ONLY that id from the map. This is a real reject, distinct from
+  // dismissing the SOS flash (which keeps the row).
+  const rejectRequest = async (req: IncomingRequest) => {
+    setRequests((prev) => {
+      const { [req.id]: _gone, ...rest } = prev;
+      return rest;
+    });
+    try {
+      await bookingsApi.reject(req.id);
+    } catch {
+      /* swallow — the row is already gone locally; next poll reconciles */
     }
   };
 
@@ -281,9 +374,9 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
         <View style={{ gap: space.sm }}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-              <Text variant="label" tone="secondary">INCOMING REQUESTS</Text>
+              <Text variant="label" tone="secondary">{t("incoming.title")}</Text>
               {available && (() => {
-                const c = pending.filter((b) => !ignored.has(b.id)).length;
+                const c = Object.keys(requests).length;
                 return c > 0 ? <Pill label={`${c}`} color={colors.primary} bg={colors.primaryFaint} /> : null;
               })()}
             </View>
@@ -299,42 +392,13 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
               </View>
             </Card>
           ) : available ? (
-            (() => {
-              // Sort closest-first so the driver always sees the most-likely
-              // accept candidate at the top. Falls back to creation order
-              // when GPS isn't ready yet.
-              const visible = pending
-                .filter((b) => !ignored.has(b.id))
-                .map((b) => ({
-                  b,
-                  km: myPos ? haversineKm(myPos.lat, myPos.lng, b.pickupLat, b.pickupLng) : null
-                }))
-                .sort((a, b) => {
-                  if (a.km == null && b.km == null) return 0;
-                  if (a.km == null) return 1;
-                  if (b.km == null) return -1;
-                  return a.km - b.km;
-                });
-              if (visible.length === 0) {
-                return (
-                  <Card flat>
-                    <EmptyState title="No active requests" description="New SOS requests will appear here instantly." />
-                  </Card>
-                );
-              }
-              return visible.map(({ b, km }, idx) => (
-                <RequestRow
-                  key={b.id}
-                  booking={b}
-                  km={km}
-                  eta={km != null ? estimateEtaMin(km) : null}
-                  driverPos={myPos}
-                  highlight={idx === 0}
-                  onIgnore={() => ignore(b.id)}
-                  onAccept={() => accept(b)}
-                />
-              ));
-            })()
+            // v1.2.0 (CR#1): unified state-backed queue — SOS + normal in one
+            // list, sorted SOS-first then newest-first inside IncomingRequestList.
+            <IncomingRequestList
+              requests={requests}
+              onAccept={acceptRequest}
+              onReject={rejectRequest}
+            />
           ) : (
             <Card flat>
               <EmptyState title="You're offline" description="Go online above to receive emergency requests." />
@@ -406,148 +470,6 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
       <SosIncomingModal onAccept={(b) => onTrip(b)} />
     </Screen>
   );
-}
-
-/**
- * Compact list-row for an incoming booking. Designed for high-density
- * stacking (10+ requests at once). Tap the row to expand the inline map;
- * "Accept" gives a press-scale animation + spinner while the request fires
- * so the driver gets clear feedback before the row vanishes from the list.
- */
-function RequestRow({
-  booking,
-  km,
-  eta,
-  driverPos,
-  highlight,
-  onIgnore,
-  onAccept
-}: {
-  booking: Booking;
-  km: number | null;
-  eta: number | null;
-  driverPos: { lat: number; lng: number } | null;
-  highlight: boolean;
-  onIgnore: () => void;
-  onAccept: () => void | Promise<void>;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const scale = useRef(new Animated.Value(1)).current;
-  const fade = useFadeIn();
-
-  // Pulsing border highlight on the top (closest) request so the driver's
-  // eye lands on it first.
-  const pulse = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (!highlight) return;
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: false }),
-        Animated.timing(pulse, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: false })
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [highlight, pulse]);
-
-  const borderOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] });
-
-  const handleAccept = async () => {
-    // Press-scale + busy spinner. Once the API resolves, the parent's
-    // refresh() removes the booking from `pending` so this row unmounts
-    // automatically — no extra cleanup needed here.
-    setBusy(true);
-    Animated.sequence([
-      Animated.timing(scale, { toValue: 0.96, duration: 80, useNativeDriver: true }),
-      Animated.timing(scale, { toValue: 1, duration: 120, useNativeDriver: true })
-    ]).start();
-    try {
-      await onAccept();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Animated.View style={[fade, { transform: [{ scale }] }]}>
-      {/* No more pulsing card border — feedback was that the whole-card pulse
-        * was too much. Hook is now scoped to the Accept button (see below). */}
-      <Card padding="md">
-        <Pressable onPress={() => setExpanded((x) => !x)} android_ripple={{ color: "rgba(0,0,0,0.04)" }}>
-          <View style={{ gap: space.sm }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-                <PulseDot size={8} color={colors.primary} rings={1} />
-                <Pill label={prettyEmergency(booking.emergencyType)} />
-              </View>
-              <Text variant="tiny" tone="muted">{secondsAgo(booking.createdAt)}</Text>
-            </View>
-            <Text variant="body" weight="semi">
-              {booking.pickupAddress ?? "Patient location"}
-            </Text>
-            {/* Distance + ETA chips always rendered — visible without expanding. */}
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <View style={{ flexDirection: "row", gap: space.lg }}>
-                <View>
-                  <Text variant="tiny" tone="secondary">DISTANCE</Text>
-                  <Text variant="body" weight="bold">
-                    {km != null ? `${km.toFixed(1)} km` : "—"}
-                  </Text>
-                </View>
-                <View>
-                  <Text variant="tiny" tone="secondary">ETA</Text>
-                  <Text variant="body" weight="bold" tone="primary">
-                    {eta != null ? `~${eta} min` : "—"}
-                  </Text>
-                </View>
-              </View>
-              <Text variant="tiny" tone="muted">
-                {expanded ? "Hide map ▴" : "Show map ▾"}
-              </Text>
-            </View>
-          </View>
-        </Pressable>
-
-        {expanded ? (
-          <View style={{ marginTop: space.md }}>
-            <MapEmbed
-              pickup={{ lat: booking.pickupLat, lng: booking.pickupLng, label: "Patient" }}
-              driver={driverPos ? { lat: driverPos.lat, lng: driverPos.lng, label: "You" } : null}
-              height={180}
-            />
-          </View>
-        ) : null}
-
-        <View style={{ flexDirection: "row", gap: space.sm, marginTop: space.md }}>
-          <View style={{ flex: 1 }}>
-            <Button label="Ignore" onPress={onIgnore} variant="outline" fullWidth disabled={busy} />
-          </View>
-          <View style={{ flex: 2 }}>
-            {/* Hook moved here — the Accept button itself glows on the top
-              * (closest) row. Eye-catching without the whole-card noise. */}
-            <Animated.View style={highlight ? { opacity: borderOpacity } : undefined}>
-              <Button
-                label={busy ? "Accepting…" : "Accept"}
-                onPress={handleAccept}
-                loading={busy}
-                fullWidth
-                size="lg"
-                testID={`accept-${booking.id}`}
-              />
-            </Animated.View>
-          </View>
-        </View>
-      </Card>
-    </Animated.View>
-  );
-}
-
-function secondsAgo(iso: string): string {
-  const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  return new Date(iso).toLocaleTimeString();
 }
 
 export function prettyEmergency(t: string): string {
