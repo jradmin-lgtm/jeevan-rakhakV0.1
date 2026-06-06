@@ -7,8 +7,9 @@ import { bookings, db, drivers } from "@jr/db";
 
 type JwtPayload = {
   sub: string;
-  role: "user" | "driver" | "admin";
+  role: "user" | "driver" | "admin" | "hospital";
   phone: string;
+  hospitalId?: string;
 };
 
 const drivers_room = "drivers:available";

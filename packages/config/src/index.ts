@@ -74,6 +74,14 @@ export const config = {
   perKmFareInr: optionalNum("PER_KM_FARE_INR", 30),
   bookingTimeoutSec: optionalNum("BOOKING_TIMEOUT_SEC", 90),
 
+  // v1.2.0 (CR#2) — driver-initiated cancellation tuning.
+  // `driverCancelPatientWaitS` is the server-authoritative wait window (seconds)
+  // a driver must observe before a patient-reason cancellation is allowed.
+  // `driverCancelFlagRate` is the cancel/accept ratio at/above which admin flags
+  // a driver as a high-cancellation outlier.
+  driverCancelPatientWaitS: Number(optional("DRIVER_CANCEL_PATIENT_WAIT_S", "300")),
+  driverCancelFlagRate: Number(optional("DRIVER_CANCEL_FLAG_RATE", "0.3")),
+
   // SMS provider for OTP delivery
   sms: {
     provider: optional("SMS_PROVIDER", "mock") as "twilio" | "msg91" | "mock",
