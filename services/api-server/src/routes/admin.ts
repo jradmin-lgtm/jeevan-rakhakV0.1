@@ -1,7 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, count, desc, eq, gte, inArray, lte, sql as drizzleSql } from "drizzle-orm";
-import { bookingEvents, bookings, drivers, db, driverHospitals, hospitals, users, systemEvents } from "@jr/db";
+import { bookingEvents, bookings, drivers, db, driverHospitals, hospitals, users, systemEvents, sql as pgClient } from "@jr/db";
+import { config } from "@jr/config";
+import { hashPassword } from "../password";
 
 /**
  * v1.1.2 — recompute a driver's PRIMARY hospital from the join table and
@@ -377,7 +379,40 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       .from(hospitals)
       .orderBy(desc(hospitals.isDefault), hospitals.name);
 
-    return reply.send({ driver: d, bookings: history, totals, assignedHospitals, allHospitals });
+    // v1.2.0 CR#2: driver cancel-rate. cancellationRate = cancels / accepts;
+    // flagged once it crosses config.driverCancelFlagRate so ops can spot
+    // drivers bailing on accepted rides at an outlier rate.
+    const [{ cancels = 0 } = {}] = await pgClient`SELECT COUNT(*)::int AS cancels FROM booking_cancellations WHERE driver_id = ${id}`;
+    const [{ accepts = 0 } = {}] = await pgClient`SELECT COUNT(*)::int AS accepts FROM bookings WHERE driver_id = ${id} AND accepted_at IS NOT NULL`;
+    const cancellationRate = accepts > 0 ? cancels / accepts : 0;
+
+    return reply.send({
+      driver: d,
+      bookings: history,
+      totals,
+      assignedHospitals,
+      allHospitals,
+      cancellationCount: cancels,
+      cancellationRate,
+      cancellationFlagged: cancellationRate >= config.driverCancelFlagRate
+    });
+  });
+
+  // v1.2.0 CR#2: paginated driver-cancellation audit log, joined to the
+  // booking (displayId) + driver (name, ambulance) for a human-readable view.
+  app.get("/api/v1/admin/cancellations", adminGuard, async (req, reply) => {
+    const limit = Math.min(Number((req as any).query?.limit ?? 100), 500);
+    const rows = await pgClient`
+      SELECT c.id, c.reason_code, c.remarks, c.outcome, c.created_at,
+             b.display_id AS booking_display_id,
+             d.name AS driver_name, d.vehicle_number AS ambulance_number
+      FROM booking_cancellations c
+      LEFT JOIN bookings b ON b.id = c.booking_id
+      LEFT JOIN drivers  d ON d.id = c.driver_id
+      ORDER BY c.created_at DESC
+      LIMIT ${limit}
+    `;
+    return reply.send({ cancellations: rows });
   });
 
   app.patch("/api/v1/admin/drivers/:id", adminGuard, async (req, reply) => {
@@ -1087,6 +1122,27 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       .returning();
     if (!updated) return reply.code(404).send({ error: "not_found" });
     return reply.send({ hospital: updated });
+  });
+
+  // v1.2.0 CR#3: set/reset a hospital's portal login credentials. The password
+  // is scrypt-hashed server-side (hashPassword) and the hash is NEVER returned.
+  // Partial updates allowed (username/password/enabled independently).
+  app.put("/api/v1/admin/hospitals/:id/portal", adminGuard, async (req, reply) => {
+    const id = (req.params as any).id as string;
+    const body = (req as any).body ?? {};
+    const username = body?.username ? String(body.username).trim().toLowerCase() : undefined;
+    const password = body?.password ? String(body.password) : undefined;
+    const enabled = typeof body?.enabled === "boolean" ? body.enabled : undefined;
+    const patch: any = {};
+    if (username !== undefined) patch.portalUsername = username;
+    if (enabled !== undefined) patch.portalEnabled = enabled;
+    if (password !== undefined) {
+      if (password.length < 8) return reply.code(400).send({ error: "password_too_short" });
+      patch.portalPasswordHash = hashPassword(password);
+    }
+    if (Object.keys(patch).length === 0) return reply.code(400).send({ error: "nothing_to_update" });
+    await db.update(hospitals).set(patch).where(eq(hospitals.id, id));
+    return reply.send({ ok: true });
   });
 
   // ─── Unified medical record (v1.1.0, CR#9a) ──────────────────────────────────
