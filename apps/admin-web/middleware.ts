@@ -8,7 +8,10 @@ import { NextRequest, NextResponse } from "next/server";
  * correct password (see app/api/admin-login/route.ts).
  *
  * Skips: the /admin-login page itself, the /api/admin-login endpoint,
- * Next internals, and /privacy (public policy page).
+ * Next internals, /privacy (public policy page), and the hospital portal
+ * (CR#3, v1.2.0) which is a SEPARATE auth domain — it has its own
+ * /hospital-login + jr-hospital-session cookie and is gated by the hospital
+ * proxy server-side, so it must not be bounced to the admin login.
  */
 
 const SESSION_COOKIE = "jr-admin-session";
@@ -20,12 +23,27 @@ const PUBLIC_PATHS = [
   "/privacy",
   "/_next",
   "/favicon",
-  "/icon"
+  "/icon",
+  // Hospital portal — its own auth domain (jr-hospital-session), gated by the
+  // hospital proxy. Not part of the admin gate. (The /h dashboard group is
+  // matched separately below so it does not collide with /hospitals.)
+  "/hospital-login",
+  "/api/hospital-login",
+  "/api/hospital-proxy"
 ];
+
+/**
+ * The hospital dashboard route group resolves to /h and /h/*. Matched as an
+ * exact-or-subpath check (NOT a bare startsWith) so it never swallows the
+ * existing /hospitals admin pages.
+ */
+function isHospitalDashboardPath(pathname: string): boolean {
+  return pathname === "/h" || pathname.startsWith("/h/");
+}
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
+  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p)) || isHospitalDashboardPath(pathname)) {
     return NextResponse.next();
   }
   const session = req.cookies.get(SESSION_COOKIE)?.value;
