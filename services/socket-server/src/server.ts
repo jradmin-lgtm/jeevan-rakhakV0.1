@@ -19,6 +19,12 @@ const bookingRoom = (id: string) => `booking:${id}`;
 // at a time. Each connected driver auto-joins this on handshake; api-server's
 // cascade engine targets it via POST /internal/emit-to-driver.
 const driverRoom = (driverId: string) => `driver:${driverId}`;
+// v1.2.0 (CR#3): per-hospital room so the hospital portal receives live
+// booking-lifecycle updates for rides destined to it. A connected hospital
+// socket auto-joins this on handshake (scope taken from the verified JWT
+// claim, never from query params); api-server fans out via
+// POST /internal/emit-to-hospital.
+const hospitalRoom = (hospitalId: string) => `hospital:${hospitalId}`;
 
 const httpServer = createServer(async (req, res) => {
   if (req.url === "/health") {
@@ -72,6 +78,22 @@ const httpServer = createServer(async (req, res) => {
         return send(res, 400, { error: "bad_request" });
       }
       io.to(userRoom(body.userId)).emit(body.event, body.payload ?? {});
+      send(res, 204, null);
+    });
+  }
+  // v1.2.0 (CR#3): hospital-portal fan-out. body shape:
+  //   { hospitalId: string, event: string, payload?: any }
+  // api-server posts here on booking lifecycle events for rides destined to
+  // the hospital so the portal updates live without polling.
+  if (req.url === "/internal/emit-to-hospital" && req.method === "POST") {
+    return readJson(req, res, async (body) => {
+      if (req.headers["x-internal"] !== config.internalApiSecret) {
+        return send(res, 401, { error: "unauthorized" });
+      }
+      if (!body?.hospitalId || !body?.event) {
+        return send(res, 400, { error: "bad_request" });
+      }
+      io.to(hospitalRoom(body.hospitalId)).emit(body.event, body.payload ?? {});
       send(res, 204, null);
     });
   }
@@ -130,6 +152,14 @@ io.on("connection", async (socket: Socket) => {
     // v1.0.15: per-driver room for targeted SOS cascade pushes from api-server.
     // Cascade engine emits 'sos:incoming' here when this driver's wave fires.
     socket.join(driverRoom(user.sub));
+  }
+
+  // v1.2.0 (CR#3): hospital portal sockets join their own room so they
+  // receive live booking-lifecycle updates for rides destined to them. The
+  // scope comes from the verified JWT claim, never from a query param — a
+  // hospital token cannot subscribe to another hospital's room.
+  if (user.role === "hospital" && user.hospitalId) {
+    socket.join(hospitalRoom(user.hospitalId));
   }
 
   socket.on("driver:availability", async (payload: { available: boolean; lat?: number; lng?: number }) => {

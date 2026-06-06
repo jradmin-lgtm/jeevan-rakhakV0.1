@@ -380,6 +380,28 @@ export async function registerBookingRoutes(app: FastifyInstance) {
     }
   }
 
+  // v1.2.0 (CR#3): fan a booking-lifecycle change out to the destination
+  // hospital's portal room so it updates live. No-ops when the booking has
+  // no destHospitalId yet (a hospital is only assigned at pickup, so accept/
+  // arrived rides simply skip this). Additive — runs alongside the existing
+  // /internal/booking-event emit, never replaces it.
+  async function emitToHospital(booking: { id: string; destHospitalId: string | null }) {
+    if (!booking.destHospitalId) return;
+    try {
+      await fetch(`${config.socketBaseUrl}/internal/emit-to-hospital`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-internal": config.internalApiSecret },
+        body: JSON.stringify({
+          hospitalId: booking.destHospitalId,
+          event: "hospital:booking_update",
+          payload: { bookingId: booking.id }
+        })
+      });
+    } catch {
+      /* swallow */
+    }
+  }
+
   app.post(
     "/api/v1/bookings/:id/accept",
     { preHandler: [(app as any).authenticate] },
@@ -418,6 +440,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         .set({ status: "ON_TRIP", updatedAt: new Date() })
         .where(eq(drivers.id, sub));
       await emitBookingEvent(id, "booking.accepted", `driver:${sub}`);
+      await emitToHospital(updated);
       // v1.1.0 push: wake the patient even if their app is backgrounded.
       void pushToUser(updated.userId, "Ambulance assigned 🚑", "A driver accepted your request and is on the way.", { bookingId: id, status: "ACCEPTED" });
       // Mark this driver's attempt row accepted (for SOS) + notify the
@@ -470,6 +493,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         .returning();
       if (!b) return reply.code(404).send({ error: "not_found_or_forbidden" });
       await emitBookingEvent(id, "booking.arrived", `driver:${sub}`);
+      await emitToHospital(b);
       void pushToUser(b.userId, "Driver has arrived 📍", "Your ambulance is at the pickup point — share your ride OTP with the driver.", { bookingId: id, status: "ARRIVED" });
       return reply.send({ booking: b });
     }
@@ -537,6 +561,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       await emitBookingEvent(id, "booking.picked_up", `driver:${sub}`, {
         destHospitalId: destPatch.destHospitalId ?? null
       });
+      await emitToHospital(b);
       void pushToUser(b.userId, "On the way to hospital 🏥", `En route to ${b.dropAddress ?? "the hospital"}.`, { bookingId: id, status: "PICKED_UP" });
       return reply.send({ booking: b });
     }
@@ -628,6 +653,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         discountInr,
         payableInr
       });
+      await emitToHospital(b);
       void pushToUser(b.userId, "Trip complete 💚", "You've reached the hospital. Thank you for using Jeevan Rakshak.", { bookingId: id, status: "COMPLETED" });
       return reply.send({ booking: { ...b, fareFinalInr: finalFare, discountInr, payableInr } });
     }
@@ -726,6 +752,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       await emitBookingEvent(id, "booking.paramedic_assessment", `driver:${sub}`, {
         immediateRisk: parsed.data.immediateRisk ?? false
       });
+      await emitToHospital(b);
       return reply.send({ booking: b });
     }
   );
@@ -1004,6 +1031,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         }
       }
       await emitBookingEvent(id, "booking.cancelled", `${role}:${sub}`);
+      await emitToHospital(b);
       return reply.send({ booking: b });
     }
   );
