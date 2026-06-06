@@ -222,6 +222,15 @@ export const bookings = pgTable(
     paidAt: timestamp("paid_at", { withTimezone: true }),
     paidCoupon: text("paid_coupon"),
     isDemo: boolean("is_demo").default(false).notNull(),
+    // v1.2.0 (CR#2) — server-side wait-clock anchor for patient-reason driver
+    // cancellations. Set once when the driver starts the "patient not
+    // available/responding" wait; the cancel route enforces the configured
+    // wait window against this timestamp (server-authoritative, not client).
+    cancelWaitStartedAt: timestamp("cancel_wait_started_at", { withTimezone: true }),
+    // v1.2.0 (CR#3) — hospital "acknowledge — preparing" loop-closer. Set when
+    // the destination hospital acknowledges an inbound ride from the portal.
+    hospitalAckAt: timestamp("hospital_ack_at", { withTimezone: true }),
+    hospitalAckNote: text("hospital_ack_note"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
     arrivedAt: timestamp("arrived_at", { withTimezone: true }),
@@ -349,6 +358,36 @@ export const sosDispatchAttempts = pgTable(
 );
 
 /**
+ * v1.2.0 (CR#2) — driver-initiated cancellation audit log. One row per
+ * cancellation the driver confirms from the trip screen. `reasonCode` is one of
+ * the patient/vehicle/operational/Other codes; `outcome` is 'RE_DISPATCHED'
+ * (vehicle/operational/Other → booking returned to dispatch) or 'CLOSED'
+ * (patient-reason → ride cancelled). `driverId` is ON DELETE SET NULL so the
+ * audit row survives a driver row deletion.
+ */
+export const bookingCancellations = pgTable(
+  "booking_cancellations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    bookingId: uuid("booking_id")
+      .references(() => bookings.id, { onDelete: "cascade" })
+      .notNull(),
+    driverId: uuid("driver_id")
+      .references(() => drivers.id, { onDelete: "set null" }),
+    reasonCode: text("reason_code").notNull(),
+    remarks: text("remarks"),
+    outcome: text("outcome").notNull(), // 'RE_DISPATCHED' | 'CLOSED'
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (t) => ({
+    driverIdx: index("booking_cancellations_driver_idx").on(t.driverId),
+    bookingIdx: index("booking_cancellations_booking_idx").on(t.bookingId),
+    createdAtIdx: index("booking_cancellations_created_at_idx").on(t.createdAt)
+  })
+);
+export type BookingCancellation = typeof bookingCancellations.$inferSelect;
+
+/**
  * v1.1.0 (CR#3/#6) — destination hospitals. In the current phase there is one
  * active default (SRMS IMS Hospital, Bareilly) that every ride is routed to;
  * the schema supports onboarding more hospitals later (admin CRUD + a future
@@ -367,6 +406,14 @@ export const hospitals = pgTable(
     phone: text("phone"),
     active: boolean("active").default(true).notNull(),
     isDefault: boolean("is_default").default(false).notNull(),
+    // v1.2.0 (CR#3) — hospital portal credentials. One login per hospital for
+    // the pilot. `portalUsername` is unique (case-insensitive uniqueness is
+    // enforced by a LOWER() partial index in the bootstrap DDL); the password
+    // is stored as a salted scrypt hash. `portalEnabled` gates whether the
+    // login is accepted at all.
+    portalUsername: text("portal_username").unique(),
+    portalPasswordHash: text("portal_password_hash"),
+    portalEnabled: boolean("portal_enabled").default(false).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
   },

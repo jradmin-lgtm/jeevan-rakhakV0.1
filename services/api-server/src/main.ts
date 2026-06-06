@@ -14,7 +14,12 @@ import { emitEvent } from "./events";
 
 declare module "@fastify/jwt" {
   interface FastifyJWT {
-    user: { sub: string; role: "user" | "driver" | "admin"; phone: string };
+    user: {
+      sub: string;
+      role: "user" | "driver" | "admin" | "hospital";
+      phone: string;
+      hospitalId?: string;
+    };
   }
 }
 
@@ -289,7 +294,33 @@ async function bootstrap() {
         AND EXISTS (SELECT 1 FROM hospitals h WHERE h.id = d.hospital_id::uuid)
         AND NOT EXISTS (SELECT 1 FROM driver_hospitals dh WHERE dh.driver_id = d.id)
     `;
-    app.log.info("[migrate] schema v1.1.0 ready (hospitals + dest_hospital_id; driver_heartbeats + sos_dispatch_attempts + paid_* columns)");
+    // ---- v1.2.0 ----
+    // CR#2: driver cancellation audit log.
+    await pgClient`
+      CREATE TABLE IF NOT EXISTS booking_cancellations (
+        id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        booking_id  uuid NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+        driver_id   uuid REFERENCES drivers(id) ON DELETE SET NULL,
+        reason_code text NOT NULL,
+        remarks     text,
+        outcome     text NOT NULL,
+        created_at  timestamptz NOT NULL DEFAULT now()
+      )
+    `;
+    await pgClient`CREATE INDEX IF NOT EXISTS booking_cancellations_driver_idx  ON booking_cancellations(driver_id)`;
+    await pgClient`CREATE INDEX IF NOT EXISTS booking_cancellations_booking_idx ON booking_cancellations(booking_id)`;
+    await pgClient`CREATE INDEX IF NOT EXISTS booking_cancellations_created_idx ON booking_cancellations(created_at DESC)`;
+    // CR#2: server-side wait-clock anchor for patient-reason cancellations.
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS cancel_wait_started_at timestamptz`;
+    // CR#3: hospital portal credentials (one login per hospital for pilot).
+    await pgClient`ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS portal_username      text`;
+    await pgClient`ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS portal_password_hash text`;
+    await pgClient`ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS portal_enabled       boolean NOT NULL DEFAULT false`;
+    await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS hospitals_portal_username_uniq ON hospitals(LOWER(portal_username)) WHERE portal_username IS NOT NULL`;
+    // CR#3: hospital "acknowledge — preparing" loop-closer.
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS hospital_ack_at   timestamptz`;
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS hospital_ack_note text`;
+    app.log.info("[migrate] schema v1.2.0 ready (booking_cancellations + cancel_wait + hospital portal creds + hospital_ack)");
   } catch (err) {
     // Thumb rule: migrations FATAL-EXIT on failure. Silent catch+warn here
     // previously let the service start with a broken schema (system_events
