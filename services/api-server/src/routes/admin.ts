@@ -1256,52 +1256,207 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   // hospital/driver/ride context joined for the table), mark resolved/reopen,
   // and a live open-count for the nav badge + dashboard analytics stat.
 
-  // GET /admin/tickets — every ticket, newest-first, optional ?status filter.
+  // GET /admin/tickets — every ticket, newest-first, optional filters.
   // Joins hospital name + driver name/vehicle + booking displayId so the admin
   // table renders human context without N+1 lookups. Capped at 500.
   // v1.2.2: returns `category` and accepts an optional ?category=FEEDBACK|ISSUE
-  // filter (additive, AND-combined with the existing ?status filter; no
-  // filters returns all, byte-identical to the v1.2.1 default).
+  // filter.
+  // v1.2.4: surfaces source/priority/severity/resolved_by + a per-ticket
+  // messageCount, and accepts more optional, AND-combined filters:
+  //   ?status (OPEN|RESOLVED) · ?category (FEEDBACK|ISSUE) · ?source
+  //   (HOSPITAL|DRIVER|USER) · ?priority (LOW|NORMAL|HIGH|URGENT) · ?severity
+  //   (LOW|MEDIUM|HIGH|CRITICAL) · ?from + ?to (created_at range, IST-aware).
+  // No filters returns all (additive keys only — base shape preserved).
   app.get("/api/v1/admin/tickets", adminGuard, async (req, reply) => {
     const statusRaw = String((req as any)?.query?.status ?? "").toUpperCase();
     const status = statusRaw === "OPEN" || statusRaw === "RESOLVED" ? statusRaw : null;
     const catRaw = String((req as any)?.query?.category ?? "").toUpperCase();
     const category = catRaw === "FEEDBACK" || catRaw === "ISSUE" ? catRaw : null;
+    const srcRaw = String((req as any)?.query?.source ?? "").toUpperCase();
+    const source = srcRaw === "HOSPITAL" || srcRaw === "DRIVER" || srcRaw === "USER" ? srcRaw : null;
+    const prioRaw = String((req as any)?.query?.priority ?? "").toUpperCase();
+    const priority = ["LOW", "NORMAL", "HIGH", "URGENT"].includes(prioRaw) ? prioRaw : null;
+    const sevRaw = String((req as any)?.query?.severity ?? "").toUpperCase();
+    const severity = ["LOW", "MEDIUM", "HIGH", "CRITICAL"].includes(sevRaw) ? sevRaw : null;
+    // Reuse the shared IST-aware date parser, but read ?from/?to here (the
+    // helper keys off ?since/?until). Normalise into the same shape.
+    const range = pickDateRange({ query: { since: (req as any)?.query?.from, until: (req as any)?.query?.to } });
+    const fromIso = range.since ? range.since.toISOString() : null;
+    const toIso = range.until ? range.until.toISOString() : null;
+
     const rows = await pgClient`
-      SELECT t.id, t.subject_type, t.category, t.message, t.status,
-             t.created_at, t.resolved_at,
+      SELECT t.id, t.subject_type, t.category, t.source,
+             t.priority, t.severity, t.message, t.status,
+             t.created_at, t.resolved_at, t.resolved_by,
              t.hospital_id, h.name           AS hospital_name,
              t.driver_id,   d.name           AS driver_name,
                             d.vehicle_number AS driver_vehicle,
-             t.booking_id,  b.display_id     AS booking_display_id
+             t.raiser_user_id, ru.name       AS raiser_user_name,
+             t.raiser_driver_id, rd.name      AS raiser_driver_name,
+                                 rd.vehicle_number AS raiser_driver_vehicle,
+             t.booking_id,  b.display_id     AS booking_display_id,
+             COALESCE(mc.message_count, 0)::int AS message_count
       FROM support_tickets t
-      LEFT JOIN hospitals h ON h.id = t.hospital_id
-      LEFT JOIN drivers   d ON d.id = t.driver_id
-      LEFT JOIN bookings  b ON b.id = t.booking_id
+      LEFT JOIN hospitals h  ON h.id = t.hospital_id
+      LEFT JOIN drivers   d  ON d.id = t.driver_id
+      LEFT JOIN users     ru ON ru.id = t.raiser_user_id
+      LEFT JOIN drivers   rd ON rd.id = t.raiser_driver_id
+      LEFT JOIN bookings  b  ON b.id = t.booking_id
+      LEFT JOIN (
+        SELECT ticket_id, COUNT(*) AS message_count
+        FROM support_ticket_messages
+        GROUP BY ticket_id
+      ) mc ON mc.ticket_id = t.id
       WHERE TRUE
         ${status ? pgClient`AND t.status = ${status}` : pgClient``}
         ${category ? pgClient`AND t.category = ${category}` : pgClient``}
+        ${source ? pgClient`AND t.source = ${source}` : pgClient``}
+        ${priority ? pgClient`AND t.priority = ${priority}` : pgClient``}
+        ${severity ? pgClient`AND t.severity = ${severity}` : pgClient``}
+        ${fromIso ? pgClient`AND t.created_at >= ${fromIso}::timestamptz` : pgClient``}
+        ${toIso ? pgClient`AND t.created_at <= ${toIso}::timestamptz` : pgClient``}
       ORDER BY t.created_at DESC
       LIMIT 500
     `;
-    return reply.send({ status, category, tickets: rows });
+    return reply.send({ status, category, source, priority, severity, tickets: rows });
   });
 
-  // PATCH /admin/tickets/:id — flip OPEN ↔ RESOLVED. Stamps resolved_at = now()
-  // on RESOLVED, clears it back to null on reopen.
-  const patchTicketSchema = z.object({
-    status: z.enum(["OPEN", "RESOLVED"])
+  // GET /admin/tickets/:id — ticket detail + the full ordered message thread +
+  // raiser display info (hospital name / driver name+vehicle / user name,
+  // picked by source). Admin sees every ticket regardless of source.
+  app.get("/api/v1/admin/tickets/:id", adminGuard, async (req, reply) => {
+    const id = (req.params as any).id as string;
+    const [t] = await pgClient<any[]>`
+      SELECT t.id, t.subject_type, t.category, t.source,
+             t.priority, t.severity, t.message, t.status,
+             t.created_at, t.resolved_at, t.resolved_by,
+             t.hospital_id, h.name           AS hospital_name,
+             t.driver_id,   d.name           AS driver_name,
+                            d.vehicle_number AS driver_vehicle,
+             t.raiser_user_id, ru.name       AS raiser_user_name,
+             t.raiser_driver_id, rd.name      AS raiser_driver_name,
+                                 rd.vehicle_number AS raiser_driver_vehicle,
+             t.booking_id,  b.display_id     AS booking_display_id
+      FROM support_tickets t
+      LEFT JOIN hospitals h  ON h.id = t.hospital_id
+      LEFT JOIN drivers   d  ON d.id = t.driver_id
+      LEFT JOIN users     ru ON ru.id = t.raiser_user_id
+      LEFT JOIN drivers   rd ON rd.id = t.raiser_driver_id
+      LEFT JOIN bookings  b  ON b.id = t.booking_id
+      WHERE t.id = ${id}
+      LIMIT 1
+    `;
+    if (!t) return reply.code(404).send({ error: "not_found" });
+
+    const messages = await pgClient`
+      SELECT id, ticket_id, author_role, author_name, body, created_at
+      FROM support_ticket_messages
+      WHERE ticket_id = ${id}
+      ORDER BY created_at ASC
+    `;
+
+    // Raiser display label keyed by source (hospital name / driver name+vehicle
+    // / user name). Falls back gracefully if a referenced row was deleted.
+    let raiser: { role: string; name: string | null; detail: string | null } = {
+      role: t.source ?? "HOSPITAL",
+      name: null,
+      detail: null
+    };
+    if (t.source === "DRIVER") {
+      raiser = {
+        role: "DRIVER",
+        name: t.raiser_driver_name ?? t.driver_name ?? null,
+        detail: t.raiser_driver_vehicle ?? t.driver_vehicle ?? null
+      };
+    } else if (t.source === "USER") {
+      raiser = { role: "USER", name: t.raiser_user_name ?? null, detail: null };
+    } else {
+      raiser = { role: "HOSPITAL", name: t.hospital_name ?? null, detail: null };
+    }
+
+    return reply.send({ ticket: t, messages, raiser });
   });
+
+  // POST /admin/tickets/:id/messages — an admin reply on the thread. Inserts a
+  // message with author_role='ADMIN' and the operator's name. authorName is
+  // required (≥2 chars) so every reply is attributable. Returns the new row.
+  const adminTicketMessageSchema = z.object({
+    body: z.string().trim().min(1).max(4000),
+    authorName: z.string().trim().min(2).max(120)
+  });
+  app.post("/api/v1/admin/tickets/:id/messages", adminGuard, async (req, reply) => {
+    const id = (req.params as any).id as string;
+    const parsed = adminTicketMessageSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+    }
+    const [t] = await pgClient<any[]>`SELECT id FROM support_tickets WHERE id = ${id} LIMIT 1`;
+    if (!t) return reply.code(404).send({ error: "not_found" });
+    const [message] = await pgClient`
+      INSERT INTO support_ticket_messages (ticket_id, author_role, author_name, body)
+      VALUES (${id}, 'ADMIN', ${parsed.data.authorName}, ${parsed.data.body})
+      RETURNING id, ticket_id, author_role, author_name, body, created_at
+    `;
+    return reply.send({ message });
+  });
+
+  // PATCH /admin/tickets/:id — triage + resolve.
+  //   { priority?, severity? }  — admin triage flags, settable any time.
+  //   { status:'RESOLVED', resolvedBy } — close the ticket. RESOLVE GATE: no
+  //     close without a reply — 409 reply_required unless ≥1 author_role='ADMIN'
+  //     message exists; 400 resolver_name_required if resolvedBy is missing. On
+  //     resolve we stamp resolved_at=now() + resolved_by.
+  //   { status:'OPEN' } — reopen; clears resolved_at + resolved_by.
+  // At least one actionable field is required.
+  const patchTicketSchema = z.object({
+    status: z.enum(["OPEN", "RESOLVED"]).optional(),
+    priority: z.enum(["LOW", "NORMAL", "HIGH", "URGENT"]).optional(),
+    severity: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
+    resolvedBy: z.string().trim().max(120).optional()
+  }).refine(
+    (d) => d.status !== undefined || d.priority !== undefined || d.severity !== undefined,
+    { message: "at_least_one_field_required" }
+  );
   app.patch("/api/v1/admin/tickets/:id", adminGuard, async (req, reply) => {
     const id = (req.params as any).id as string;
     const parsed = patchTicketSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
     }
-    const resolved = parsed.data.status === "RESOLVED";
+    const [existing] = await db
+      .select({ id: supportTickets.id })
+      .from(supportTickets)
+      .where(eq(supportTickets.id, id))
+      .limit(1);
+    if (!existing) return reply.code(404).send({ error: "not_found" });
+
+    const patch: Record<string, any> = {};
+    if (parsed.data.priority !== undefined) patch.priority = parsed.data.priority;
+    if (parsed.data.severity !== undefined) patch.severity = parsed.data.severity;
+
+    if (parsed.data.status === "RESOLVED") {
+      // Resolve gate: capture the closer's name + require ≥1 admin reply first.
+      const resolvedBy = (parsed.data.resolvedBy ?? "").trim();
+      if (!resolvedBy) return reply.code(400).send({ error: "resolver_name_required" });
+      const [{ c = 0 } = {}] = await pgClient<{ c: number }[]>`
+        SELECT COUNT(*)::int AS c
+        FROM support_ticket_messages
+        WHERE ticket_id = ${id} AND author_role = 'ADMIN'
+      `;
+      if (Number(c) < 1) return reply.code(409).send({ error: "reply_required" });
+      patch.status = "RESOLVED";
+      patch.resolvedAt = new Date();
+      patch.resolvedBy = resolvedBy;
+    } else if (parsed.data.status === "OPEN") {
+      // Reopen — clear the resolution stamps.
+      patch.status = "OPEN";
+      patch.resolvedAt = null;
+      patch.resolvedBy = null;
+    }
+
     const [updated] = await db
       .update(supportTickets)
-      .set({ status: parsed.data.status, resolvedAt: resolved ? new Date() : null })
+      .set(patch)
       .where(eq(supportTickets.id, id))
       .returning({ id: supportTickets.id });
     if (!updated) return reply.code(404).send({ error: "not_found" });
