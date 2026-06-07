@@ -1,12 +1,16 @@
 import React, { useState } from "react";
-import { View } from "react-native";
+import { Alert, View } from "react-native";
 import { Button, Card, EmptyState, Pill, PulseDot, Text, colors, space } from "@jr/ui";
 import { IncomingRequest } from "../api";
 import { prettyEmergency } from "../screens/DashboardScreen";
 import { useT } from "../i18n";
 
+type LatLng = { lat: number; lng: number };
+
 type Props = {
   requests: Record<string, IncomingRequest>;
+  /** Driver's last GPS fix — used to show "X.X km away" per request. */
+  myPos: LatLng | null;
   onAccept: (req: IncomingRequest) => void | Promise<void>;
   onReject: (req: IncomingRequest) => void | Promise<void>;
 };
@@ -26,11 +30,29 @@ type Props = {
  * socket merge) lives in DashboardScreen so nothing here can overwrite the
  * source of truth.
  */
-function ageMinutes(iso: string): number {
-  return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
+// Request age label — NaN-guarded. A missing/invalid created_at (e.g. a
+// socket-merged row before the poll fills it in) must never render "NaNm ago".
+function ageLabel(iso: string | null | undefined, t: (k: string) => string): string {
+  const ms = iso ? new Date(iso).getTime() : NaN;
+  if (Number.isNaN(ms)) return t("incoming.just_now");
+  const min = Math.max(0, Math.floor((Date.now() - ms) / 60000));
+  return min < 1 ? t("incoming.just_now") : t("incoming.request_age_min").replace("{min}", String(min));
 }
 
-export function IncomingRequestList({ requests, onAccept, onReject }: Props) {
+// Straight-line distance (km) driver → pickup. Re-added in v1.2.5 (was dropped
+// when CR#1 replaced the single-card list). Null when we have no GPS fix yet.
+function distanceKm(from: LatLng | null, lat: number, lng: number): number | null {
+  if (!from) return null;
+  const R = 6371;
+  const dLat = ((lat - from.lat) * Math.PI) / 180;
+  const dLng = ((lng - from.lng) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((from.lat * Math.PI) / 180) * Math.cos((lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+export function IncomingRequestList({ requests, myPos, onAccept, onReject }: Props) {
   const { t } = useT();
   const sorted = Object.values(requests).sort(
     (a, b) =>
@@ -49,7 +71,7 @@ export function IncomingRequestList({ requests, onAccept, onReject }: Props) {
   return (
     <View style={{ gap: space.sm }}>
       {sorted.map((r) => (
-        <IncomingRow key={r.id} req={r} onAccept={onAccept} onReject={onReject} t={t} />
+        <IncomingRow key={r.id} req={r} myPos={myPos} onAccept={onAccept} onReject={onReject} t={t} />
       ))}
     </View>
   );
@@ -57,11 +79,13 @@ export function IncomingRequestList({ requests, onAccept, onReject }: Props) {
 
 function IncomingRow({
   req,
+  myPos,
   onAccept,
   onReject,
   t
 }: {
   req: IncomingRequest;
+  myPos: LatLng | null;
   onAccept: (req: IncomingRequest) => void | Promise<void>;
   onReject: (req: IncomingRequest) => void | Promise<void>;
   t: (key: string) => string;
@@ -76,6 +100,21 @@ function IncomingRow({
       setBusy(false);
     }
   };
+
+  // SOS reject is destructive (the patient is mid-emergency) and the button
+  // sits next to Accept — confirm first so a stray tap can't drop a live SOS.
+  const doReject = () => {
+    if (req.is_sos) {
+      Alert.alert(t("incoming.reject_sos_title"), t("incoming.reject_sos_body"), [
+        { text: t("incoming.keep"), style: "cancel" },
+        { text: t("incoming.reject_confirm"), style: "destructive", onPress: () => run(() => onReject(req)) }
+      ]);
+    } else {
+      void run(() => onReject(req));
+    }
+  };
+
+  const dist = distanceKm(myPos, req.pickup_lat, req.pickup_lng);
 
   return (
     <Card
@@ -92,9 +131,14 @@ function IncomingRow({
               bg={req.is_sos ? "rgba(239,68,68,0.12)" : colors.primaryFaint}
             />
           </View>
-          <Text variant="tiny" tone="muted">
-            {t("incoming.request_age_min").replace("{min}", String(ageMinutes(req.created_at)))}
-          </Text>
+          <View style={{ alignItems: "flex-end" }}>
+            {dist != null ? (
+              <Text variant="small" weight="semi" style={{ color: req.is_sos ? colors.danger : colors.primary }}>
+                {t("incoming.distance_km").replace("{km}", dist.toFixed(1))}
+              </Text>
+            ) : null}
+            <Text variant="tiny" tone="muted">{ageLabel(req.created_at, t)}</Text>
+          </View>
         </View>
 
         <Text variant="body" weight="semi">{prettyEmergency(req.emergency_type)}</Text>
@@ -106,7 +150,7 @@ function IncomingRow({
           <View style={{ flex: 1 }}>
             <Button
               label={t("incoming.reject")}
-              onPress={() => run(() => onReject(req))}
+              onPress={doReject}
               variant="outline"
               fullWidth
               disabled={busy}

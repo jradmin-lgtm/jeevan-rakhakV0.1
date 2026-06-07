@@ -127,20 +127,27 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [inc, my] = await Promise.all([
-        incomingApi.list().catch(() => ({ requests: [] as IncomingRequest[] })),
+      const [incRes, my] = await Promise.all([
+        incomingApi
+          .list()
+          .then((r) => ({ ok: true as const, requests: r.requests }))
+          .catch(() => ({ ok: false as const, requests: [] as IncomingRequest[] })),
         bookingsApi.mine().catch(() => ({ bookings: [] as Booking[] }))
       ]);
-      // Reconcile the keyed map against the authoritative server list: every
-      // returned id is added/updated, every id NOT returned is dropped (the
-      // request was resolved / expired / reassigned / cancelled). This is the
-      // safety net that both prevents lost requests AND clears stale ones.
-      const next: Record<string, IncomingRequest> = {};
-      for (const r of inc.requests) {
-        if (dismissed.current.has(r.id)) continue; // session-dismissed normal row
-        next[r.id] = r;
+      // Reconcile the keyed map against the authoritative server list — but
+      // ONLY on a SUCCESSFUL poll. A transient failure (cold free-tier API,
+      // network blip) must NOT wipe the queue: a live SOS stays put through the
+      // whole 20s cascade until it's truly resolved (accept / reject / expire /
+      // reassign / backend-cancel). Reconciling against an empty error-result
+      // was why a still-active SOS vanished after a few seconds.
+      if (incRes.ok) {
+        const next: Record<string, IncomingRequest> = {};
+        for (const r of incRes.requests) {
+          if (dismissed.current.has(r.id)) continue; // session-dismissed normal row
+          next[r.id] = r;
+        }
+        setRequests(next);
       }
-      setRequests(next);
       const live = my.bookings.find((b) =>
         ["ACCEPTED", "ARRIVED", "PICKED_UP"].includes(b.status)
       );
@@ -421,6 +428,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
             // list, sorted SOS-first then newest-first inside IncomingRequestList.
             <IncomingRequestList
               requests={requests}
+              myPos={myPos}
               onAccept={acceptRequest}
               onReject={rejectRequest}
             />

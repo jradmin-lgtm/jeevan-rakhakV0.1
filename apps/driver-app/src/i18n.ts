@@ -156,6 +156,12 @@ const en: Dict = {
   "incoming.accept": "Accept",
   "incoming.reject": "Reject",
   "incoming.request_age_min": "{min}m ago",
+  "incoming.just_now": "just now",
+  "incoming.distance_km": "{km} km away",
+  "incoming.reject_sos_title": "Reject this emergency?",
+  "incoming.reject_sos_body": "This SOS will keep being offered to other ambulances. Reject only if you truly cannot respond.",
+  "incoming.reject_confirm": "Reject",
+  "incoming.keep": "Keep",
 
   // v1.2.0 (CR#3): hospital "acknowledge — preparing" surface on the trip.
   "trip.hospital_preparing_banner": "Hospital notified & preparing for arrival",
@@ -377,6 +383,12 @@ const hi: Dict = {
   "incoming.accept": "स्वीकार करें",
   "incoming.reject": "अस्वीकार करें",
   "incoming.request_age_min": "{min} मिनट पहले",
+  "incoming.just_now": "अभी अभी",
+  "incoming.distance_km": "{km} किमी दूर",
+  "incoming.reject_sos_title": "इस आपातकाल को अस्वीकार करें?",
+  "incoming.reject_sos_body": "यह SOS अन्य एम्बुलेंस को दिखता रहेगा। केवल तभी अस्वीकार करें जब आप वाकई जवाब नहीं दे सकते।",
+  "incoming.reject_confirm": "अस्वीकार करें",
+  "incoming.keep": "रखें",
 
   // v1.2.0 (CR#3): यात्रा पर अस्पताल "स्वीकृति — तैयारी" सूचना
   "trip.hospital_preparing_banner": "अस्पताल को सूचित किया गया और वह आगमन की तैयारी कर रहा है",
