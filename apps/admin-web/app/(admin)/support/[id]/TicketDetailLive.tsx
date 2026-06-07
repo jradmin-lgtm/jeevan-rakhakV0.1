@@ -232,12 +232,28 @@ export function TicketDetailLive({
 
   // Reconcile the triage selects when the poll brings an external flag change
   // (e.g. a teammate retriaged the same ticket). Only while no flag PATCH is in
-  // flight so we never fight the operator's own pending change.
+  // flight so we never fight the operator's own pending change. Only setState
+  // when the value actually changed so the 10s poll doesn't churn the selects.
   useEffect(() => {
     if (flagBusy) return;
-    setPriorityState(ticketPriority(data.ticket));
-    setSeverityState(ticketSeverity(data.ticket));
+    const nextPriority = ticketPriority(data.ticket);
+    const nextSeverity = ticketSeverity(data.ticket);
+    setPriorityState((prev) => (prev === nextPriority ? prev : nextPriority));
+    setSeverityState((prev) => (prev === nextSeverity ? prev : nextSeverity));
   }, [data.ticket, flagBusy]);
+
+  // Collapse the two-column ticket grid to a single column under ~900px so the
+  // header + chat stack instead of cramping. Tracked here because inline styles
+  // can't carry a media query.
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 900px)");
+    const apply = () => setNarrow(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
 
   const { ticket, messages } = data;
   const isResolved = ticket.status === "RESOLVED";
@@ -403,7 +419,13 @@ export function TicketDetailLive({
         </span>
       </div>
 
-      <div className="row">
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: narrow ? "minmax(0,1fr)" : "minmax(0,1fr) minmax(0,2fr)",
+          gap: 12
+        }}
+      >
         {/* Ticket header + triage */}
         <div className="card">
           <h3 style={{ margin: "0 0 12px" }}>Ticket</h3>
@@ -485,8 +507,8 @@ export function TicketDetailLive({
           ) : null}
         </div>
 
-        {/* Chat thread */}
-        <div className="card" style={{ flex: 2, minWidth: 0 }}>
+        {/* Chat thread — the grid gives this the wide (2fr) track. */}
+        <div className="card" style={{ minWidth: 0 }}>
           <h3 style={{ margin: "0 0 12px" }}>Conversation · {messages.length}</h3>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {messages.length === 0 ? (

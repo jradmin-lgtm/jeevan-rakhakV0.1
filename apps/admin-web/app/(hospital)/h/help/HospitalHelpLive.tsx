@@ -50,6 +50,7 @@ function subjectLabel(t: Ticket): string {
 export function HospitalHelpLive() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const aliveRef = useRef(true);
@@ -57,13 +58,25 @@ export function HospitalHelpLive() {
   const fetchTickets = useCallback(async () => {
     try {
       const res = await fetch("/api/hospital-proxy/api/v1/hospital/tickets?category=ISSUE", { cache: "no-store" });
-      if (!res.ok) return;
+      if (!aliveRef.current) return;
+      if (!res.ok) {
+        // Handled failure: leave the page interactive (loaded) and surface a
+        // retrying notice instead of an eternal "Loading…". The 10s poll retries.
+        setLoadError(true);
+        setLoaded(true);
+        return;
+      }
       const json = await res.json();
       if (!aliveRef.current) return;
       setTickets(Array.isArray(json.tickets) ? json.tickets : []);
+      setLoadError(false);
       setLoaded(true);
     } catch {
-      /* keep last good */
+      // Keep last good tickets, but mark loaded + the error so we never hang on
+      // "Loading…" and the poll keeps retrying.
+      if (!aliveRef.current) return;
+      setLoadError(true);
+      setLoaded(true);
     }
   }, []);
 
@@ -113,6 +126,8 @@ export function HospitalHelpLive() {
         </div>
         {!loaded ? (
           <div className="muted">Loading issues…</div>
+        ) : loadError && tickets.length === 0 ? (
+          <div style={{ color: "var(--danger)" }}>Couldn’t load your issues — retrying…</div>
         ) : tickets.length === 0 ? (
           <div className="muted">No issues raised yet. Use “Raise an issue” above to send one to the operations team.</div>
         ) : (
@@ -140,7 +155,7 @@ export function HospitalHelpLive() {
                           <span style={{ color: "var(--muted)", marginRight: 6, display: "inline-block", transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
                           {subjectLabel(t)}
                         </td>
-                        <td style={{ padding: 10, maxWidth: 420 }}>{t.message}</td>
+                        <td style={{ padding: 10, maxWidth: 420, overflowWrap: "anywhere", wordBreak: "break-word" }}>{t.message}</td>
                         <td style={{ padding: 10 }}>
                           <span style={{ background: chip.bg, color: chip.fg, fontWeight: 700, fontSize: 11, padding: "3px 10px", borderRadius: 999 }}>{chip.label}</span>
                         </td>

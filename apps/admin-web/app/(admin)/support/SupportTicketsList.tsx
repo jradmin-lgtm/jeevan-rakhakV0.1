@@ -166,6 +166,9 @@ export function SupportTicketsList({
   const [from, setFrom] = useState<string>("");
   const [to, setTo] = useState<string>("");
   const [rows, setRows] = useState<Ticket[]>(initialTickets);
+  // Distinct fetch-failure flag so a network/API error isn't painted as an
+  // empty result (which would falsely read "no tickets in this view").
+  const [loadError, setLoadError] = useState(false);
   // Universe open/resolved tallies (ISSUE-scoped) for the header — independent
   // of the active filters, matching the nav badge + dashboard stat semantics.
   const [tally, setTally] = useState<{ open: number; resolved: number }>({ open: 0, resolved: 0 });
@@ -184,11 +187,15 @@ export function SupportTicketsList({
     const tick = async () => {
       try {
         const res = await adminFetch(`${apiBase}/api/v1/admin/tickets${query}`);
+        if (!res.ok) throw new Error(`fetch ${res.status}`);
         const data = await res.json();
         if (!alive) return;
         setRows(data.tickets ?? []);
+        setLoadError(false);
       } catch {
-        /* keep last good */
+        // Keep last good rows, but flag the failure so the empty view doesn't
+        // masquerade as "no tickets". A later good poll clears the flag.
+        if (alive) setLoadError(true);
       }
     };
     void tick();
@@ -433,7 +440,11 @@ export function SupportTicketsList({
         ) : null}
       </div>
 
-      {rows.length === 0 ? (
+      {rows.length === 0 && loadError ? (
+        <div className="card" style={{ padding: 24, textAlign: "center", color: "var(--danger, #DC2626)" }}>
+          Couldn’t load tickets — retrying every 10s. Check your connection; the list will refresh once it reconnects.
+        </div>
+      ) : rows.length === 0 ? (
         <div className="card muted" style={{ padding: 24, textAlign: "center" }}>
           No tickets in this view. Hospital, driver and user tickets all land here — adjust the filters above to widen the view.
         </div>
@@ -460,6 +471,7 @@ export function SupportTicketsList({
                 const catBadge = categoryBadge(t);
                 const prio = priorityFlag(t);
                 const sev = severityChip(t);
+                const subj = subjectBadge(t);
                 const isOpen = t.status === "OPEN";
                 const msgCount = Number(t.message_count ?? 0);
                 return (
@@ -472,7 +484,7 @@ export function SupportTicketsList({
                     <td style={td}>
                       <span style={chipStyle(src.bg, src.fg)}>{src.label}</span>
                     </td>
-                    <td style={td}>{raiserLabel(t)}</td>
+                    <td style={{ ...td, maxWidth: 200, overflowWrap: "anywhere" }}>{raiserLabel(t)}</td>
                     <td style={td}>
                       <span style={chipStyle(catBadge.bg, catBadge.fg)}>{catBadge.label}</span>
                     </td>
@@ -483,12 +495,12 @@ export function SupportTicketsList({
                       <span style={chipStyle(sev.bg, sev.fg)}>{sev.label}</span>
                     </td>
                     <td style={td}>
-                      <span style={{ ...chipStyle(subjectBadge(t).bg, subjectBadge(t).fg), marginRight: 8 }}>
-                        {subjectBadge(t).label}
+                      <span style={{ ...chipStyle(subj.bg, subj.fg), marginRight: 8 }}>
+                        {subj.label}
                       </span>
                       {subjectLink(t)}
                     </td>
-                    <td style={{ ...td, maxWidth: 360, whiteSpace: "pre-wrap" }}>
+                    <td style={{ ...td, maxWidth: 360, whiteSpace: "pre-wrap", overflowWrap: "anywhere", wordBreak: "break-word" }}>
                       {t.message}
                       {msgCount > 1 ? (
                         <span className="muted" style={{ display: "block", fontSize: 11, marginTop: 4 }}>

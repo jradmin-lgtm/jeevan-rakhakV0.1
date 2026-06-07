@@ -50,6 +50,58 @@ const ROLE_LABEL: Record<ThreadMessage["author_role"], string> = {
   USER: "Caller"
 };
 
+// Shallow-compare two message lists by id + body + created_at so the 10s poll
+// only re-renders the thread when something actually changed (avoids churning
+// the bubble list on every identical poll response).
+function sameMessages(a: ThreadMessage[], b: ThreadMessage[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].id !== b[i].id || a[i].body !== b[i].body || a[i].created_at !== b[i].created_at) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Memoized chat bubble — stops every message re-rendering when the poll lands
+// an unchanged (or single-message) update.
+const MessageBubble = React.memo(function MessageBubble({ m }: { m: ThreadMessage }) {
+  const mine = m.author_role === "HOSPITAL";
+  return (
+    <div style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start" }}>
+      <div style={{ maxWidth: "80%" }}>
+        <div
+          style={{
+            fontSize: 11,
+            color: "var(--muted)",
+            marginBottom: 3,
+            textAlign: mine ? "right" : "left"
+          }}
+        >
+          {m.author_name ?? ROLE_LABEL[m.author_role] ?? m.author_role} · {formatIST(m.created_at)}
+        </div>
+        <div
+          style={{
+            background: mine ? "var(--accent)" : "var(--card-alt, rgba(148,163,184,0.14))",
+            color: mine ? "#fff" : "var(--text, inherit)",
+            padding: "8px 12px",
+            borderRadius: 12,
+            borderTopRightRadius: mine ? 2 : 12,
+            borderTopLeftRadius: mine ? 12 : 2,
+            fontSize: 13,
+            lineHeight: 1.5,
+            whiteSpace: "pre-wrap",
+            overflowWrap: "anywhere",
+            wordBreak: "break-word"
+          }}
+        >
+          {m.body}
+        </div>
+      </div>
+    </div>
+  );
+});
+
 export function TicketThread({ ticketId, showStatus = false }: { ticketId: string; showStatus?: boolean }) {
   const [ticket, setTicket] = useState<ThreadTicket | null>(null);
   const [messages, setMessages] = useState<ThreadMessage[]>([]);
@@ -71,7 +123,8 @@ export function TicketThread({ ticketId, showStatus = false }: { ticketId: strin
       const json = await res.json();
       if (!aliveRef.current) return;
       setTicket(json.ticket ?? null);
-      setMessages(Array.isArray(json.messages) ? json.messages : []);
+      const next: ThreadMessage[] = Array.isArray(json.messages) ? json.messages : [];
+      setMessages((prev) => (sameMessages(prev, next) ? prev : next));
       setLoaded(true);
     } catch {
       /* keep last good */
@@ -102,6 +155,7 @@ export function TicketThread({ ticketId, showStatus = false }: { ticketId: strin
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ body })
       });
+      if (!aliveRef.current) return;
       if (!res.ok) {
         setError("Could not send your reply. Please try again.");
         return;
@@ -109,9 +163,9 @@ export function TicketThread({ ticketId, showStatus = false }: { ticketId: strin
       setReply("");
       void fetchThread();
     } catch {
-      setError("Network error — please try again.");
+      if (aliveRef.current) setError("Network error — please try again.");
     } finally {
-      setSending(false);
+      if (aliveRef.current) setSending(false);
     }
   };
 
@@ -154,53 +208,19 @@ export function TicketThread({ ticketId, showStatus = false }: { ticketId: strin
         {messages.length === 0 ? (
           <div className="muted" style={{ fontSize: 13 }}>No messages yet.</div>
         ) : (
-          messages.map((m) => {
-            const mine = m.author_role === "HOSPITAL";
-            return (
-              <div
-                key={m.id}
-                style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start" }}
-              >
-                <div style={{ maxWidth: "80%" }}>
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color: "var(--muted)",
-                      marginBottom: 3,
-                      textAlign: mine ? "right" : "left"
-                    }}
-                  >
-                    {m.author_name ?? ROLE_LABEL[m.author_role] ?? m.author_role} · {formatIST(m.created_at)}
-                  </div>
-                  <div
-                    style={{
-                      background: mine ? "var(--accent)" : "var(--card-alt, rgba(148,163,184,0.14))",
-                      color: mine ? "#fff" : "var(--text, inherit)",
-                      padding: "8px 12px",
-                      borderRadius: 12,
-                      borderTopRightRadius: mine ? 2 : 12,
-                      borderTopLeftRadius: mine ? 12 : 2,
-                      fontSize: 13,
-                      lineHeight: 1.5,
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word"
-                    }}
-                  >
-                    {m.body}
-                  </div>
-                </div>
-              </div>
-            );
-          })
+          messages.map((m) => <MessageBubble key={m.id} m={m} />)
         )}
       </div>
 
-      {resolved ? (
-        <div className="muted" style={{ fontSize: 12 }}>
-          This ticket is resolved. Raise a new one if you need further help.
-        </div>
-      ) : (
-        <div style={{ display: "grid", gap: 6 }}>
+      {/* v1.2.4: the backend reopens a resolved ticket on a raiser reply, so the
+         reply box stays available even when resolved — only the hint copy
+         changes to set the expectation. */}
+      <div style={{ display: "grid", gap: 6 }}>
+          {resolved ? (
+            <div className="muted" style={{ fontSize: 12 }}>
+              This ticket is resolved — replying will reopen it.
+            </div>
+          ) : null}
           <textarea
             value={reply}
             onChange={(e) => setReply(e.target.value)}
@@ -237,8 +257,7 @@ export function TicketThread({ ticketId, showStatus = false }: { ticketId: strin
               {sending ? "Sending…" : "Reply"}
             </button>
           </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
