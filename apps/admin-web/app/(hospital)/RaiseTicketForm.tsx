@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
 /**
  * Shared "Raise a ticket" form (v1.2.1, CR#3 · category v1.2.2). Used by:
@@ -75,6 +75,37 @@ export function RaiseTicketForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // v1.2.3: on the general page (subject not locked) let the user PICK which
+  // driver / ride the ticket is about — fetched from THIS hospital's scoped
+  // lists, so every option is RBAC-valid. (Contextual cards still pass a locked
+  // driverId/bookingId and skip this entirely.)
+  const [driverList, setDriverList] = useState<Array<{ id: string; name?: string | null; vehicle_number?: string | null }>>([]);
+  const [rideList, setRideList] = useState<Array<{ id: string; display_id?: string | null; patient_name?: string | null }>>([]);
+  const [pickedDriverId, setPickedDriverId] = useState("");
+  const [pickedBookingId, setPickedBookingId] = useState("");
+
+  useEffect(() => {
+    if (lockSubject) return;
+    if (subject === "DRIVER" && driverList.length === 0) {
+      void fetch("/api/hospital-proxy/api/v1/hospital/drivers", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : { drivers: [] }))
+        .then((d) => setDriverList(d.drivers ?? []))
+        .catch(() => {});
+    }
+    if (subject === "RIDE" && rideList.length === 0) {
+      void fetch("/api/hospital-proxy/api/v1/hospital/bookings?scope=all", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : { bookings: [] }))
+        .then((d) => setRideList(d.bookings ?? []))
+        .catch(() => {});
+    }
+  }, [subject, lockSubject, driverList.length, rideList.length]);
+
+  // Effective ids: a locked context (driver/ride card) wins; otherwise the pick.
+  const effDriverId = driverId ?? (pickedDriverId || undefined);
+  const effBookingId = bookingId ?? (pickedBookingId || undefined);
+  const needsPick =
+    !lockSubject && ((subject === "DRIVER" && !effDriverId) || (subject === "RIDE" && !effBookingId));
+
   const isFeedback = category === "FEEDBACK";
 
   const trimmed = message.trim();
@@ -86,12 +117,16 @@ export function RaiseTicketForm({
       setError(`Please describe the ${isFeedback ? "feedback" : "issue"} in at least 5 characters.`);
       return;
     }
+    if (needsPick) {
+      setError(subject === "DRIVER" ? "Please pick which driver this is about." : "Please pick which ride this is about.");
+      return;
+    }
     setSubmitting(true);
     try {
       const body: Record<string, unknown> = { subjectType: subject, category, message: trimmed };
       // Only attach context when relevant — a GENERAL ticket carries neither.
-      if (subject === "DRIVER" && driverId) body.driverId = driverId;
-      if (subject === "RIDE" && bookingId) body.bookingId = bookingId;
+      if (subject === "DRIVER" && effDriverId) body.driverId = effDriverId;
+      if (subject === "RIDE" && effBookingId) body.bookingId = effBookingId;
       const res = await fetch("/api/hospital-proxy/api/v1/hospital/tickets", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -158,15 +193,45 @@ export function RaiseTicketForm({
         {lockSubject ? (
           <div style={{ fontWeight: 600, fontSize: 14 }}>{SUBJECT_LABEL[subject]}</div>
         ) : (
-          <select
-            value={subject}
-            onChange={(e) => setSubject(e.target.value as TicketSubject)}
-            style={{ ...inp, maxWidth: 280 }}
-          >
-            <option value="GENERAL">{SUBJECT_LABEL.GENERAL}</option>
-            <option value="DRIVER" disabled={!driverId}>{SUBJECT_LABEL.DRIVER}</option>
-            <option value="RIDE" disabled={!bookingId}>{SUBJECT_LABEL.RIDE}</option>
-          </select>
+          <>
+            <select
+              value={subject}
+              onChange={(e) => setSubject(e.target.value as TicketSubject)}
+              style={{ ...inp, maxWidth: 280, display: "block" }}
+            >
+              <option value="GENERAL">{SUBJECT_LABEL.GENERAL}</option>
+              <option value="DRIVER">{SUBJECT_LABEL.DRIVER}</option>
+              <option value="RIDE">{SUBJECT_LABEL.RIDE}</option>
+            </select>
+            {subject === "DRIVER" ? (
+              <select
+                value={pickedDriverId}
+                onChange={(e) => setPickedDriverId(e.target.value)}
+                style={{ ...inp, maxWidth: 320, display: "block", marginTop: 8 }}
+              >
+                <option value="">{driverList.length ? "Select a driver…" : "No drivers linked to your hospital"}</option>
+                {driverList.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {(d.name ?? "Driver") + (d.vehicle_number ? ` (${d.vehicle_number})` : "")}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            {subject === "RIDE" ? (
+              <select
+                value={pickedBookingId}
+                onChange={(e) => setPickedBookingId(e.target.value)}
+                style={{ ...inp, maxWidth: 360, display: "block", marginTop: 8 }}
+              >
+                <option value="">{rideList.length ? "Select a ride…" : "No rides to your hospital yet"}</option>
+                {rideList.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {"#" + (r.display_id ?? "—") + (r.patient_name ? ` · ${r.patient_name}` : "")}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+          </>
         )}
       </div>
 
