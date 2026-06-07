@@ -1,4 +1,5 @@
 import React from "react";
+import { HospitalKpis } from "./HospitalKpis";
 import { HospitalDashboardLive } from "./HospitalDashboardLive";
 
 /**
@@ -18,7 +19,10 @@ export default function HospitalDashboardPage() {
           <p>Live queue of rides destined to your hospital. Updates automatically.</p>
         </div>
       </div>
-      <HospitalDashboardLive />
+      <div style={{ display: "grid", gap: 24 }}>
+        <HospitalKpis />
+        <HospitalDashboardLive />
+      </div>
     </>
   );
 }
