@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   ContactSupport,
+  LaunchBanner,
   Pill,
   PulseDot,
   Screen,
@@ -14,7 +15,7 @@ import {
   space,
   dialog
 } from "@jr/ui";
-import { Booking, bookings as bookingsApi, me, clearToken } from "../api";
+import { Booking, bookings as bookingsApi, me, clearToken, serviceArea as serviceAreaApi } from "../api";
 import { useT } from "../i18n";
 
 type Props = {
@@ -33,13 +34,37 @@ type Props = {
 // ambulances unintentionally.
 const MAX_ACTIVE_BOOKINGS = 1;
 
+// v1.3.x (geofence): the home banner copy. Falls back to this static default
+// if /service-area can't be reached on a cold start, so the ribbon always
+// renders something honest (we are live in Bareilly during the pilot).
+const DEFAULT_BANNER = { cityName: "Bareilly", hospitalName: "SRMS IMS Hospital", radiusKm: 100 };
+
 export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfile, onHistory, onSupport }: Props) {
   const { t, lang, setLang } = useT();
   const [active, setActive] = useState<Booking | null>(null);
   const [activeCount, setActiveCount] = useState<number>(0);
   const [refreshing, setRefreshing] = useState(false);
   const [name, setName] = useState<string | null>(profile?.name ?? null);
+  // v1.3.x (geofence): banner copy. Best-effort fetch, keep-last-good — we
+  // never blank an already-shown banner if a later refresh fails.
+  const [banner, setBanner] = useState<{ cityName: string; hospitalName: string; radiusKm: number }>(DEFAULT_BANNER);
   const breathe = useRef(new Animated.Value(1)).current;
+
+  // Slim, non-blocking pull of the public service-area config. Guarded with a
+  // mounted flag so we don't setState after the screen unmounts; on failure we
+  // simply keep the last-good value (or the static Bareilly default).
+  useEffect(() => {
+    let mounted = true;
+    serviceAreaApi()
+      .then((sa) => {
+        if (!mounted) return;
+        setBanner({ cityName: sa.cityName, hospitalName: sa.hospitalName, radiusKm: sa.radiusKm });
+      })
+      .catch(() => {
+        /* keep-last-good — banner already shows the default */
+      });
+    return () => { mounted = false; };
+  }, []);
 
   // Subtle breathing animation on the central SOS button. Drives "this is
   // alive, tap me" affordance during an emergency without being so loud it
@@ -97,6 +122,14 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
             <Text variant="small" weight="bold" style={{ color: lang === "hi" ? colors.accent : "#94A3B8" }}>हि</Text>
           </Pressable>
         }
+      />
+
+      {/* v1.3.x (geofence): slim Live-in ribbon. Sits at the top of the home
+        * content, above the SOS hero. Non-blocking — it never gates the
+        * emergency action. */}
+      <LaunchBanner
+        cityName={banner.cityName}
+        subtitle={"Serving " + banner.cityName + " within " + banner.radiusKm + " km of " + banner.hospitalName}
       />
 
       {active ? (

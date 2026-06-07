@@ -229,6 +229,21 @@ export const fares = {
     api<FareQuote>("/api/v1/fares/quote", { method: "POST", body: input })
 };
 
+// v1.3.x (geofence): public service-area config. Drives the home Live-in
+// banner and the client-side out-of-area guard before a booking POST. No
+// auth — it's the same config admin seeds (SRMS IMS Hospital, Bareilly).
+export type ServiceArea = {
+  enabled: boolean;
+  cityName: string;
+  hospitalName: string;
+  centerLat: number;
+  centerLng: number;
+  radiusKm: number;
+};
+
+export const serviceArea = () =>
+  api<ServiceArea>("/api/v1/service-area", { auth: false });
+
 export const bookings = {
   create: (input: {
     emergencyType: EmergencyType;

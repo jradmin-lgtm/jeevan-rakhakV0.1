@@ -51,6 +51,21 @@ const bookingCreateSchema = z.object({
 // (just the number to persist). Both are pure functions — no DB, no env.
 
 export async function registerBookingRoutes(app: FastifyInstance) {
+  // Service-area descriptor. PUBLIC (no auth) so the apps can render the launch
+  // banner + an out-of-area message on the very first screen, before a token
+  // exists. Values come straight from config (no DB) so this is cheap and the
+  // same source the booking-hot-path geofence guard reads from.
+  app.get("/api/v1/service-area", async (_req: any, reply) => {
+    return reply.send({
+      enabled: config.geofenceEnabled,
+      cityName: config.launchCityName,
+      hospitalName: config.launchHospitalName,
+      centerLat: config.geofenceCenterLat,
+      centerLng: config.geofenceCenterLng,
+      radiusKm: config.launchRadiusKm
+    });
+  });
+
   // v1.0.13: fare-quote endpoint. Stateless, called by the user app whenever
   // pickup/drop coords or coupon change so the booking screen shows the
   // exact number that will hit the bookings row. Auth-required so we don't
@@ -128,6 +143,31 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
       }
       const data = parsed.data;
+
+      // Geofence guard — runs for BOTH normal and SOS bookings (it sits before
+      // the isSos branch), so an out-of-area request never inserts a row, emits
+      // an event, or starts a cascade. No DB query in this hot path: the center
+      // + radius come straight from config (the seeded default hospital). When
+      // FLAG_GEOFENCE_ENABLED is off this whole block is skipped.
+      if (config.geofenceEnabled) {
+        const distKm = haversineDistanceKm(
+          data.pickupLat,
+          data.pickupLng,
+          config.geofenceCenterLat,
+          config.geofenceCenterLng
+        );
+        if (distKm > config.launchRadiusKm) {
+          return reply.code(403).send({
+            error: "out_of_service_area",
+            message:
+              "Jeevan Rakshak is currently live in " +
+              config.launchCityName +
+              " only. We cannot dispatch to your location yet.",
+            distanceKm: Math.round(distKm),
+            radiusKm: config.launchRadiusKm
+          });
+        }
+      }
 
       // Block disabled accounts from booking. JWT is still valid (issued before
       // admin flipped the flag) but the booking POST is the meaningful action.

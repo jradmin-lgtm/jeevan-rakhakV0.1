@@ -74,6 +74,21 @@ export const config = {
   perKmFareInr: optionalNum("PER_KM_FARE_INR", 30),
   bookingTimeoutSec: optionalNum("BOOKING_TIMEOUT_SEC", 90),
 
+  // Launch / geofence — the single city the pilot is live in. The geofence
+  // center is the seeded default hospital (SRMS IMS Hospital, Bareilly) and
+  // the radius bounds where we can actually dispatch. Read straight from config
+  // in the booking hot path (no DB round-trip) so out-of-area requests are
+  // rejected before any row insert, emit, or cascade.
+  launchCityName: optional("LAUNCH_CITY_NAME", "Bareilly"),
+  launchHospitalName: optional("LAUNCH_HOSPITAL_NAME", "SRMS IMS Hospital, Bareilly"),
+  launchRadiusKm: optionalNum("LAUNCH_RADIUS_KM", 100),
+  geofenceCenterLat: optionalNum("GEOFENCE_CENTER_LAT", 28.4875),
+  geofenceCenterLng: optionalNum("GEOFENCE_CENTER_LNG", 79.4452),
+  // Top-level mirror of flags.geofence_enabled so the booking hot path and the
+  // public /service-area endpoint can read config.geofenceEnabled directly.
+  // Same env var (FLAG_GEOFENCE_ENABLED) as the flag below — single source.
+  geofenceEnabled: optional("FLAG_GEOFENCE_ENABLED", "true") === "true",
+
   // v1.2.0 (CR#2) — driver-initiated cancellation tuning.
   // `driverCancelPatientWaitS` is the server-authoritative wait window (seconds)
   // a driver must observe before a patient-reason cancellation is allowed.
@@ -155,7 +170,8 @@ export const config = {
     enable_payments: optional("FLAG_ENABLE_PAYMENTS", "false") === "true",
     enable_push: optional("FLAG_ENABLE_PUSH", "false") === "true",
     show_demo_bypass: optional("FLAG_DEMO_BYPASS", "false") === "true",
-    pilot_bypass_otp: optional("FLAG_PILOT_BYPASS_OTP", "false") === "true"
+    pilot_bypass_otp: optional("FLAG_PILOT_BYPASS_OTP", "false") === "true",
+    geofence_enabled: optional("FLAG_GEOFENCE_ENABLED", "true") === "true"
   }
 } as const;
 

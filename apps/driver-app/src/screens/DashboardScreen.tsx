@@ -7,6 +7,7 @@ import {
   Card,
   EmptyState,
   IconBadge,
+  LaunchBanner,
   Pill,
   PulseDot,
   Screen,
@@ -27,7 +28,9 @@ import {
   IncomingRequest,
   me,
   safety as safetyApi,
-  SafetyActiveAlert
+  SafetyActiveAlert,
+  serviceArea as serviceAreaApi,
+  ServiceArea
 } from "../api";
 import { getSocket, disconnectSocket } from "../socket";
 import { useDriverHeartbeat } from "../hooks/useDriverHeartbeat";
@@ -71,6 +74,19 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
   const [activeTrip, setActiveTrip] = useState<Booking | null>(null);
   const [todayCompleted, setTodayCompleted] = useState(0);
   const [myPos, setMyPos] = useState<{ lat: number; lng: number } | null>(null);
+  // v1.4.0 (geofence): slim "Live in <city>" launch banner. Best-effort fetch of
+  // the public service-area config; keep-last-good and a safe "Bareilly" /
+  // default-hospital fallback so the banner always renders something sensible
+  // even if the call fails or the API is cold. Non-blocking: never gates the
+  // dashboard or the incoming-request flow.
+  const [area, setArea] = useState<ServiceArea>({
+    enabled: true,
+    cityName: "Bareilly",
+    hospitalName: "SRMS IMS Hospital",
+    centerLat: 28.4875,
+    centerLng: 79.4452,
+    radiusKm: 100
+  });
   // v1.2.0 (CR#1): unified incoming-request queue, held as a keyed map keyed by
   // booking id. The /driver/incoming poll is the source of truth (reconcile:
   // add/update returned ids, drop ids no longer returned → resolved / expired /
@@ -128,6 +144,24 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
     return () => {
       mounted = false;
       clearInterval(id);
+    };
+  }, []);
+
+  // v1.4.0 (geofence): fetch the public service-area config once on mount for
+  // the launch banner. Best-effort + keep-last-good: on failure we silently keep
+  // the seeded "Bareilly" / SRMS default so the banner still renders. setState is
+  // guarded by a mounted flag and cleaned up on unmount (audit gate item 4).
+  useEffect(() => {
+    let mounted = true;
+    serviceAreaApi()
+      .then((a) => {
+        if (mounted && a) setArea(a);
+      })
+      .catch(() => {
+        /* keep last good (seeded Bareilly default) */
+      });
+    return () => {
+      mounted = false;
     };
   }, []);
 
@@ -458,6 +492,14 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
             />
           </View>
         }
+      />
+
+      {/* v1.4.0 (geofence): slim, non-blocking launch ribbon at the top of the
+        * dashboard content. Sits in the flow (not an overlay), so it never gates
+        * the incoming-request list, the SOS modal, or anything below. */}
+      <LaunchBanner
+        cityName={area.cityName}
+        subtitle={"Serving " + area.cityName + " within " + area.radiusKm + " km of " + area.hospitalName}
       />
 
       <Card>

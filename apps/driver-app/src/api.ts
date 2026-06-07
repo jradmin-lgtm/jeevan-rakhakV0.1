@@ -223,6 +223,22 @@ export const hospitals = {
   list: () => api<{ hospitals: HospitalOption[] }>("/api/v1/hospitals")
 };
 
+// v1.4.0 (geofence): public service-area config — the city + geofence centre
+// (the default hospital) and operating radius the pilot runs in. No auth so the
+// banner can render before the driver is fully bootstrapped. Mirrors the
+// GET /api/v1/service-area handler; keep the shape in lockstep.
+export type ServiceArea = {
+  enabled: boolean;
+  cityName: string;
+  hospitalName: string;
+  centerLat: number;
+  centerLng: number;
+  radiusKm: number;
+};
+
+export const serviceArea = () =>
+  api<ServiceArea>("/api/v1/service-area", { auth: false });
+
 // v1.2.0 (CR#1): unified incoming-request row returned by GET /driver/incoming.
 // NOTE: this endpoint streams raw pgClient rows (no camelCase mapping like
 // /sos-pending does), so the fields are snake_case exactly as the SQL aliases

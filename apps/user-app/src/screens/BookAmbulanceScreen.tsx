@@ -1,10 +1,24 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import * as Location from "expo-location";
-import { AppHeader, Button, Card, Input, PulseDot, Screen, Text, colors, radius, space } from "@jr/ui";
-import { bookings as bookingsApi, fares as faresApi, FareQuote, EmergencyType, Booking } from "../api";
+import { AppHeader, Button, Card, Input, PulseDot, Screen, Text, colors, radius, space, dialog } from "@jr/ui";
+import { bookings as bookingsApi, fares as faresApi, serviceArea as serviceAreaApi, FareQuote, EmergencyType, Booking } from "../api";
 import { MapLocationPicker } from "./MapLocationPicker";
 import { useT } from "../i18n";
+
+// v2.0: local haversine for the client-side geofence pre-check. Kept local so
+// the user app needs no @jr/utils workspace dependency; the server-side check
+// in POST /bookings is the authoritative gate. Returns km between two points.
+function haversineDistanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const toRad = (v: number) => (v * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 // v1.0.15: emergency labels are now translation keys so the option list
 // re-renders in Hindi when the locale flips mid-screen. Previously the
@@ -64,6 +78,18 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
   // the UI show a subtle spinner instead of a flash of stale numbers.
   const [quote, setQuote] = useState<FareQuote | null>(null);
   const [quoteBusy, setQuoteBusy] = useState(false);
+  // v1.3.x (geofence): public service-area config. When enabled, we block a
+  // booking whose pickup falls outside radiusKm of the hospital center before
+  // hitting the server (the server enforces the same rule as a fallback).
+  // Best-effort fetch, keep-last-good — if the config can't be reached we
+  // leave it null and let the server be the single gatekeeper.
+  const [area, setArea] = useState<{
+    enabled: boolean;
+    centerLat: number;
+    centerLng: number;
+    radiusKm: number;
+    cityName: string;
+  } | null>(null);
 
   const refreshLocation = useCallback(async () => {
     setLocating(true);
@@ -102,6 +128,28 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
   useEffect(() => {
     void refreshLocation();
   }, [refreshLocation]);
+
+  // Pull the public service-area config once on mount. Mounted-guarded so we
+  // don't setState after unmount; on failure we keep-last-good (null) and let
+  // the server enforce the geofence on POST.
+  useEffect(() => {
+    let mounted = true;
+    serviceAreaApi()
+      .then((sa) => {
+        if (!mounted) return;
+        setArea({
+          enabled: sa.enabled,
+          centerLat: sa.centerLat,
+          centerLng: sa.centerLng,
+          radiusKm: sa.radiusKm,
+          cityName: sa.cityName
+        });
+      })
+      .catch(() => {
+        /* keep-last-good — server still gatekeeps on POST */
+      });
+    return () => { mounted = false; };
+  }, []);
 
   // Pull a fresh quote whenever pickup, drop, or coupon changes. Falls back
   // gracefully — if the server can't be reached we just don't show numbers
@@ -157,10 +205,40 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
     setErr(null);
   };
 
+  // v1.3.x (geofence): shared copy + UI for an out-of-area pickup, so the
+  // client pre-check and the server-fallback path surface the exact same
+  // message (inline error + app dialog) instead of a generic failure.
+  const showOutOfArea = () => {
+    const city = area?.cityName ?? "Bareilly";
+    setErr(
+      "Jeevan Rakshak is live in " + city + " only right now. We cannot dispatch to your location yet."
+    );
+    void dialog.alert(
+      "Outside service area",
+      "Jeevan Rakshak is live in " + city + " only right now. We cannot dispatch to your location yet."
+    );
+  };
+
   const submit = async () => {
     if (!type) return;
     if (!pickupCoords) return;
     setErr(null);
+    // Client-side geofence guard. When the service area is enabled and we have
+    // a real pickup fix, block here if the pickup is beyond radiusKm of the
+    // hospital center — saves a round-trip and gives instant feedback. The
+    // server runs the same check, so this can't be bypassed by skipping it.
+    if (area?.enabled && pickupCoords) {
+      const distKm = haversineDistanceKm(
+        pickupCoords.lat,
+        pickupCoords.lng,
+        area.centerLat,
+        area.centerLng
+      );
+      if (distKm > area.radiusKm) {
+        showOutOfArea();
+        return;
+      }
+    }
     setBusy(true);
     try {
       const r = await bookingsApi.create({
@@ -177,7 +255,15 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
       });
       onBooked(r.booking);
     } catch (e: any) {
-      setErr(e.message ?? "Could not create booking. Please try again.");
+      // Server-side geofence fallback: the booking handler rejects an
+      // out-of-area pickup with error/code "out_of_service_area". Surface the
+      // same in-app message as the client pre-check, not a generic failure.
+      const code = String(e?.message ?? e?.details?.error ?? e?.details?.code ?? "");
+      if (code === "out_of_service_area" || code.includes("out_of_service_area")) {
+        showOutOfArea();
+      } else {
+        setErr(e.message ?? "Could not create booking. Please try again.");
+      }
     } finally {
       setBusy(false);
     }
