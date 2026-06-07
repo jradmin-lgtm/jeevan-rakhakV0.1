@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { db, bookings, drivers, driverHospitals, hospitals, users } from "@jr/db";
+import { db, bookings, drivers, driverHospitals, hospitals, users, sql as pgClient } from "@jr/db";
 
 const profileUpdate = z.object({
   name: z.string().min(1).max(120).optional(),
@@ -199,6 +199,141 @@ export async function registerMeRoutes(app: FastifyInstance) {
       }
 
       return reply.code(403).send({ error: "forbidden" });
+    }
+  );
+
+  // v1.2.4 (helpdesk): user app Help & Support. Tickets raised here carry
+  // source='USER' and are scoped to raiser_user_id=sub. RBAC — a user only ever
+  // sees / posts on their OWN tickets (raiser_user_id=sub); any other ticket
+  // (hospital/driver-raised, or another user's) 404s, never leaking another
+  // raiser's thread. RIDE tickets must reference a booking THIS user owns
+  // (user_id=sub) else 400. Raised tickets never touch portal_* columns.
+
+  // POST /me/tickets — raise a ticket. { category?, subjectType?('GENERAL'
+  // |'RIDE'), bookingId?, message }. Defaults category=ISSUE, subjectType=GENERAL.
+  // Inserts the ticket + seeds the first thread row (author_role USER,
+  // author_name = user name) so the card reads as one conversation.
+  app.post(
+    "/api/v1/me/tickets",
+    { preHandler: [(app as any).authenticate] },
+    async (req: any, reply) => {
+      const { sub, role } = req.user;
+      if (role !== "user") return reply.code(403).send({ error: "user_only" });
+      const subjectType =
+        String(req.body?.subjectType ?? "GENERAL").trim().toUpperCase() === "RIDE" ? "RIDE" : "GENERAL";
+      const message = String(req.body?.message ?? "").trim();
+      // FEEDBACK (soft) vs ISSUE (actionable). Mirrors hospital.ts / drivers.ts —
+      // omitted/unknown lands in the actionable ISSUE bucket.
+      const category =
+        String(req.body?.category ?? "ISSUE").trim().toUpperCase() === "FEEDBACK" ? "FEEDBACK" : "ISSUE";
+      if (message.length < 5) return reply.code(400).send({ error: "message_too_short" });
+
+      let bookingId: string | null = null;
+      if (subjectType === "RIDE") {
+        bookingId = req.body?.bookingId ? String(req.body.bookingId) : null;
+        if (!bookingId) return reply.code(400).send({ error: "missing_booking" });
+        // RIDE tickets must be about a booking THIS user owns.
+        const [b] = await db
+          .select({ id: bookings.id })
+          .from(bookings)
+          .where(and(eq(bookings.id, bookingId), eq(bookings.userId, sub)))
+          .limit(1);
+        if (!b) return reply.code(400).send({ error: "invalid_booking" }); // not this user's ride
+      }
+
+      // User display name for the seeded first message's author_name (the JWT
+      // carries only sub; resolve the name from the row). Null-safe.
+      const [{ name: userName = null } = {}] = await pgClient<any[]>`
+        SELECT name FROM users WHERE id = ${sub} LIMIT 1`;
+
+      const [{ id } = {}] = await pgClient`
+        INSERT INTO support_tickets (subject_type, category, source, raiser_user_id, booking_id, message, status)
+        VALUES (${subjectType}, ${category}, 'USER', ${sub}, ${bookingId}, ${message}, 'OPEN')
+        RETURNING id`;
+      // Seed the first thread row so the card reads as one conversation.
+      await pgClient`
+        INSERT INTO support_ticket_messages (ticket_id, author_role, author_name, body)
+        VALUES (${id}, 'USER', ${userName}, ${message})`;
+      return reply.send({ ok: true, id });
+    }
+  );
+
+  // GET /me/tickets — this user's OWN tickets, newest first. Scoped to
+  // raiser_user_id=sub — never another raiser's tickets. Includes the linked
+  // ride's display_id (never the raw UUID).
+  app.get(
+    "/api/v1/me/tickets",
+    { preHandler: [(app as any).authenticate] },
+    async (req: any, reply) => {
+      const { sub, role } = req.user;
+      if (role !== "user") return reply.code(403).send({ error: "user_only" });
+      const rows = await pgClient`
+        SELECT t.id, t.subject_type, t.category, t.message, t.status, t.created_at, t.resolved_at,
+               t.booking_id, b.display_id AS booking_display_id
+        FROM support_tickets t
+        LEFT JOIN bookings b ON b.id = t.booking_id
+        WHERE t.raiser_user_id = ${sub}
+        ORDER BY t.created_at DESC`;
+      return reply.send({ tickets: rows });
+    }
+  );
+
+  // GET /me/tickets/:id — this user's OWN ticket + its full chat thread.
+  // RBAC — scoped to raiser_user_id=sub; any ticket belonging to another raiser
+  // 404s, never leaking another thread. No portal_* columns exposed.
+  app.get(
+    "/api/v1/me/tickets/:id",
+    { preHandler: [(app as any).authenticate] },
+    async (req: any, reply) => {
+      const { sub, role } = req.user;
+      if (role !== "user") return reply.code(403).send({ error: "user_only" });
+      const id = String(req.params.id);
+      const [t] = await pgClient<any[]>`
+        SELECT t.id, t.subject_type, t.category, t.message, t.status, t.created_at, t.resolved_at,
+               t.booking_id, b.display_id AS booking_display_id
+        FROM support_tickets t
+        LEFT JOIN bookings b ON b.id = t.booking_id
+        WHERE t.id = ${id} AND t.raiser_user_id = ${sub}
+        LIMIT 1`;
+      if (!t) return reply.code(404).send({ error: "not_found" }); // not this user's → 404, never leak
+
+      const messages = await pgClient`
+        SELECT id, ticket_id, author_role, author_name, body, created_at
+        FROM support_ticket_messages
+        WHERE ticket_id = ${id}
+        ORDER BY created_at ASC`;
+      return reply.send({ ticket: t, messages });
+    }
+  );
+
+  // POST /me/tickets/:id/messages — post a reply on this user's OWN ticket
+  // thread. RBAC — verifies the ticket belongs to raiser_user_id=sub before
+  // inserting (else 404, never posting into another raiser's thread).
+  // author_role USER, author_name = user name (resolved from the row, not the
+  // body). body ≥2 chars.
+  app.post(
+    "/api/v1/me/tickets/:id/messages",
+    { preHandler: [(app as any).authenticate] },
+    async (req: any, reply) => {
+      const { sub, role } = req.user;
+      if (role !== "user") return reply.code(403).send({ error: "user_only" });
+      const id = String(req.params.id);
+      const body = String(req.body?.body ?? "").trim();
+      if (body.length < 2) return reply.code(400).send({ error: "message_too_short" });
+
+      // Ownership check — the ticket must belong to THIS user.
+      const [t] = await pgClient<any[]>`
+        SELECT id FROM support_tickets WHERE id = ${id} AND raiser_user_id = ${sub} LIMIT 1`;
+      if (!t) return reply.code(404).send({ error: "not_found" }); // not owned → 404, never leak
+
+      const [{ name: userName = null } = {}] = await pgClient<any[]>`
+        SELECT name FROM users WHERE id = ${sub} LIMIT 1`;
+
+      const [message] = await pgClient`
+        INSERT INTO support_ticket_messages (ticket_id, author_role, author_name, body)
+        VALUES (${id}, 'USER', ${userName}, ${body})
+        RETURNING id, ticket_id, author_role, author_name, body, created_at`;
+      return reply.send({ message });
     }
   );
 }
