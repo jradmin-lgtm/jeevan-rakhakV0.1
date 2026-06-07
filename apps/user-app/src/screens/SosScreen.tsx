@@ -1,9 +1,24 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Animated, Linking, Pressable, StyleSheet, View } from "react-native";
 import * as Location from "expo-location";
-import { AppHeader, Button, Card, IconBadge, PulseDot, Screen, Text, colors, space, dialog } from "@jr/ui";
-import { Booking, bookings as bookingsApi } from "../api";
+import { AppHeader, Button, Card, IconBadge, OutOfServiceArea, PulseDot, Screen, Text, colors, space, dialog } from "@jr/ui";
+import { Booking, bookings as bookingsApi, serviceArea as serviceAreaApi } from "../api";
 import { SUPPORT_PHONE, SUPPORT_PHONE_DISPLAY } from "@jr/ui";
+
+// v1.3.x (geofence): local haversine for the client-side out-of-area pre-check.
+// Kept local (same helper as BookAmbulanceScreen) so the user app needs no
+// @jr/utils workspace dependency; the server-side check in POST /bookings is
+// the authoritative gate. Returns km between two points.
+function haversineDistanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const toRad = (v: number) => (v * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 // v1.0.12: removed the Delhi-centroid fallback for SOS. Sending an
 // ambulance to the wrong city is worse than refusing to send one — if GPS
@@ -29,6 +44,43 @@ async function getPickup(): Promise<{ lat: number; lng: number } | null> {
 export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: (b: Booking) => void }) {
   const [busy, setBusy] = useState(false);
   const breathe = useRef(new Animated.Value(1)).current;
+  // v1.3.x (geofence): public service-area config. When enabled, we block an
+  // SOS whose pickup falls outside radiusKm of the hospital center before
+  // hitting the server (the server enforces the same rule as a fallback).
+  // Best-effort fetch, keep-last-good — if the config can't be reached we
+  // leave it null and let the server be the single gatekeeper.
+  const [area, setArea] = useState<{
+    enabled: boolean;
+    centerLat: number;
+    centerLng: number;
+    radiusKm: number;
+    cityName: string;
+    hospitalName: string;
+  } | null>(null);
+  const [outOfAreaVisible, setOutOfAreaVisible] = useState(false);
+
+  // Pull the public service-area config once on mount. Mounted-guarded so we
+  // don't setState after unmount; on failure we keep-last-good (null) and let
+  // the server enforce the geofence on POST.
+  useEffect(() => {
+    let mounted = true;
+    serviceAreaApi()
+      .then((sa) => {
+        if (!mounted) return;
+        setArea({
+          enabled: sa.enabled,
+          centerLat: sa.centerLat,
+          centerLng: sa.centerLng,
+          radiusKm: sa.radiusKm,
+          cityName: sa.cityName,
+          hospitalName: sa.hospitalName
+        });
+      })
+      .catch(() => {
+        /* keep-last-good — server still gatekeeps on POST */
+      });
+    return () => { mounted = false; };
+  }, []);
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -68,6 +120,23 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
         });
         return;
       }
+      // Client-side geofence guard. When the service area is enabled and we
+      // have a real pickup fix, block here if the pickup is beyond radiusKm of
+      // the hospital center — instant feedback with the 108 fallback instead of
+      // a round-trip. The server runs the same check, so this can't be bypassed.
+      if (area?.enabled && pickup) {
+        const distKm = haversineDistanceKm(
+          pickup.lat,
+          pickup.lng,
+          area.centerLat,
+          area.centerLng
+        );
+        if (distKm > area.radiusKm) {
+          setOutOfAreaVisible(true);
+          setBusy(false);
+          return;
+        }
+      }
       const r = await bookingsApi.create({
         emergencyType: "CARDIAC",
         pickupLat: pickup.lat,
@@ -80,7 +149,15 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
       });
       onBooked(r.booking);
     } catch (e: any) {
-      void dialog.alert("SOS failed", e?.message ?? "Please try again.");
+      // Server-side geofence fallback: the booking handler rejects an
+      // out-of-area pickup with error "out_of_service_area". Surface the
+      // out-of-area sheet (with the 108 fallback) instead of the generic
+      // failure dialog that would otherwise show the raw error code.
+      if (e?.message === "out_of_service_area" || e?.details?.error === "out_of_service_area") {
+        setOutOfAreaVisible(true);
+      } else {
+        void dialog.alert("SOS failed", e?.message ?? "Please try again.");
+      }
     } finally {
       setBusy(false);
     }
@@ -144,6 +221,19 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
           </View>
         </Card>
       </View>
+
+      {/* v1.3.x (geofence): out-of-area sheet with the EMERGENCY fallback. A
+        * stranded out-of-area SOS must get 108 + support prominently, so we
+        * pass emergency so the call-108 block is surfaced above the
+        * explanation. Non-blocking when not visible. */}
+      <OutOfServiceArea
+        visible={outOfAreaVisible}
+        onClose={() => setOutOfAreaVisible(false)}
+        cityName={area?.cityName ?? "Bareilly"}
+        hospitalName={area?.hospitalName}
+        radiusKm={area?.radiusKm}
+        emergency={true}
+      />
     </Screen>
   );
 }

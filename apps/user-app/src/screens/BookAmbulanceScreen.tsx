@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import * as Location from "expo-location";
-import { AppHeader, Button, Card, Input, PulseDot, Screen, Text, colors, radius, space, dialog } from "@jr/ui";
+import { AppHeader, Button, Card, Input, PulseDot, Screen, Text, colors, radius, space, OutOfServiceArea } from "@jr/ui";
 import { bookings as bookingsApi, fares as faresApi, serviceArea as serviceAreaApi, FareQuote, EmergencyType, Booking } from "../api";
 import { MapLocationPicker } from "./MapLocationPicker";
 import { useT } from "../i18n";
@@ -89,7 +89,12 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
     centerLng: number;
     radiusKm: number;
     cityName: string;
+    hospitalName: string;
   } | null>(null);
+  // v2.0 (geofence UX): when an out-of-area pickup is detected (client pre-check
+  // or server 403), we surface the app-styled OutOfServiceArea sheet instead of
+  // a native popup. Non-blocking when false.
+  const [outOfAreaVisible, setOutOfAreaVisible] = useState(false);
 
   const refreshLocation = useCallback(async () => {
     setLocating(true);
@@ -142,7 +147,8 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
           centerLat: sa.centerLat,
           centerLng: sa.centerLng,
           radiusKm: sa.radiusKm,
-          cityName: sa.cityName
+          cityName: sa.cityName,
+          hospitalName: sa.hospitalName
         });
       })
       .catch(() => {
@@ -205,18 +211,16 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
     setErr(null);
   };
 
-  // v1.3.x (geofence): shared copy + UI for an out-of-area pickup, so the
-  // client pre-check and the server-fallback path surface the exact same
-  // message (inline error + app dialog) instead of a generic failure.
+  // v2.0 (geofence UX): shared handler for an out-of-area pickup, so the client
+  // pre-check and the server-fallback path surface the exact same UI. We now
+  // open the app-styled OutOfServiceArea sheet (primary UI) plus a brief inline
+  // error for context, instead of a native dialog.alert popup.
   const showOutOfArea = () => {
     const city = area?.cityName ?? "Bareilly";
     setErr(
       "Jeevan Rakshak is live in " + city + " only right now. We cannot dispatch to your location yet."
     );
-    void dialog.alert(
-      "Outside service area",
-      "Jeevan Rakshak is live in " + city + " only right now. We cannot dispatch to your location yet."
-    );
+    setOutOfAreaVisible(true);
   };
 
   const submit = async () => {
@@ -533,6 +537,18 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
           }
           setPickerMode(null);
         }}
+      />
+
+      {/* v2.0 (geofence UX): app-styled out-of-area sheet. Non-blocking when
+        * not visible; opened by showOutOfArea() from the client pre-check and
+        * the server 403 catch. Normal booking path → emergency={false}. */}
+      <OutOfServiceArea
+        visible={outOfAreaVisible}
+        onClose={() => setOutOfAreaVisible(false)}
+        cityName={area?.cityName ?? "Bareilly"}
+        hospitalName={area?.hospitalName}
+        radiusKm={area?.radiusKm}
+        emergency={false}
       />
     </Screen>
   );
