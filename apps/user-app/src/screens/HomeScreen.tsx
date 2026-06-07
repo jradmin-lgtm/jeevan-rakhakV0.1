@@ -37,7 +37,7 @@ const MAX_ACTIVE_BOOKINGS = 1;
 // v1.3.x (geofence): the home banner copy. Falls back to this static default
 // if /service-area can't be reached on a cold start, so the ribbon always
 // renders something honest (we are live in Bareilly during the pilot).
-const DEFAULT_BANNER = { cityName: "Bareilly", hospitalName: "SRMS IMS Hospital", radiusKm: 100 };
+const DEFAULT_BANNER = { cityName: "Bareilly", hospitalName: "SRMS IMS Hospital", radiusKm: 1000 };
 
 export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfile, onHistory, onSupport }: Props) {
   const { t, lang, setLang } = useT();

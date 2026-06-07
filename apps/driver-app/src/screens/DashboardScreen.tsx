@@ -85,7 +85,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
     hospitalName: "SRMS IMS Hospital",
     centerLat: 28.4875,
     centerLng: 79.4452,
-    radiusKm: 100
+    radiusKm: 1000
   });
   // v1.2.0 (CR#1): unified incoming-request queue, held as a keyed map keyed by
   // booking id. The /driver/incoming poll is the source of truth (reconcile:
