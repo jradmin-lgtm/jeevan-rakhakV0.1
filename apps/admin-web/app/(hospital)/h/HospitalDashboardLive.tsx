@@ -39,7 +39,7 @@ const POLL_MS = 10000;
 // 1 Request Created → 2 Ambulance Assigned → 3 Arrived at pickup →
 // 4 Picked Up → 5 Assessment In Progress → 6 Assessment Submitted →
 // 7 En Route → 8 Arrived at Hospital.
-const WORKFLOW_STEPS = [
+export const WORKFLOW_STEPS = [
   "Request created",
   "Ambulance assigned",
   "Arrived at pickup",
@@ -234,7 +234,7 @@ function BookingCard({ b, onAck }: { b: HBooking; onAck: () => void }) {
   );
 }
 
-function WorkflowIndicator({ step }: { step: number }) {
+export function WorkflowIndicator({ step }: { step: number }) {
   return (
     <div style={{ display: "flex", gap: 4, marginTop: 14, flexWrap: "wrap" }}>
       {WORKFLOW_STEPS.map((label, i) => {

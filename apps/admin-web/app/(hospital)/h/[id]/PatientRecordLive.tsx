@@ -5,6 +5,8 @@ import { formatTimeIST } from "../../../../lib/dates";
 import { haversineKm, haversineEtaMin, fetchOsrmRoute, fmtDistance, fmtEta } from "../../../../lib/hospitalEta";
 import { useHospitalSocket } from "../../HospitalSocketProvider";
 import { HospitalMap } from "../../HospitalMap";
+import { RaiseTicketForm } from "../../RaiseTicketForm";
+import { workflowStep, WorkflowIndicator } from "../HospitalDashboardLive";
 
 type Assessment = { [k: string]: any };
 
@@ -73,6 +75,7 @@ export function PatientRecordLive({ bookingId }: { bookingId: string }) {
   const [updatedAt, setUpdatedAt] = useState<number>(Date.now());
   const [route, setRoute] = useState<{ coords: Array<[number, number]>; distanceKm: number; durationMin: number } | null>(null);
   const [acking, setAcking] = useState(false);
+  const [showTicket, setShowTicket] = useState(false);
   const { subscribe } = useHospitalSocket();
   const aliveRef = useRef(true);
 
@@ -158,6 +161,15 @@ export function PatientRecordLive({ bookingId }: { bookingId: string }) {
   const c = data.sectionC;
   const acked = !!c.ackAt;
 
+  // Locked human id — shown identically on every surface (queue, history,
+  // driver card, here). The UUID stays a routing key only.
+  const displayId = data.displayId ?? bookingId.slice(0, 8);
+
+  // Live 8-step workflow position — same helper + indicator the incoming-queue
+  // cards use, so the ride card mirrors the admin booking detail's liveness.
+  // `sectionB` present means the paramedic assessment has been submitted.
+  const step = workflowStep({ status: c.status, has_assessment: b != null, hospital_ack_at: c.ackAt });
+
   // ETA/distance: prefer OSRM road estimate, else straight-line haversine.
   let etaText = "—";
   let distText = "—";
@@ -172,32 +184,59 @@ export function PatientRecordLive({ bookingId }: { bookingId: string }) {
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <div className="card" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          {data.isSos ? (
-            <span style={{ background: "rgba(220,38,38,0.12)", color: "var(--danger)", fontWeight: 800, fontSize: 11, letterSpacing: 0.5, padding: "4px 10px", borderRadius: 999 }}>🚨 SOS EMERGENCY</span>
-          ) : null}
-          <span style={{ fontWeight: 700 }}>{prettyEmergency(a.emergencyType)}</span>
-          <span className="muted" style={{ fontSize: 12 }}>· #{data.displayId ?? bookingId.slice(0, 8)}</span>
-          <span className="muted" style={{ fontSize: 12 }}>· {prettyStatus(c.status)}</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span className="muted" style={{ fontSize: 12 }}>Updated {formatTimeIST(updatedAt)}</span>
-          {acked ? (
-            <span style={{ background: "rgba(16,185,129,0.12)", color: "var(--success)", fontWeight: 700, fontSize: 13, padding: "8px 14px", borderRadius: 8 }}>
-              ✓ Preparing · {formatTimeIST(c.ackAt!)}
+      <div className="card" style={{ display: "grid", gap: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            {data.isSos ? (
+              <span style={{ background: "rgba(220,38,38,0.12)", color: "var(--danger)", fontWeight: 800, fontSize: 11, letterSpacing: 0.5, padding: "4px 10px", borderRadius: 999 }}>🚨 SOS EMERGENCY</span>
+            ) : null}
+            <span style={{ fontFamily: "var(--mono, monospace)", fontSize: 20, fontWeight: 800, letterSpacing: 0.3 }}>#{displayId}</span>
+            <span className={`pill ${c.status.toLowerCase()}`}>{prettyStatus(c.status)}</span>
+            <span style={{ fontWeight: 700 }}>{prettyEmergency(a.emergencyType)}</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <span className="muted" style={{ fontSize: 12 }}>
+              <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "var(--success)", marginRight: 6 }} />
+              Live · {formatTimeIST(updatedAt)}
             </span>
-          ) : (
             <button
-              onClick={acknowledge}
-              disabled={acking}
-              style={{ background: "var(--accent)", color: "#fff", border: "none", padding: "9px 16px", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: acking ? "default" : "pointer", opacity: acking ? 0.6 : 1 }}
+              type="button"
+              onClick={() => setShowTicket((v) => !v)}
+              style={{ background: "transparent", color: "var(--danger)", border: "1px solid var(--danger)", padding: "8px 14px", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: "pointer" }}
             >
-              {acking ? "Acknowledging…" : "Acknowledge — preparing"}
+              {showTicket ? "Close" : "Raise concern"}
             </button>
-          )}
+            {acked ? (
+              <span style={{ background: "rgba(16,185,129,0.12)", color: "var(--success)", fontWeight: 700, fontSize: 13, padding: "8px 14px", borderRadius: 8 }}>
+                ✓ Preparing · {formatTimeIST(c.ackAt!)}
+              </span>
+            ) : (
+              <button
+                onClick={acknowledge}
+                disabled={acking}
+                style={{ background: "var(--accent)", color: "#fff", border: "none", padding: "9px 16px", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: acking ? "default" : "pointer", opacity: acking ? 0.6 : 1 }}
+              >
+                {acking ? "Acknowledging…" : "Acknowledge — preparing"}
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* Live 8-step workflow timeline — same indicator as the incoming-queue
+          * cards, so the ride card reads identically and updates realtime. */}
+        <WorkflowIndicator step={step} />
       </div>
+
+      {/* Contextual ticket form — pre-filled RIDE + bookingId, subject locked. */}
+      {showTicket ? (
+        <RaiseTicketForm
+          subjectType="RIDE"
+          bookingId={bookingId}
+          contextLabel={`Ride #${displayId}`}
+          lockSubject
+          onDone={() => setShowTicket(false)}
+        />
+      ) : null}
 
       {/* Section C — live transit (map + ETA) at top, so triage sees position first. */}
       <div className="card">
