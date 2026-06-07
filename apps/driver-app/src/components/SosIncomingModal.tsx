@@ -27,15 +27,24 @@ type Props = {
  * `sos:incoming` (show) and `sos:cancelled` (dismiss — another driver won
  * or the patient cancelled).
  *
- * Big red pulse + ACCEPT / REJECT. Accept races on the server side via the
- * existing `POST /bookings/:id/accept` atomic update; on 409 the modal
- * tells the driver "Another driver took it" and dismisses. Reject calls
- * `POST /bookings/:id/reject` which writes to `sos_dispatch_attempts` so
- * the next wave skips this driver.
+ * Big red pulse + ACCEPT / DISMISS. Accept races on the server side via the
+ * existing `POST /bookings/:id/accept` atomic update; on 409 the modal tells
+ * the driver "Another driver took it" and closes.
+ *
+ * v1.2.7: the flash's secondary action is a SOFT **Dismiss**, NOT a reject.
+ * It only closes the full-screen overlay (and remembers the id so the flash
+ * won't re-pop) — it does NOT call /reject. The SOS stays REQUESTED and keeps
+ * sitting in the driver's Incoming Requests list as a SECOND CHANCE to accept,
+ * so a stray tap on a full-screen alert can't drop a live emergency. A true
+ * decline is the confirm-gated Reject inside that list (which writes
+ * sos_dispatch_attempts so the cascade skips this driver).
  */
 export function SosIncomingModal({ onAccept }: Props) {
   const [active, setActive] = useState<SosPayload | null>(null);
   const [busy, setBusy] = useState(false);
+  // Bookings the driver dismissed from the FLASH — keeps the overlay from
+  // re-popping for them while they still live in the Incoming Requests list.
+  const dismissed = useRef<Set<string>>(new Set());
   const pulse = useRef(new Animated.Value(1)).current;
 
   // Subscribe once on mount; stays active for the screen lifetime.
@@ -48,8 +57,10 @@ export function SosIncomingModal({ onAccept }: Props) {
         if (!mounted) return;
         const onIncoming = (p: SosPayload) => {
           if (!mounted) return;
-          // Ignore subsequent pushes for the same booking — the modal already
-          // displays it.
+          // Dismissed-from-flash → it lives in the Incoming Requests list now;
+          // don't re-pop the overlay. Otherwise show it (ignore dup pushes for
+          // the booking already displayed).
+          if (dismissed.current.has(p.bookingId)) return;
           setActive((prev) => (prev?.bookingId === p.bookingId ? prev : p));
         };
         const onCancelled = (p: { bookingId: string }) => {
@@ -83,7 +94,9 @@ export function SosIncomingModal({ onAccept }: Props) {
       try {
         const r = await bookingsApi.sosPending();
         if (!mounted || !r.sos?.length) return;
-        const next = r.sos[0];
+        // Surface the nearest SOS the driver hasn't dismissed from the flash.
+        const next = r.sos.find((s) => !dismissed.current.has(s.bookingId));
+        if (!next) return;
         setActive((prev) =>
           prev
             ? prev
@@ -144,17 +157,13 @@ export function SosIncomingModal({ onAccept }: Props) {
     }
   };
 
-  const reject = async () => {
+  // SOFT dismiss — close the overlay only. Does NOT reject the SOS: the request
+  // stays REQUESTED and keeps sitting in the Incoming Requests list as a second
+  // chance to accept. (A true decline is the confirm-gated Reject in that list.)
+  const dismiss = () => {
     if (!active || busy) return;
-    setBusy(true);
-    try {
-      await bookingsApi.reject(active.bookingId);
-    } catch {
-      /* swallow — the modal still dismisses so the UI stays responsive */
-    } finally {
-      setActive(null);
-      setBusy(false);
-    }
+    dismissed.current.add(active.bookingId);
+    setActive(null);
   };
 
   if (!active) return null;
@@ -162,7 +171,7 @@ export function SosIncomingModal({ onAccept }: Props) {
   const etaMin = Math.max(1, Math.round((active.distanceKm * 1.4) / 28 * 60));
 
   return (
-    <Modal visible animationType="fade" transparent onRequestClose={reject}>
+    <Modal visible animationType="fade" transparent onRequestClose={dismiss}>
       <View style={styles.backdrop}>
         <View style={styles.card}>
           <View style={{ alignItems: "center", gap: space.sm }}>
@@ -195,12 +204,12 @@ export function SosIncomingModal({ onAccept }: Props) {
           </View>
           <View style={styles.buttonRow}>
             <Pressable
-              onPress={reject}
+              onPress={dismiss}
               disabled={busy}
               android_ripple={{ color: "rgba(0,0,0,0.05)" }}
               style={[styles.btn, styles.btnReject, busy && { opacity: 0.6 }]}
             >
-              <Text variant="body" weight="bold" tone="secondary">Reject</Text>
+              <Text variant="body" weight="bold" tone="secondary">Dismiss</Text>
             </Pressable>
             <Pressable
               onPress={accept}
