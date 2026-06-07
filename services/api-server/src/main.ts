@@ -102,6 +102,16 @@ async function bootstrap() {
       if (request.user?.role !== "hospital" || !request.user?.hospitalId) {
         return reply.code(403).send({ error: "hospital_only" });
       }
+      // Revocation check (v1.2.1 RBAC fix): portalEnabled is only verified at
+      // login, so without this an 8h token would keep working after an admin
+      // disables the portal. Re-load the row (indexed PK) and reject if the
+      // portal is now disabled or its password was cleared.
+      const [h] = await pgClient`
+        SELECT portal_enabled, portal_password_hash
+        FROM hospitals WHERE id = ${request.user.hospitalId}`;
+      if (!h || h.portal_enabled !== true || !h.portal_password_hash) {
+        return reply.code(403).send({ error: "portal_disabled" });
+      }
     } catch {
       return reply.code(401).send({ error: "unauthorized" });
     }

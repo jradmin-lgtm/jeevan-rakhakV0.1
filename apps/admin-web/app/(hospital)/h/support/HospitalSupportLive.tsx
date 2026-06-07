@@ -38,7 +38,7 @@ function subjectLabel(t: Ticket): string {
     return t.ambulance_number ? `Driver · ${who} (${t.ambulance_number})` : `Driver · ${who}`;
   }
   if (t.subject_type === "RIDE") {
-    return `Ride · #${t.booking_display_id ?? (t.booking_id ? t.booking_id.slice(0, 8) : "—")}`;
+    return `Ride · #${t.booking_display_id ?? "—"}`;
   }
   return "General feedback";
 }

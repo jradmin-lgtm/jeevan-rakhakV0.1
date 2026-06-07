@@ -222,7 +222,7 @@ export function DriverCardLive({ driverId }: { driverId: string }) {
                   >
                     <td style={{ padding: "10px 8px 10px 0", fontFamily: "var(--mono, monospace)", fontWeight: 600, whiteSpace: "nowrap" }}>
                       {r.is_sos ? <span title="SOS emergency" style={{ marginRight: 4 }}>🚨</span> : null}
-                      #{r.display_id ?? r.id.slice(0, 8)}
+                      #{r.display_id ?? "—"}
                     </td>
                     <td style={{ padding: 10 }}>{patientLine(r)}</td>
                     <td style={{ padding: 10 }}>{prettyEmergency(r.emergency_type)}</td>

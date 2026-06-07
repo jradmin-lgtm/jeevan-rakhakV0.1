@@ -144,7 +144,22 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
       ) AS ok`;
     if (!ok) return reply.code(404).send({ error: "not_found" }); // not associated → 404, never leak
 
-    const [d] = await db.select().from(drivers).where(eq(drivers.id, did)).limit(1);
+    // Explicit-column select (defense-in-depth) — never pull phone/email/KYC
+    // docs into memory for a hospital-scoped response.
+    const [d] = await db
+      .select({
+        id: drivers.id,
+        name: drivers.name,
+        vehicleNumber: drivers.vehicleNumber,
+        status: drivers.status,
+        rating: drivers.rating,
+        lastLat: drivers.lastLat,
+        lastLng: drivers.lastLng,
+        kycVerified: drivers.kycVerified
+      })
+      .from(drivers)
+      .where(eq(drivers.id, did))
+      .limit(1);
     if (!d) return reply.code(404).send({ error: "not_found" });
 
     // Rides = this driver's bookings destined to THIS hospital, all statuses,
@@ -166,6 +181,12 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
       FROM bookings
       WHERE driver_id = ${did} AND dest_hospital_id = ${hid}`;
 
+    // Precise GPS is scoped to *this* client: only expose lastLat/lastLng when
+    // the driver currently has a LIVE ride to THIS hospital (active>0). Coarse
+    // status (AVAILABLE/ON_TRIP/OFFLINE) is fine to show, but a driver's exact
+    // location must never leak to a hospital they aren't currently serving —
+    // e.g. while they're en route to a DIFFERENT hospital. (RBAC review v1.2.1.)
+    const servingHere = active > 0;
     return reply.send({
       driver: {
         id: d.id,
@@ -173,8 +194,8 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
         vehicleNumber: d.vehicleNumber,
         status: d.status,
         rating: d.rating,
-        lastLat: d.lastLat,
-        lastLng: d.lastLng,
+        lastLat: servingHere ? d.lastLat : null,
+        lastLng: servingHere ? d.lastLng : null,
         kycVerified: d.kycVerified
         // NO phone/email/KYC docs — admin-only fields, never surfaced to the portal.
       },

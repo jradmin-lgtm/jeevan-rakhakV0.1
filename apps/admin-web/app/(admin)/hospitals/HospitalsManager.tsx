@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { adminFetch } from "../../../lib/adminFetch";
 
@@ -252,6 +252,8 @@ function PortalRow({
   const enabled = h.portalEnabled ?? false;
   const [pw, setPw] = useState("");
   const [copied, setCopied] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
 
   const tooShort = pw.length > 0 && pw.length < 8;
   const canSave = pw.length >= 8 && !busy;
@@ -267,7 +269,7 @@ function PortalRow({
     try {
       await navigator.clipboard.writeText(h.portalPasswordPlain);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
+      copyTimer.current = setTimeout(() => setCopied(false), 1200);
     } catch {
       /* clipboard unavailable — no-op */
     }

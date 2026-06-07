@@ -184,7 +184,7 @@ function BookingCard({ b, onAck }: { b: HBooking; onAck: () => void }) {
             <span style={{ background: "rgba(30,94,255,0.10)", color: "var(--accent)", fontWeight: 700, fontSize: 11, letterSpacing: 0.5, padding: "4px 10px", borderRadius: 999 }}>🚑 BOOKING</span>
           )}
           <span style={{ fontWeight: 700 }}>{prettyEmergency(b.emergency_type)}</span>
-          <span className="muted" style={{ fontSize: 12 }}>· #{b.display_id ?? b.id.slice(0, 8)}</span>
+          <span className="muted" style={{ fontSize: 12 }}>· #{b.display_id ?? "—"}</span>
           <span className="muted" style={{ fontSize: 12 }}>· {prettyStatus(b.status)}</span>
         </div>
         <Link href={`/h/${b.id}`} style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600 }}>View record →</Link>

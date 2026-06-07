@@ -163,7 +163,7 @@ export function PatientRecordLive({ bookingId }: { bookingId: string }) {
 
   // Locked human id — shown identically on every surface (queue, history,
   // driver card, here). The UUID stays a routing key only.
-  const displayId = data.displayId ?? bookingId.slice(0, 8);
+  const displayId = data.displayId ?? "—";
 
   // Live 8-step workflow position — same helper + indicator the incoming-queue
   // cards use, so the ride card mirrors the admin booking detail's liveness.

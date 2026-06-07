@@ -128,7 +128,7 @@ export function HospitalHistoryLive() {
                     style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }}
                   >
                     <td style={{ padding: "10px 8px 10px 0", fontFamily: "var(--mono, monospace)", fontWeight: 600, whiteSpace: "nowrap" }}>
-                      #{r.display_id ?? r.id.slice(0, 8)}
+                      #{r.display_id ?? "—"}
                     </td>
                     <td style={{ padding: 10 }}>{patientLine(r)}</td>
                     <td style={{ padding: 10 }}>{prettyEmergency(r.emergency_type)}</td>
