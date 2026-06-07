@@ -26,6 +26,7 @@
     "expo-location": "~18.1.2",
     "expo-notifications": "~0.31.5",
     "expo-status-bar": "^2.0.0",
+    "expo-task-manager": "~13.1.6",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "react-native": "^0.79.6",

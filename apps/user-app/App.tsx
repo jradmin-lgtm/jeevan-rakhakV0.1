@@ -101,8 +101,10 @@ export default function App() {
   // token so status updates reach the patient even when backgrounded.
   useEffect(() => {
     if (profile) void registerPushToken();
-    return () => { teardownPushDismissHandlers(); };
   }, [profile]);
+  // v1.2.8: tear down the silent dismiss-on-death listeners ONLY on app
+  // unmount — not on every profile change (which was removing the handler).
+  useEffect(() => () => { teardownPushDismissHandlers(); }, []);
 
   if (!hydrated) {
     return (

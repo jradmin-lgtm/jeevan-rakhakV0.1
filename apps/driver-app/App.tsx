@@ -94,11 +94,14 @@ export default function App() {
 
   // v1.1.0 push: register the FCM token once authenticated so a new SOS /
   // booking wakes the driver even with the app backgrounded/killed.
-  // v1.2.8: tear down the silent dismiss-on-death listeners on unmount.
   useEffect(() => {
     if (profile) void registerPushToken();
-    return () => { teardownPushDismissHandlers(); };
   }, [profile]);
+  // v1.2.8: tear down the silent dismiss-on-death listeners ONLY on app
+  // unmount — NOT on every profile change (the previous [profile]-scoped
+  // cleanup was removing the dismiss handler on each re-render/profile update,
+  // leaving nothing to clear a stale tray notification).
+  useEffect(() => () => { teardownPushDismissHandlers(); }, []);
 
   if (!hydrated) {
     return (

@@ -122,12 +122,18 @@ export async function dismissPush(
         body: JSON.stringify({
           message: {
             token,
-            // No notification block — data-only so nothing new appears in the tray.
+            // TRUE data-only: NO `notification` block anywhere (not top-level,
+            // not under android) — otherwise FCM classifies it as a display
+            // message and, when the app is backgrounded, handles it itself
+            // (shows/updates a notification) instead of delivering the data to
+            // our background handler. The app finds the target tray entry by
+            // the `bookingId` in `data` (the original push set its tag=bookingId).
+            // collapseKey is fine (it's not a notification block) and lets this
+            // supersede a still-queued duplicate of the same booking.
             data: { type: "dismiss", bookingId },
             android: {
               priority: "HIGH",
-              collapseKey: bookingId,
-              notification: { tag: bookingId }
+              collapseKey: bookingId
             }
           }
         })
