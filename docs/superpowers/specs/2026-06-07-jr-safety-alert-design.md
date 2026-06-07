@@ -327,3 +327,29 @@ Mirror the support-ticket surface exactly (the explored patterns). All admin cal
   same as the existing dismiss path; the 8s poll heals foreground/warm cases.
 - `expo-location` permission on the user app: if denied, the raise falls back to the booking pickup
   coordinates so the feature still works (location just less precise).
+
+---
+
+## Addendum (shipped scope, added during implementation)
+
+Two items were folded into the v1.3.0 ship after the original design above, on user request mid-build:
+
+**A. No-overlap dispatch fix.** A driver already on an active assigned ride (ACCEPTED / ARRIVED /
+PICKED_UP) can no longer overlap: the accept handler rejects with `409 driver_on_active_ride`
+(race-safe), and `getEligibleDrivers` excludes busy drivers from active SOS dispatch.
+
+**B. Ola/Uber visibility (refinement of A).** A busy driver still SEES waiting requests for
+awareness (a passive, read-only "Waiting requests" peek on the trip screen, accept deferred with
+"Finish your current ride to accept"), but the full-screen SOS flash and safety responder cards are
+suppressed while on a trip (`activeTrip` set optimistically on accept to close the poll-window race).
+On completion the driver auto-rejoins the pool; still-open requests become acceptable and any taken
+by another driver drop off via the keep-last-good poll. Backend visibility endpoints (`/driver/incoming`,
+`/driver/sos-pending`, `/driver/safety-active`) intentionally do NOT exclude busy drivers, so the
+authoritative no-overlap guarantee is the accept guard, not hiding visibility.
+
+**Hardening applied from two adversarial-verify passes:** race-safe raise (partial unique index +
+INSERT ON CONFLICT DO NOTHING), `safety:cleared` also delivered to the raiser, ride-end auto-resolve
+of ACTIVE alerts, admin-resolve status guard, ack restricted to notified drivers, push tray-dismiss
+keyed on alertId, and admin `GET /admin/safety` serialized snake_case to match the admin clients.
+
+Shipped: backend `f14b0da` live on Render; admin-web live on Vercel; APKs user vc36 + driver vc38.
