@@ -963,11 +963,17 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       .groupBy(bookings.destHospitalId);
     const dMap = new Map(driverCounts.map((r) => [String(r.hospitalId), Number(r.c)]));
     const bMap = new Map(bookingCounts.map((r) => [String(r.hospitalId), Number(r.c)]));
-    const enriched = rows.map((h) => ({
-      ...h,
-      driverCount: dMap.get(String(h.id)) ?? 0,
-      bookingCount: bMap.get(String(h.id)) ?? 0
-    }));
+    // v1.2.1: drop the password HASH from the admin response (never needed
+    // client-side) but KEEP the recoverable plain + username + enabled flag so
+    // the hospitals dashboard can show/manage the portal Login ID + password.
+    const enriched = rows.map((h) => {
+      const { portalPasswordHash, ...safe } = h;
+      return {
+        ...safe,
+        driverCount: dMap.get(String(h.id)) ?? 0,
+        bookingCount: bMap.get(String(h.id)) ?? 0
+      };
+    });
     return reply.send({ hospitals: enriched });
   });
 
@@ -1007,7 +1013,9 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       active: routedBookings.filter((b) => ["REQUESTED", "ACCEPTED", "ARRIVED", "PICKED_UP"].includes(b.status)).length
     };
 
-    return reply.send({ hospital: h, drivers: taggedDrivers, bookings: routedBookings, totals });
+    // v1.2.1: drop the password HASH; keep username/enabled/plain for display.
+    const { portalPasswordHash, ...hospitalSafe } = h;
+    return reply.send({ hospital: hospitalSafe, drivers: taggedDrivers, bookings: routedBookings, totals });
   });
 
   // v1.1.2 — set a driver's FULL hospital assignment set (assign / reassign /
@@ -1124,25 +1132,76 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     return reply.send({ hospital: updated });
   });
 
-  // v1.2.0 CR#3: set/reset a hospital's portal login credentials. The password
-  // is scrypt-hashed server-side (hashPassword) and the hash is NEVER returned.
-  // Partial updates allowed (username/password/enabled independently).
+  // v1.2.1 CR#3: set/reset/clear a hospital's portal login credentials.
+  // On password set we persist BOTH a scrypt hash (login verification) and an
+  // admin-only recoverable plaintext copy (portalPasswordPlain) for the
+  // dashboard display — neither is ever returned by the public /hospitals or
+  // any /hospital/* (hospital-JWT) endpoint. The Login ID auto-derives from
+  // the hospital name slug when none is set.
+  //   { clear: true }            → null both hash + plain, disable (delete password)
+  //   { password }               → set hash + plain, default enabled, auto-username
+  //   { username }               → set the Login ID (lowercased)
+  //   { enabled }                → toggle access
+  const slugify = (name: string) =>
+    name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
   app.put("/api/v1/admin/hospitals/:id/portal", adminGuard, async (req, reply) => {
     const id = (req.params as any).id as string;
     const body = (req as any).body ?? {};
+
+    // Need the hospital's current row for the 404 + the auto-username source.
+    const [h] = await db.select().from(hospitals).where(eq(hospitals.id, id)).limit(1);
+    if (!h) return reply.code(404).send({ error: "not_found" });
+
     const username = body?.username ? String(body.username).trim().toLowerCase() : undefined;
     const password = body?.password ? String(body.password) : undefined;
     const enabled = typeof body?.enabled === "boolean" ? body.enabled : undefined;
+    const clear = body?.clear === true;
+
     const patch: any = {};
-    if (username !== undefined) patch.portalUsername = username;
-    if (enabled !== undefined) patch.portalEnabled = enabled;
-    if (password !== undefined) {
-      if (password.length < 8) return reply.code(400).send({ error: "password_too_short" });
-      patch.portalPasswordHash = hashPassword(password);
+    if (clear) {
+      // Delete the password but keep the username so it stays reusable.
+      patch.portalPasswordHash = null;
+      patch.portalPasswordPlain = null;
+      patch.portalEnabled = false;
+    } else {
+      if (username !== undefined) patch.portalUsername = username;
+      if (enabled !== undefined) patch.portalEnabled = enabled;
+      if (password !== undefined) {
+        if (password.length < 8) return reply.code(400).send({ error: "password_too_short" });
+        patch.portalPasswordHash = hashPassword(password);
+        patch.portalPasswordPlain = password;
+        // Auto-derive the Login ID from the hospital name if none is set yet
+        // and none was provided in this call.
+        if (username === undefined && !h.portalUsername) {
+          patch.portalUsername = slugify(h.name);
+        }
+        // Setting a password enables the portal by default unless explicitly
+        // disabled in the same request.
+        if (enabled === undefined) patch.portalEnabled = true;
+      }
     }
+
     if (Object.keys(patch).length === 0) return reply.code(400).send({ error: "nothing_to_update" });
-    await db.update(hospitals).set(patch).where(eq(hospitals.id, id));
-    return reply.send({ ok: true });
+
+    let updated: typeof h | undefined;
+    try {
+      [updated] = await db.update(hospitals).set(patch).where(eq(hospitals.id, id)).returning();
+    } catch (err: any) {
+      // Postgres unique_violation (23505) on portal_username → another hospital
+      // already owns that Login ID.
+      if (String(err?.code) === "23505") {
+        return reply.code(409).send({ error: "username_taken" });
+      }
+      throw err;
+    }
+    if (!updated) return reply.code(404).send({ error: "not_found" });
+
+    return reply.send({
+      ok: true,
+      portalUsername: updated.portalUsername,
+      portalPasswordPlain: updated.portalPasswordPlain,
+      portalEnabled: updated.portalEnabled
+    });
   });
 
   // ─── Unified medical record (v1.1.0, CR#9a) ──────────────────────────────────
