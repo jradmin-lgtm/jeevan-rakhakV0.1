@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, Linking, Pressable, StyleSheet, View } from "react-native";
+import { Linking, Pressable, StyleSheet, View } from "react-native";
 import * as Location from "expo-location";
 import {
   AppHeader,
@@ -19,7 +19,8 @@ import {
   colors,
   radius,
   space,
-  fetchOsrmRoute
+  fetchOsrmRoute,
+  dialog
 } from "@jr/ui";
 import { Booking, bookings as bookingsApi, safety as safetyApi } from "../api";
 import { getSocket } from "../socket";
@@ -255,38 +256,37 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
   }, [initial.id]);
 
   const onCancel = async () => {
-    Alert.alert(
-      "Cancel this booking?",
-      booking.status === "REQUESTED"
-        ? "No driver has been assigned yet · you can cancel freely."
-        : "A driver is on the way. They'll be notified that the trip was cancelled.",
-      [
-        { text: "Keep booking", style: "cancel" },
-        {
-          text: "Cancel booking",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await bookingsApi.cancel(initial.id);
-              onClose();
-            } catch (e: any) {
-              // Server returns 409 cannot_cancel once the patient has been
-              // picked up — they're already in the ambulance. Surface a
-              // human-readable message instead of the raw error code.
-              const msg = String(e?.message ?? "").toLowerCase();
-              if (msg.includes("cannot_cancel")) {
-                Alert.alert(
-                  "Trip already in progress",
-                  "You're already in the ambulance. Cancellation isn't possible once the trip has started · please coordinate with the driver if anything has changed."
-                );
-              } else {
-                Alert.alert("Could not cancel", e?.message ?? "Please try again.");
-              }
-            }
-          }
-        }
-      ]
-    );
+    if (
+      !(await dialog.confirm({
+        title: "Cancel this booking?",
+        message:
+          booking.status === "REQUESTED"
+            ? "No driver has been assigned yet · you can cancel freely."
+            : "A driver is on the way. They'll be notified that the trip was cancelled.",
+        confirmText: "Cancel booking",
+        cancelText: "Keep booking",
+        destructive: true
+      }))
+    ) {
+      return;
+    }
+    try {
+      await bookingsApi.cancel(initial.id);
+      onClose();
+    } catch (e: any) {
+      // Server returns 409 cannot_cancel once the patient has been
+      // picked up — they're already in the ambulance. Surface a
+      // human-readable message instead of the raw error code.
+      const msg = String(e?.message ?? "").toLowerCase();
+      if (msg.includes("cannot_cancel")) {
+        void dialog.alert(
+          "Trip already in progress",
+          "You're already in the ambulance. Cancellation isn't possible once the trip has started · please coordinate with the driver if anything has changed."
+        );
+      } else {
+        void dialog.alert("Could not cancel", e?.message ?? "Please try again.");
+      }
+    }
   };
 
   // v1.3.0 (safety): raise a panic alert with the rider's live location. We
@@ -339,12 +339,13 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
   // — confusing and error-prone. Server still rejects PICKED_UP/COMPLETED
   // cancels with a 409 that we render as a friendly toast.
   const cancellable = ["REQUESTED", "ACCEPTED", "ARRIVED"].includes(booking.status);
-  // v1.3.1 (safety): the small header SafetyButton appears only once the ride is
-  // ongoing (a driver is assigned and en route or in trip). This matches the
-  // server raise gate exactly (ACCEPTED / ARRIVED / PICKED_UP), so the alert can
-  // never be raised during REQUESTED (which returned ride_not_active and felt
-  // too early). Not shown once the trip is finished.
-  const safetyAvailable = ["ACCEPTED", "ARRIVED", "PICKED_UP"].includes(booking.status);
+  // v1.3.2 (safety): the small header SafetyButton appears only once the ride is
+  // VERIFIED and ongoing, i.e. the driver has verified the ride OTP at pickup and
+  // the trip is in progress (PICKED_UP). This is the Ola/Uber "during the ride"
+  // window. It is a subset of the server raise gate (ACCEPTED/ARRIVED/PICKED_UP),
+  // so a raise can never return ride_not_active. Pre-pickup help is still one tap
+  // away via the NEED HELP card; the safety alert is reserved for the live trip.
+  const safetyAvailable = booking.status === "PICKED_UP";
 
   // ── Timer / ETA derivation ───────────────────────────────────────────────
   // v1.0.11.2: removed 90-min gate on the help banner — testers wanted
@@ -626,7 +627,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
               const r = await bookingsApi.rate(initial.id, rating, feedback);
               setBooking(r.booking);
             } catch (e: any) {
-              Alert.alert("Could not submit", e?.message ?? "Try again.");
+              void dialog.alert("Could not submit", e?.message ?? "Try again.");
             }
           }}
         />

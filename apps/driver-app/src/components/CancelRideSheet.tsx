@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { Button, Input, Text, colors, radius, space } from "@jr/ui";
+import { Linking, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Button, Input, Text, colors, dialog, radius, space } from "@jr/ui";
 import { rideCancel } from "../api";
 import { useT } from "../i18n";
 
@@ -101,7 +101,7 @@ export function CancelRideSheet({ bookingId, patientPhone, onCancelled, onClose 
         clearTick();
         setSelected(null);
         setRemaining(null);
-        Alert.alert("Could not start wait", e?.message ?? "Tap the reason again to retry.");
+        void dialog.alert("Could not start wait", e?.message ?? "Tap the reason again to retry.");
       }
     } else {
       // Non-patient reason → no wait gate.
@@ -134,11 +134,11 @@ export function CancelRideSheet({ bookingId, patientPhone, onCancelled, onClose 
         // seconds from the error if available, else keep the local countdown.
         const remainingS = (e as any)?.remainingS;
         if (typeof remainingS === "number") setRemaining(remainingS);
-        Alert.alert("Please wait", t("cancel.wait_countdown_hint"));
+        void dialog.alert("Please wait", t("cancel.wait_countdown_hint"));
       } else if (msg.includes("remarks_required")) {
-        Alert.alert("More detail needed", t("cancel.remarks_min_hint").replace("{count}", String(remarks.trim().length)));
+        void dialog.alert("More detail needed", t("cancel.remarks_min_hint").replace("{count}", String(remarks.trim().length)));
       } else {
-        Alert.alert("Could not cancel", e?.message ?? "Try again.");
+        void dialog.alert("Could not cancel", e?.message ?? "Try again.");
       }
     } finally {
       setBusy(false);

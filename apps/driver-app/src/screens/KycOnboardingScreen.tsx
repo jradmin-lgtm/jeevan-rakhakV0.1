@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, View } from "react-native";
-import { AppHeader, Button, Card, Input, Screen, Text, colors, radius, space } from "@jr/ui";
+import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
+import { AppHeader, Button, Card, Input, Screen, Text, colors, dialog, radius, space } from "@jr/ui";
 import { driver as driverApi, hospitals as hospitalsApi, type HospitalOption } from "../api";
 import { useT } from "../i18n";
 import { LangToggle } from "../components/LangToggle";
@@ -73,7 +73,7 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
         hospitalName: hospitalName.trim()
       });
       onSubmitted(r.driver);
-      Alert.alert(t("kyc.success.title"), t("kyc.success.body"));
+      void dialog.alert(t("kyc.success.title"), t("kyc.success.body"));
     } catch (e: any) {
       setErr(e?.message ?? "Could not submit. Please try again.");
     } finally {

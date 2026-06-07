@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Alert, View } from "react-native";
-import { AppHeader, Button, Card, IconBadge, Input, Screen, Text, colors, space } from "@jr/ui";
+import { View } from "react-native";
+import { AppHeader, Button, Card, IconBadge, Input, Screen, Text, colors, space, dialog } from "@jr/ui";
 import { me } from "../api";
 
 export function MedicalProfileScreen({
@@ -37,10 +37,10 @@ export function MedicalProfileScreen({
       const r = await me.update({ name, bloodGroup, allergies, emergencyContact });
       setProfile(r.profile);
       onUpdated?.(r.profile);
-      Alert.alert("Saved", "Your medical profile has been updated.");
+      void dialog.alert("Saved", "Your medical profile has been updated.");
       onBack();
     } catch (e: any) {
-      Alert.alert("Could not save", e?.message ?? "Try again.");
+      void dialog.alert("Could not save", e?.message ?? "Try again.");
     } finally {
       setBusy(false);
     }

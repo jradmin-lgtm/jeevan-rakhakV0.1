@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Alert, BackHandler, View } from "react-native";
+import { BackHandler, View } from "react-native";
 import {
   AppHeader,
   Button,

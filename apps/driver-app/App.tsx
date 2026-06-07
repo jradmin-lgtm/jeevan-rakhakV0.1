@@ -4,7 +4,7 @@ import { ActivityIndicator, View } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { colors, ErrorBoundary, configureGoogleSignIn, signOutFromGoogle } from "@jr/ui";
+import { colors, ErrorBoundary, AppDialogHost, configureGoogleSignIn, signOutFromGoogle } from "@jr/ui";
 import { Booking, getToken, me, clearToken, getCachedProfile, setCachedProfile } from "./src/api";
 import { SplashScreen } from "./src/screens/SplashScreen";
 import { GoogleLoginScreen } from "./src/screens/GoogleLoginScreen";
@@ -118,6 +118,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <SafeAreaProvider>
+        <AppDialogHost />
         <NavigationContainer>
           <Stack.Navigator screenOptions={{ headerShown: false, animation: "slide_from_right" }}>
         {!profile && !googlePending ? (

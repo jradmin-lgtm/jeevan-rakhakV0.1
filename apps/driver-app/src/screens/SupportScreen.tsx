@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -19,6 +18,7 @@ import {
   Skeleton,
   Text,
   colors,
+  dialog,
   space
 } from "@jr/ui";
 import {
@@ -124,7 +124,7 @@ function ListView({ onBack, onOpen, t }: { onBack: () => void; onOpen: (id: stri
   const submit = useCallback(async () => {
     const trimmed = message.trim();
     if (trimmed.length < 5) {
-      Alert.alert(t("support.title"), t("support.error_too_short"));
+      void dialog.alert(t("support.title"), t("support.error_too_short"));
       return;
     }
     setSubmitting(true);
@@ -141,14 +141,14 @@ function ListView({ onBack, onOpen, t }: { onBack: () => void; onOpen: (id: stri
       setCategory("ISSUE");
       await refresh();
       if (!mounted.current) return;
-      Alert.alert(t("support.title"), t("support.submitted_toast"));
+      void dialog.alert(t("support.title"), t("support.submitted_toast"));
     } catch (e: any) {
       if (!mounted.current) return;
       const msg = String(e?.message ?? "");
       if (msg.includes("message_too_short")) {
-        Alert.alert(t("support.title"), t("support.error_too_short"));
+        void dialog.alert(t("support.title"), t("support.error_too_short"));
       } else {
-        Alert.alert(t("support.title"), t("support.error_generic"));
+        void dialog.alert(t("support.title"), t("support.error_generic"));
       }
     } finally {
       if (mounted.current) setSubmitting(false);
@@ -379,7 +379,7 @@ function ThreadView({ ticketId, onBack, t }: { ticketId: string; onBack: () => v
   const send = useCallback(async () => {
     const body = reply.trim();
     if (body.length < 2) {
-      Alert.alert(t("support.thread_title"), t("support.reply_too_short"));
+      void dialog.alert(t("support.thread_title"), t("support.reply_too_short"));
       return;
     }
     setSending(true);
@@ -393,7 +393,7 @@ function ThreadView({ ticketId, onBack, t }: { ticketId: string; onBack: () => v
       setMessages((prev) => [...prev, r.message]);
       scrollToEnd();
     } catch {
-      if (mounted.current) Alert.alert(t("support.thread_title"), t("support.reply_error"));
+      if (mounted.current) void dialog.alert(t("support.thread_title"), t("support.reply_error"));
     } finally {
       sendingRef.current = false;
       if (mounted.current) setSending(false);

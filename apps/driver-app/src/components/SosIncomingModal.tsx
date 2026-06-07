@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, Animated, Easing, Modal, Pressable, StyleSheet, View } from "react-native";
-import { Button, IconBadge, PulseDot, Text, colors, radius, space } from "@jr/ui";
+import { Animated, Easing, Modal, Pressable, StyleSheet, View } from "react-native";
+import { Button, IconBadge, PulseDot, Text, colors, dialog, radius, space } from "@jr/ui";
 import { Booking, bookings as bookingsApi } from "../api";
 import { getSocket } from "../socket";
 
@@ -147,9 +147,9 @@ export function SosIncomingModal({ onAccept }: Props) {
       // gentle notice so the driver knows the SOS isn't for them anymore.
       const msg = String(e?.message ?? "").toLowerCase();
       if (msg.includes("already_taken") || msg.includes("409")) {
-        Alert.alert("Already taken", "Another driver accepted this SOS.");
+        void dialog.alert("Already taken", "Another driver accepted this SOS.");
       } else {
-        Alert.alert("Couldn't accept", e?.message ?? "Try again.");
+        void dialog.alert("Couldn't accept", e?.message ?? "Try again.");
       }
       setActive(null);
     } finally {

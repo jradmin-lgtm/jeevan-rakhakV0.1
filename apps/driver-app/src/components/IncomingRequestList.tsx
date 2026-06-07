@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { Alert, View } from "react-native";
-import { Button, Card, EmptyState, Pill, PulseDot, Text, colors, space } from "@jr/ui";
+import { View } from "react-native";
+import { Button, Card, EmptyState, Pill, PulseDot, Text, colors, dialog, space } from "@jr/ui";
 import { IncomingRequest } from "../api";
 import { prettyEmergency } from "../screens/DashboardScreen";
 import { useT } from "../i18n";
@@ -115,13 +115,20 @@ function IncomingRow({
 
   // SOS reject is destructive (the patient is mid-emergency) and the button
   // sits next to Accept — confirm first so a stray tap can't drop a live SOS.
-  const doReject = () => {
+  const doReject = async () => {
     if (!onReject) return;
     if (req.is_sos) {
-      Alert.alert(t("incoming.reject_sos_title"), t("incoming.reject_sos_body"), [
-        { text: t("incoming.keep"), style: "cancel" },
-        { text: t("incoming.reject_confirm"), style: "destructive", onPress: () => run(() => onReject(req)) }
-      ]);
+      if (
+        await dialog.confirm({
+          title: t("incoming.reject_sos_title"),
+          message: t("incoming.reject_sos_body"),
+          confirmText: t("incoming.reject_confirm"),
+          cancelText: t("incoming.keep"),
+          destructive: true
+        })
+      ) {
+        void run(() => onReject(req));
+      }
     } else {
       void run(() => onReject(req));
     }

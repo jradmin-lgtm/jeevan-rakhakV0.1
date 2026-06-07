@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, Animated, Linking, Pressable, StyleSheet, View } from "react-native";
+import { Animated, Linking, Pressable, StyleSheet, View } from "react-native";
 import * as Location from "expo-location";
-import { AppHeader, Button, Card, IconBadge, PulseDot, Screen, Text, colors, space } from "@jr/ui";
+import { AppHeader, Button, Card, IconBadge, PulseDot, Screen, Text, colors, space, dialog } from "@jr/ui";
 import { Booking, bookings as bookingsApi } from "../api";
 import { SUPPORT_PHONE, SUPPORT_PHONE_DISPLAY } from "@jr/ui";
 
@@ -41,51 +41,49 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
     return () => loop.stop();
   }, [breathe]);
 
-  const dispatch = () => {
-    Alert.alert(
-      "Send SOS now?",
-      "We'll dispatch the closest ambulance with cardiac priority.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Send SOS",
-          style: "destructive",
-          onPress: async () => {
-            setBusy(true);
-            try {
-              const pickup = await getPickup();
-              if (!pickup) {
-                Alert.alert(
-                  "Location unavailable",
-                  `We can't send an ambulance without your location. Allow location access and try again, or call our mobile ${SUPPORT_PHONE_DISPLAY} to book by phone.`,
-                  [
-                    { text: "Allow location", onPress: () => Linking.openSettings().catch(() => {}) },
-                    { text: `Call ${SUPPORT_PHONE_DISPLAY}`, onPress: () => Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {}) },
-                    { text: "Cancel", style: "cancel" }
-                  ]
-                );
-                return;
-              }
-              const r = await bookingsApi.create({
-                emergencyType: "CARDIAC",
-                pickupLat: pickup.lat,
-                pickupLng: pickup.lng,
-                pickupAddress: "SOS · current location",
-                // v1.0.15: routes the booking through the cascade engine on
-                // server-side. Without this the server falls back to the
-                // normal broadcast pool and SOS becomes a regular booking.
-                isSos: true
-              });
-              onBooked(r.booking);
-            } catch (e: any) {
-              Alert.alert("SOS failed", e?.message ?? "Please try again.");
-            } finally {
-              setBusy(false);
-            }
-          }
-        }
-      ]
-    );
+  const dispatch = async () => {
+    if (
+      !(await dialog.confirm({
+        title: "Send SOS now?",
+        message: "We'll dispatch the closest ambulance with cardiac priority.",
+        confirmText: "Send SOS",
+        cancelText: "Cancel",
+        destructive: true
+      }))
+    ) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const pickup = await getPickup();
+      if (!pickup) {
+        void dialog.show({
+          title: "Location unavailable",
+          message: `We can't send an ambulance without your location. Allow location access and try again, or call our mobile ${SUPPORT_PHONE_DISPLAY} to book by phone.`,
+          actions: [
+            { label: "Allow location", onPress: () => Linking.openSettings().catch(() => {}) },
+            { label: `Call ${SUPPORT_PHONE_DISPLAY}`, onPress: () => Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {}) },
+            { label: "Cancel", style: "cancel" }
+          ]
+        });
+        return;
+      }
+      const r = await bookingsApi.create({
+        emergencyType: "CARDIAC",
+        pickupLat: pickup.lat,
+        pickupLng: pickup.lng,
+        pickupAddress: "SOS · current location",
+        // v1.0.15: routes the booking through the cascade engine on
+        // server-side. Without this the server falls back to the
+        // normal broadcast pool and SOS becomes a regular booking.
+        isSos: true
+      });
+      onBooked(r.booking);
+    } catch (e: any) {
+      void dialog.alert("SOS failed", e?.message ?? "Please try again.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (

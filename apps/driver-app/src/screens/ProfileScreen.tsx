@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { Alert, Pressable, View } from "react-native";
-import { AppHeader, Button, Card, Input, Pill, Screen, Text, colors, space } from "@jr/ui";
+import { Pressable, View } from "react-native";
+import { AppHeader, Button, Card, Input, Pill, Screen, Text, colors, dialog, space } from "@jr/ui";
 import { me } from "../api";
 import { useT, setLang, type Lang } from "../i18n";
 import { LangToggle } from "../components/LangToggle";
@@ -25,10 +25,10 @@ export function ProfileScreen({ initial, onBack, onUpdated }: Props) {
     try {
       const r = await me.update({ name });
       onUpdated(r.profile);
-      Alert.alert("Saved", "Your profile has been updated.");
+      void dialog.alert("Saved", "Your profile has been updated.");
       onBack();
     } catch (e: any) {
-      Alert.alert("Could not save", e?.message ?? "Try again.");
+      void dialog.alert("Could not save", e?.message ?? "Try again.");
     } finally {
       setBusy(false);
     }

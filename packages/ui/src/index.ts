@@ -24,6 +24,8 @@ export type { FareQuoteForUi } from "./components/FareBreakdown";
 export { OtpInput } from "./components/OtpInput";
 export { OtpToast } from "./components/OtpToast";
 export { RatingPrompt } from "./components/RatingPrompt";
+export { dialog, AppDialogHost } from "./components/AppDialog";
+export type { DialogAction } from "./components/AppDialog";
 export { ErrorBoundary } from "./components/ErrorBoundary";
 export { useFadeIn } from "./hooks/useFadeIn";
 export {

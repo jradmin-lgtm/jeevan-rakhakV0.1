@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, Linking, Pressable, StyleSheet, View } from "react-native";
+import { Linking, Pressable, StyleSheet, View } from "react-native";
 import * as Location from "expo-location";
 import {
   AppHeader,
@@ -18,6 +18,7 @@ import {
   Stepper,
   Text,
   colors,
+  dialog,
   radius,
   space,
   fetchOsrmRoute
@@ -266,16 +267,15 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
         const r = await fn();
         setBooking(r.booking);
       } catch (e: any) {
-        Alert.alert("Could not update", e?.message ?? "Try again.");
+        void dialog.alert("Could not update", e?.message ?? "Try again.");
       } finally {
         setBusy(false);
       }
     };
     if (confirm) {
-      Alert.alert(confirm.title, confirm.body, [
-        { text: "Cancel", style: "cancel" },
-        { text: "Confirm", onPress: run }
-      ]);
+      if (await dialog.confirm({ title: confirm.title, message: confirm.body, confirmText: "Confirm", cancelText: "Cancel" })) {
+        void run();
+      }
     } else {
       void run();
     }
@@ -328,6 +328,11 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
   const finished = ["COMPLETED", "CANCELLED", "TIMED_OUT"].includes(booking.status);
   const failed = ["CANCELLED", "TIMED_OUT"].includes(booking.status);
   const sharing = !finished && ["ACCEPTED", "ARRIVED", "PICKED_UP"].includes(booking.status);
+  // v1.3.2 (safety): the small header SafetyButton appears only once the ride is
+  // VERIFIED and ongoing, i.e. the patient OTP is verified at pickup and the trip
+  // is in progress (PICKED_UP). Subset of the server raise gate, so a raise can
+  // never return ride_not_active.
+  const safetyAvailable = booking.status === "PICKED_UP";
   const stepIndex = statusToIndex(booking.status);
 
   // v1.0.11.2: removed 90-min gate. Need help banner is always-on during
@@ -617,7 +622,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
               const r = await bookingsApi.rateByDriver(booking.id, rating, feedback);
               setBooking(r.booking);
             } catch (e: any) {
-              Alert.alert("Could not submit", e?.message ?? "Try again.");
+              void dialog.alert("Could not submit", e?.message ?? "Try again.");
             }
           }}
         />
@@ -745,7 +750,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
             setBooking(r.booking);
             setDropPickerOpen(false);
           } catch (e: any) {
-            Alert.alert("Could not save drop", e?.message ?? "Try again.");
+            void dialog.alert("Could not save drop", e?.message ?? "Try again.");
           }
         }}
       />
@@ -819,7 +824,7 @@ function DropPicker({
       onSaved(r.booking);
       setSavedAt(Date.now());
     } catch (e: any) {
-      Alert.alert("Could not save drop", e?.message ?? "Try again.");
+      void dialog.alert("Could not save drop", e?.message ?? "Try again.");
     } finally {
       setBusy(false);
     }

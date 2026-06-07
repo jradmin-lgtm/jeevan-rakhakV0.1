@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Animated, RefreshControl, View } from "react-native";
+import { Animated, RefreshControl, View } from "react-native";
 import * as Location from "expo-location";
 import {
   AppHeader,
@@ -14,6 +14,7 @@ import {
   StatusBadge,
   Text,
   colors,
+  dialog,
   space,
   useFadeIn
 } from "@jr/ui";
@@ -348,7 +349,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
       }
       sock.emit("driver:availability", payload);
     } catch (e: any) {
-      Alert.alert("Could not update", e?.message ?? "Try again.");
+      void dialog.alert("Could not update", e?.message ?? "Try again.");
       setAvailable(!next);
     }
   }, [available, myPos]);
@@ -376,11 +377,11 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
       const msg = String(e?.message ?? "").toLowerCase();
       const onActiveRide = e?.status === 409 && msg.includes("driver_on_active_ride");
       if (onActiveRide) {
-        Alert.alert("Still on a ride", "Finish your current ride first.");
+        void dialog.alert("Still on a ride", "Finish your current ride first.");
         void refresh();
         return;
       }
-      Alert.alert("Could not accept", e?.message ?? "Booking may have been taken.");
+      void dialog.alert("Could not accept", e?.message ?? "Booking may have been taken.");
       setRequests((prev) => {
         const { [req.id]: _gone, ...rest } = prev;
         return rest;
@@ -426,7 +427,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
         prev[alert.id] ? { ...prev, [alert.id]: { ...prev[alert.id], acked: true } } : prev
       );
     } catch (e: any) {
-      Alert.alert("Could not respond", e?.message ?? "Please try again.");
+      void dialog.alert("Could not respond", e?.message ?? "Please try again.");
     }
   };
 
@@ -619,36 +620,34 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
           <Button
             label="Delete account"
             variant="ghost"
-            onPress={() => {
-              Alert.alert(
-                "Delete your driver account?",
-                "This will permanently remove your profile and KYC details. Completed trip records are kept for payout reconciliation but cannot be traced back to you. This cannot be undone.",
-                [
-                  { text: "Keep my account", style: "cancel" },
-                  {
-                    text: "Delete forever",
-                    style: "destructive",
-                    onPress: async () => {
-                      try {
-                        await me.delete();
-                        await clearToken();
-                        disconnectSocket();
-                        onLogout();
-                      } catch (e: any) {
-                        const msg = String(e?.message ?? "");
-                        if (msg.includes("active_trip_exists")) {
-                          Alert.alert(
-                            "Active trip in progress",
-                            "Please complete or cancel your current trip before deleting your account."
-                          );
-                        } else {
-                          Alert.alert("Couldn't delete your account", e?.message ?? "Please try again or contact support.");
-                        }
-                      }
-                    }
+            onPress={async () => {
+              if (
+                await dialog.confirm({
+                  title: "Delete your driver account?",
+                  message:
+                    "This will permanently remove your profile and KYC details. Completed trip records are kept for payout reconciliation but cannot be traced back to you. This cannot be undone.",
+                  confirmText: "Delete forever",
+                  cancelText: "Keep my account",
+                  destructive: true
+                })
+              ) {
+                try {
+                  await me.delete();
+                  await clearToken();
+                  disconnectSocket();
+                  onLogout();
+                } catch (e: any) {
+                  const msg = String(e?.message ?? "");
+                  if (msg.includes("active_trip_exists")) {
+                    void dialog.alert(
+                      "Active trip in progress",
+                      "Please complete or cancel your current trip before deleting your account."
+                    );
+                  } else {
+                    void dialog.alert("Couldn't delete your account", e?.message ?? "Please try again or contact support.");
                   }
-                ]
-              );
+                }
+              }
             }}
           />
         </View>
