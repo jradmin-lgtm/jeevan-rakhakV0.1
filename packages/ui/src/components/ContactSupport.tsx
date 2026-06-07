@@ -12,24 +12,26 @@ import { colors, radius, space } from "../tokens";
  * one that can route across the rotation; the existing second mobile is
  * renamed "Alt mobile" to disambiguate.
  */
-// Phone numbers stored in full E.164-ish form (+91 + 10 or 11-digit subscriber).
-// The dialable string must match the displayed number exactly when normalised,
-// or the user will tap a row and get a wrong-number tone. A 2026-05 audit caught
-// a typo in the primary number: +910581258200 was 12 digits (missing trailing
-// 0); the actual landline is 05812582000 → +9105812582000.
+// Phone numbers stored in full E.164 form (+91 + subscriber, NO trunk-0).
+// The dialable string must equal the displayed number once spaces are stripped,
+// or the user taps a row and gets a wrong number.
+// v1.2.8 fix: the primary line is the Bareilly landline 0581-258-2000. When you
+// dial it internationally the +91 country code REPLACES the STD trunk-0 — so the
+// E.164 is +91 581 258 2000 = +915812582000 (drop the 0). The previous value
+// +9105812582000 kept that trunk-0, so the dialer showed an extra "0" after 91
+// ("+910 581 258 2000") and called a wrong number.
 //
 // Display format conventions:
-//   • Mobile (10 digits, starts with 6/7/8/9): "+91 9XXXX XXXXX" (5+5 + country code prefix)
-//   • Landline (10–11 digits, starts with 0X…): "+91 XXX XXX XXXX" — STD code regrouped
-// Both prefix +91 so the visual aligns column-wise.
+//   • Mobile (10 digits, starts 6/7/8/9): "+91 9XXXX XXXXX"
+//   • Landline: "+91 STD-without-0 subscriber" (trunk-0 dropped)
 export const SUPPORT_EMAIL = "contact.jeevanrakshak@gmail.com";
-export const SUPPORT_PHONE = "+9105812582000"; // 0581-258-2000 — default-dial primary line
+export const SUPPORT_PHONE = "+915812582000"; // 0581-258-2000, trunk-0 dropped for +91 dialing
 export const SUPPORT_PHONE_DISPLAY = "+91 581 258 2000";
 
 // v1.0.15: labels swapped — "OPS DESK" → "MOBILE" (user-facing relabel),
 // the existing mobile becomes "ALT MOBILE" to avoid duplicate "MOBILE" rows.
 export const SUPPORT_NUMBERS = [
-  { label: "MOBILE",          phone: "+9105812582000", display: "+91 581 258 2000", primary: true },
+  { label: "MOBILE",          phone: "+915812582000",  display: "+91 581 258 2000", primary: true },
   { label: "ALT MOBILE",      phone: "+919458701070",  display: "+91 94587 01070" },
   { label: "GYNAE EMERGENCY", phone: "+919045954724",  display: "+91 90459 54724", urgent: true }
 ];
@@ -87,7 +89,7 @@ function ContactSupportInner({ bookingId, compact, variant = "user" }: Props) {
       <View style={styles.card}>
         <Text variant="label" tone="secondary">CONTACT SUPPORT</Text>
         <Text variant="small" tone="secondary" style={{ marginTop: 2 }}>
-          Available daily, 8 AM – 11 PM IST.
+          Available daily, 8 AM to 11 PM IST.
         </Text>
         <View style={styles.row}>
           <Pressable onPress={callDefault} android_ripple={{ color: "rgba(229,50,43,0.1)" }} style={styles.cta}>
@@ -108,7 +110,7 @@ function ContactSupportInner({ bookingId, compact, variant = "user" }: Props) {
     <View style={styles.card}>
       <Text variant="label" tone="secondary">CONTACT SUPPORT</Text>
       <Text variant="small" tone="secondary" style={{ marginTop: 2 }}>
-        Available daily, 8 AM – 11 PM IST.
+        Available daily, 8 AM to 11 PM IST.
       </Text>
       <View style={{ gap: space.sm, marginTop: space.sm }}>
         {SUPPORT_NUMBERS.map((n) => (

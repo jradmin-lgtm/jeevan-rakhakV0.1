@@ -331,7 +331,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
               ) : null}
               {quote.multipliers.isNight ? (
                 <View style={styles.fareRow}>
-                  <Text variant="body" tone="secondary">Night surcharge (10pm–6am)</Text>
+                  <Text variant="body" tone="secondary">Night surcharge (10pm to 6am)</Text>
                   <Text variant="body" weight="semi">×{quote.multipliers.nightSurcharge.toFixed(2)}</Text>
                 </View>
               ) : null}
@@ -415,7 +415,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
         testID="confirm-booking"
       />
       <Text variant="tiny" tone="muted" align="center">
-        Average response: 8–12 min · Cashless during launch offer
+        Average response: 8 to 12 min · Cashless during launch offer
       </Text>
 
       {/* v1.0.13 revised: one picker handles both pickup + drop. The mode

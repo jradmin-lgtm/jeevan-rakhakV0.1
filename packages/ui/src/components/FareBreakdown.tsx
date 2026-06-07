@@ -92,7 +92,7 @@ function FareBreakdownInner({
           ) : null}
           {quote.multipliers.isNight ? (
             <View style={styles.fareRow}>
-              <Text variant="body" tone="secondary">Night surcharge (10pm–6am)</Text>
+              <Text variant="body" tone="secondary">Night surcharge (10pm to 6am)</Text>
               <Text variant="body" weight="semi">×{quote.multipliers.nightSurcharge.toFixed(2)}</Text>
             </View>
           ) : null}
