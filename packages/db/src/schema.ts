@@ -397,6 +397,14 @@ export type BookingCancellation = typeof bookingCancellations.$inferSelect;
  * feedback surfaced in the hospital "Feedbacks" tab) vs 'ISSUE' (actionable
  * items admin resolves, surfaced in "Help & Support"). Defaults to 'ISSUE' so
  * pre-v1.2.2 rows + un-tagged tickets stay in the actionable bucket.
+ * v1.2.4 (helpdesk): tickets now arrive from THREE sources — Hospital portal
+ * (live), Driver app + User app. `source` ('HOSPITAL'|'DRIVER'|'USER', default
+ * 'HOSPITAL' so pre-v1.2.4 rows read correctly) records origin; `raiserUserId`
+ * / `raiserDriverId` scope app-raised tickets to their owner (RBAC). `priority`
+ * + `severity` are admin-triage flags; `resolvedBy` captures the operator name
+ * who closed the ticket (no close without a reply). The to-and-fro chat lives
+ * in `supportTicketMessages` (the raiser's first message is also seeded there
+ * so the card reads as one conversation).
  */
 export const supportTickets = pgTable(
   "support_tickets",
@@ -405,10 +413,25 @@ export const supportTickets = pgTable(
     hospitalId: uuid("hospital_id").references(() => hospitals.id, { onDelete: "set null" }),
     subjectType: text("subject_type").notNull(), // 'DRIVER' | 'RIDE' | 'GENERAL'
     category: text("category").default("ISSUE").notNull(), // 'FEEDBACK' | 'ISSUE'
+    // v1.2.4: origin of the ticket. Default 'HOSPITAL' keeps every pre-v1.2.4
+    // row (all hospital-raised) reading correctly.
+    source: text("source").default("HOSPITAL").notNull(), // 'HOSPITAL' | 'DRIVER' | 'USER'
+    // v1.2.4: admin-triage flags. priority drives the colored flag/sort,
+    // severity is the impact chip.
+    priority: text("priority").default("NORMAL").notNull(), // 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'
+    severity: text("severity").default("MEDIUM").notNull(), // 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
     driverId: uuid("driver_id").references(() => drivers.id, { onDelete: "set null" }),
     bookingId: uuid("booking_id").references(() => bookings.id, { onDelete: "set null" }),
+    // v1.2.4: who raised an app-sourced ticket. RBAC scopes driver tickets to
+    // raiser_driver_id=sub and user tickets to raiser_user_id=sub. ON DELETE
+    // SET NULL so a ticket survives deletion of its raiser row.
+    raiserUserId: uuid("raiser_user_id").references(() => users.id, { onDelete: "set null" }),
+    raiserDriverId: uuid("raiser_driver_id").references(() => drivers.id, { onDelete: "set null" }),
     message: text("message").notNull(),
     status: text("status").default("OPEN").notNull(), // 'OPEN' | 'RESOLVED'
+    // v1.2.4: name of the operator who closed the ticket (no close without a
+    // reply — captured at resolve time).
+    resolvedBy: text("resolved_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     resolvedAt: timestamp("resolved_at", { withTimezone: true })
   },
@@ -419,6 +442,33 @@ export const supportTickets = pgTable(
   })
 );
 export type SupportTicket = typeof supportTickets.$inferSelect;
+
+/**
+ * v1.2.4 (helpdesk) — to-and-fro chat thread on a support ticket. Both sides
+ * post: the raiser (HOSPITAL/DRIVER/USER) and the JR admin (ADMIN). The
+ * raiser's first message is seeded here at ticket creation so the card reads
+ * as one continuous conversation. `authorName` is the display name captured at
+ * post time (operator name for admin replies; hospital/driver/user name for
+ * raiser posts). FK is ON DELETE CASCADE so a ticket's whole thread is removed
+ * with it.
+ */
+export const supportTicketMessages = pgTable(
+  "support_ticket_messages",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ticketId: uuid("ticket_id")
+      .references(() => supportTickets.id, { onDelete: "cascade" })
+      .notNull(),
+    authorRole: text("author_role").notNull(), // 'ADMIN' | 'HOSPITAL' | 'DRIVER' | 'USER'
+    authorName: text("author_name"),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (t) => ({
+    ticketIdx: index("support_ticket_messages_ticket_idx").on(t.ticketId, t.createdAt)
+  })
+);
+export type SupportTicketMessage = typeof supportTicketMessages.$inferSelect;
 
 /**
  * v1.1.0 (CR#3/#6) — destination hospitals. In the current phase there is one

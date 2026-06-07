@@ -377,7 +377,36 @@ async function bootstrap() {
     // "Feedbacks" tab) vs ISSUE (actionable, "Help & Support"). Pre-v1.2.2 rows
     // default to ISSUE so they stay in the actionable / open-count bucket.
     await pgClient`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS category text NOT NULL DEFAULT 'ISSUE'`;
-    app.log.info("[migrate] schema v1.2.2 ready (booking_cancellations + cancel_wait + hospital portal creds + hospital_ack + portal_password_plain + support_tickets + ticket category)");
+    // ---- v1.2.4 ----
+    // Helpdesk: tickets now arrive from three sources (Hospital portal/Driver
+    // app/User app), carry admin-triage priority + severity, capture the
+    // closer's name (resolved_by), and own a to-and-fro chat thread. `source`
+    // defaults to 'HOSPITAL' so every pre-v1.2.4 row (all hospital-raised)
+    // reads correctly; priority/severity carry NOT NULL DEFAULTs so backfill
+    // is automatic. raiser_user_id / raiser_driver_id scope app-raised tickets
+    // to their owner (RBAC) and are ON DELETE SET NULL so a ticket survives
+    // deletion of its raiser row.
+    await pgClient`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS source           text NOT NULL DEFAULT 'HOSPITAL'`;
+    await pgClient`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS priority         text NOT NULL DEFAULT 'NORMAL'`;
+    await pgClient`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS severity         text NOT NULL DEFAULT 'MEDIUM'`;
+    await pgClient`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS resolved_by      text`;
+    await pgClient`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS raiser_user_id   uuid REFERENCES users(id)   ON DELETE SET NULL`;
+    await pgClient`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS raiser_driver_id uuid REFERENCES drivers(id) ON DELETE SET NULL`;
+    // To-and-fro chat thread. The raiser's first message is also seeded here at
+    // ticket creation so the card reads as one continuous conversation. FK is
+    // ON DELETE CASCADE so a ticket's whole thread is removed with it.
+    await pgClient`
+      CREATE TABLE IF NOT EXISTS support_ticket_messages (
+        id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        ticket_id   uuid NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
+        author_role text NOT NULL,
+        author_name text,
+        body        text NOT NULL,
+        created_at  timestamptz NOT NULL DEFAULT now()
+      )
+    `;
+    await pgClient`CREATE INDEX IF NOT EXISTS support_ticket_messages_ticket_idx ON support_ticket_messages(ticket_id, created_at)`;
+    app.log.info("[migrate] schema v1.2.4 ready (booking_cancellations + cancel_wait + hospital portal creds + hospital_ack + portal_password_plain + support_tickets + ticket category + helpdesk source/priority/severity/resolved_by/raisers + support_ticket_messages)");
   } catch (err) {
     // Thumb rule: migrations FATAL-EXIT on failure. Silent catch+warn here
     // previously let the service start with a broken schema (system_events
