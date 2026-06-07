@@ -5,7 +5,7 @@ import Link from "next/link";
 import { adminFetch } from "../../../lib/adminFetch";
 import { formatIST } from "../../../lib/dates";
 import { downloadCsv } from "../../../lib/csv";
-import { prettyStatus, prettyEmergency, assessmentBadge } from "../../../lib/status";
+import { prettyStatus, shortStatus, prettyEmergency, assessmentBadge } from "../../../lib/status";
 import { resolveAmountPaid, formatAmountPaid } from "../../../lib/fare";
 import { DateRangePicker, DateRange, Preset, presetToRange } from "../DateRange";
 
@@ -26,9 +26,36 @@ type Booking = {
   createdAt: string;
   isDemo?: boolean;
   paramedicAssessment?: Record<string, any> | null;
+  // v1.2.2 — latest cancellation details folded in from the (removed)
+  // standalone Cancellations view. snake_case to match the API row keys
+  // (services/api-server admin.ts GET /admin/bookings). Null for non-cancelled.
+  cancel_reason?: string | null;
+  cancel_remarks?: string | null;
+  cancel_outcome?: string | null;
 };
 
 const STATUSES = ["all", "REQUESTED", "ACCEPTED", "ARRIVED", "PICKED_UP", "COMPLETED", "CANCELLED", "TIMED_OUT"];
+
+// v1.2.2 — humanized driver-cancellation reason labels (folded in from the
+// old CancellationsList). Keep in sync with the cancel reason codes the
+// driver app submits.
+const CANCEL_REASON_LABELS: Record<string, string> = {
+  PATIENT_NOT_AVAILABLE: "Patient not at pickup",
+  PATIENT_NOT_RESPONDING: "Patient not responding",
+  VEHICLE_BREAKDOWN: "Vehicle breakdown / mechanical",
+  TYRE_PUNCTURE: "Tyre puncture",
+  CANNOT_REACH_PICKUP: "Can't reach pickup",
+  OTHER: "Other"
+};
+
+function cancelReasonText(b: Booking): string {
+  if (!b.cancel_reason) return "";
+  if (b.cancel_reason === "OTHER") {
+    const r = (b.cancel_remarks ?? "").trim();
+    return r ? `Other — ${r}` : "Other";
+  }
+  return CANCEL_REASON_LABELS[b.cancel_reason] ?? b.cancel_reason;
+}
 
 export function BookingsList({ initialBookings, apiBase }: { initialBookings: Booking[]; apiBase: string }) {
   const [status, setStatus] = useState<string>("all");
@@ -109,14 +136,23 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
         />
       </div>
 
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+        {STATUSES.map((s) => {
+          const active = status === s;
+          return (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setStatus(s)}
+              style={statusChipStyle(active)}
+            >
+              {s === "all" ? "All" : shortStatus(s)}
+            </button>
+          );
+        })}
+      </div>
+
       <div className="filter-bar">
-        <select value={status} onChange={(e) => setStatus(e.target.value)}>
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s === "all" ? "All statuses" : prettyStatus(s)}
-            </option>
-          ))}
-        </select>
         <input
           type="text"
           placeholder="Search pickup, drop, or booking id…"
@@ -155,6 +191,8 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
                   const badge = assessmentBadge(b.status, b.paramedicAssessment);
                   const paid = resolveAmountPaid(b);
                   const isCompleted = b.status === "COMPLETED";
+                  const isCancelled = b.status === "CANCELLED";
+                  const reasonLabel = isCancelled ? cancelReasonText(b) : "";
                   return (
                     <tr key={b.id}>
                       <td className="mono"><strong>#{b.displayId ?? b.id.slice(0, 8) + "…"}</strong></td>
@@ -174,7 +212,14 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
                         ) : null}
                       </td>
                       <td>{b.rating ? "★".repeat(b.rating) : <span className="muted">—</span>}</td>
-                      <td><span className={`pill ${b.status.toLowerCase()}`}>{prettyStatus(b.status)}</span></td>
+                      <td>
+                        <span className={`pill ${b.status.toLowerCase()}`}>{prettyStatus(b.status)}</span>
+                        {isCancelled && reasonLabel ? (
+                          <div className="muted" style={{ fontSize: 11, marginTop: 4, maxWidth: 240 }}>
+                            {reasonLabel}
+                          </div>
+                        ) : null}
+                      </td>
                       <td>
                         {badge.variant === "na" ? (
                           <span className="muted">—</span>
@@ -219,6 +264,20 @@ const csvBtnStyle: React.CSSProperties = {
   fontWeight: 600,
   cursor: "pointer"
 };
+
+function statusChipStyle(active: boolean): React.CSSProperties {
+  return {
+    padding: "6px 12px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+    border: `1px solid ${active ? "var(--accent, #1E5EFF)" : "var(--border, #E2E8F0)"}`,
+    background: active ? "var(--accent, #1E5EFF)" : "transparent",
+    color: active ? "#FFFFFF" : "var(--ink, #0F172A)"
+  };
+}
 
 function assessmentChipStyle(variant: "submitted" | "risk" | "awaiting" | "na"): React.CSSProperties {
   const base: React.CSSProperties = {
