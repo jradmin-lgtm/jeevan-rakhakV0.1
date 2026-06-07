@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { formatTimeIST } from "../../../../lib/dates";
 import { useHospitalSocket } from "../../HospitalSocketProvider";
 
@@ -102,7 +103,11 @@ export function HospitalDriversLive() {
                 const chip = STATUS_CHIP[d.status] ?? { label: d.status, bg: "rgba(148,163,184,0.18)", fg: "#475569" };
                 return (
                   <tr key={d.id} style={{ borderTop: "1px solid var(--border)" }}>
-                    <td style={{ padding: "10px 8px 10px 0", fontWeight: 500 }}>{d.name ?? "—"}</td>
+                    <td style={{ padding: "10px 8px 10px 0", fontWeight: 500 }}>
+                      <Link href={`/h/drivers/${d.id}`} style={{ color: "var(--accent)", fontWeight: 600 }}>
+                        {d.name ?? "View driver"}
+                      </Link>
+                    </td>
                     <td style={{ padding: 10 }}>{d.vehicle_number ?? "—"}</td>
                     <td style={{ padding: 10 }}>
                       <span style={{ background: chip.bg, color: chip.fg, fontWeight: 700, fontSize: 11, padding: "3px 10px", borderRadius: 999 }}>{chip.label}</span>
