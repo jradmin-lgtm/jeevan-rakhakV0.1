@@ -5,6 +5,7 @@ import { Booking, bookings as bookingsApi } from "../api";
 import { prettyEmergency } from "./DashboardScreen";
 import { useT } from "../i18n";
 import { LangToggle } from "../components/LangToggle";
+import { formatDateTime } from "../format";
 
 /**
  * v1.0.15 — replaces EarningsScreen. The pilot doesn't pay drivers through
@@ -81,9 +82,7 @@ function TripHistoryRow({ item, t }: { item: Booking; t: (k: string) => string }
           .replace("{minutes}", String(durationMin % 60))
       : t("trip_history.duration").replace("{minutes}", String(durationMin));
   const kmLabel = km == null ? "—" : t("trip_history.km").replace("{km}", km.toFixed(1));
-  const dateLabel = item.completedAt
-    ? new Date(item.completedAt).toLocaleString()
-    : new Date(item.createdAt).toLocaleString();
+  const dateLabel = formatDateTime(item.completedAt ?? item.createdAt);
 
   return (
     <Card padding="md">

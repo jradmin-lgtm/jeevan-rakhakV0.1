@@ -127,12 +127,15 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [incRes, my] = await Promise.all([
+      const [incRes, myRes] = await Promise.all([
         incomingApi
           .list()
           .then((r) => ({ ok: true as const, requests: r.requests }))
           .catch(() => ({ ok: false as const, requests: [] as IncomingRequest[] })),
-        bookingsApi.mine().catch(() => ({ bookings: [] as Booking[] }))
+        bookingsApi
+          .mine()
+          .then((r) => ({ ok: true as const, bookings: r.bookings }))
+          .catch(() => ({ ok: false as const, bookings: [] as Booking[] }))
       ]);
       // Reconcile the keyed map against the authoritative server list — but
       // ONLY on a SUCCESSFUL poll. A transient failure (cold free-tier API,
@@ -148,11 +151,17 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
         }
         setRequests(next);
       }
-      const live = my.bookings.find((b) =>
-        ["ACCEPTED", "ARRIVED", "PICKED_UP"].includes(b.status)
-      );
-      setActiveTrip(live ?? null);
-      setTodayCompleted(my.bookings.filter((b) => b.status === "COMPLETED").length);
+      // Same keep-last-good discipline for /bookings/mine: only reconcile the
+      // active-trip / trips-today cards on a SUCCESSFUL fetch. A transient
+      // failure (cold API, blip) used to return {bookings:[]} and clobber a live
+      // activeTrip to null mid-ride — skip this tick instead and keep last good.
+      if (myRes.ok) {
+        const live = myRes.bookings.find((b) =>
+          ["ACCEPTED", "ARRIVED", "PICKED_UP"].includes(b.status)
+        );
+        setActiveTrip(live ?? null);
+        setTodayCompleted(myRes.bookings.filter((b) => b.status === "COMPLETED").length);
+      }
     } finally {
       setRefreshing(false);
       setLoaded(true);
@@ -207,7 +216,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
                       pickup_lng: b.pickupLng,
                       pickup_address: b.pickupAddress ?? null,
                       patient_name: b.patientName ?? null,
-                      created_at: b.createdAt,
+                      created_at: b.createdAt ?? new Date().toISOString(),
                       is_sos: !!b.isSos
                     }
                   }
