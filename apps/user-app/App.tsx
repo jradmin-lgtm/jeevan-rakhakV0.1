@@ -16,6 +16,7 @@ import { HistoryScreen } from "./src/screens/HistoryScreen";
 import { MedicalProfileScreen } from "./src/screens/MedicalProfileScreen";
 import { SosScreen } from "./src/screens/SosScreen";
 import { PaymentScreen } from "./src/screens/PaymentScreen";
+import { SupportScreen } from "./src/screens/SupportScreen";
 import { hydrateLang } from "./src/i18n";
 import { registerPushToken } from "./src/push";
 
@@ -35,6 +36,7 @@ type RootStackParamList = {
   Profile: undefined;
   Sos: undefined;
   Payment: { booking: Booking };
+  Support: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -166,6 +168,7 @@ export default function App() {
                   onTrack={(b) => navigation.navigate("Track", { booking: b })}
                   onHistory={() => navigation.navigate("History")}
                   onProfile={() => navigation.navigate("Profile")}
+                  onSupport={() => navigation.navigate("Support")}
                 />
               )}
             </Stack.Screen>
@@ -218,6 +221,9 @@ export default function App() {
                   onBooked={(b) => navigation.replace("Track", { booking: b })}
                 />
               )}
+            </Stack.Screen>
+            <Stack.Screen name="Support">
+              {({ navigation }) => <SupportScreen onBack={() => navigation.goBack()} />}
             </Stack.Screen>
           </>
         )}

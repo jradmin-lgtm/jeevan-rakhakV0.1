@@ -24,6 +24,7 @@ type Props = {
   onTrack: (b: Booking) => void;
   onProfile: () => void;
   onHistory: () => void;
+  onSupport: () => void;
 };
 
 // Matches server: only one active ride per user. Earlier value of 3 was
@@ -31,7 +32,7 @@ type Props = {
 // ambulances unintentionally.
 const MAX_ACTIVE_BOOKINGS = 1;
 
-export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfile, onHistory }: Props) {
+export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfile, onHistory, onSupport }: Props) {
   const { t, lang, setLang } = useT();
   const [active, setActive] = useState<Booking | null>(null);
   const [activeCount, setActiveCount] = useState<number>(0);
@@ -223,6 +224,24 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
           />
         </View>
       </Card>
+
+      {/* v1.2.4 (helpdesk): a tap-through into the two-way Help & Support
+        * screen (raise a request + chat with the team). The static
+        * <ContactSupport /> card below is kept as-is — it still carries the
+        * call/email lines + the "Available daily, 8 AM – 11 PM IST" hours
+        * text — so users who just want to phone in are unaffected. */}
+      <Pressable
+        onPress={onSupport}
+        style={sosStyles.bookTile}
+        testID="support-cta"
+        android_ripple={{ color: "rgba(0,0,0,0.04)" }}
+      >
+        <View style={{ flex: 1 }}>
+          <Text variant="body" weight="semi">{t("home.get_help")}</Text>
+          <Text variant="tiny" tone="secondary">{t("home.get_help.sub")}</Text>
+        </View>
+        <Text variant="heading" tone="primary" weight="bold">→</Text>
+      </Pressable>
 
       <ContactSupport />
 
