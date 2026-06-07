@@ -55,7 +55,7 @@ export function MedicalProfileScreen({
           <IconBadge glyph="◉" bg="rgba(30,94,255,0.10)" color={colors.accent} size={44} />
           <View style={{ flex: 1 }}>
             <Text variant="label" tone="secondary">ACCOUNT</Text>
-            <Text variant="body" weight="semi">{profile?.phone ?? "—"}</Text>
+            <Text variant="body" weight="semi">{profile?.phone ?? "-"}</Text>
           </View>
         </View>
       </Card>

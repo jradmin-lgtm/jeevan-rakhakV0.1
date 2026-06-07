@@ -206,7 +206,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
       });
       sock.on("sos:cascade_exhausted", (p: any) => {
         if (p?.bookingId !== initial.id) return;
-        setToast("No driver yet — please call the support mobile.");
+        setToast("No driver yet · please call the support mobile.");
       });
       // v1.2.0 (CR#2): driver-initiated cancellation outcomes. CLOSED → the
       // ride is cancelled (patient must re-request); RE_DISPATCHED → we're
@@ -237,7 +237,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
     Alert.alert(
       "Cancel this booking?",
       booking.status === "REQUESTED"
-        ? "No driver has been assigned yet — you can cancel freely."
+        ? "No driver has been assigned yet · you can cancel freely."
         : "A driver is on the way. They'll be notified that the trip was cancelled.",
       [
         { text: "Keep booking", style: "cancel" },
@@ -256,7 +256,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
               if (msg.includes("cannot_cancel")) {
                 Alert.alert(
                   "Trip already in progress",
-                  "You're already in the ambulance. Cancellation isn't possible once the trip has started — please coordinate with the driver if anything has changed."
+                  "You're already in the ambulance. Cancellation isn't possible once the trip has started · please coordinate with the driver if anything has changed."
                 );
               } else {
                 Alert.alert("Could not cancel", e?.message ?? "Please try again.");
@@ -554,7 +554,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
           <View style={{ gap: space.sm }}>
             <Text variant="label" tone="danger">NEED HELP?</Text>
             <Text variant="small" tone="secondary">
-              Contact our support team any time — we&apos;ll reach the driver
+              Contact our support team any time · we&apos;ll reach the driver
               and coordinate.
             </Text>
             <ContactSupport bookingId={booking.id} compact />
@@ -567,7 +567,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
           <Button label="Cancel booking" variant="outline" onPress={onCancel} fullWidth />
         ) : (
           <Text variant="tiny" tone="muted" align="center">
-            Trip is in progress — coordinate with the driver by call if you need to change anything.
+            Trip is in progress · coordinate with the driver by call if you need to change anything.
           </Text>
         )
       ) : (
@@ -582,8 +582,8 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
 // patient_condition text column server-side. Driver app never reads this.
 const EMERGENCY_CONDITIONS = [
   "Road Accident",
-  "Trauma — Firearm",
-  "Trauma — Sharp Object",
+  "Trauma · Firearm",
+  "Trauma · Sharp Object",
   "Pregnancy",
   "Diabetic Unconscious",
   "Snake Bite",
@@ -637,7 +637,7 @@ function PatientInfoCard({ bookingId, onSaved }: { bookingId: string; onSaved: (
         <View>
           <Text variant="label" tone="primary">PATIENT DETAILS</Text>
           <Text variant="tiny" tone="secondary">
-            Helps our team prepare medical response. Only condition and notes go to the hospital — driver sees name only.
+            Helps our team prepare medical response. Only condition and notes go to the hospital · driver sees name only.
           </Text>
         </View>
 

@@ -133,7 +133,7 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
                   style={sosStyles.bigButtonInner}
                   testID="sos-cta"
                   accessibilityRole="button"
-                  accessibilityLabel="Emergency SOS — dispatch ambulance now"
+                  accessibilityLabel="Emergency SOS · dispatch ambulance now"
                 >
                   {/* v1.0.14: dropped letterSpacing 3 → 1 to fix the "O
                     * off-centre" artifact. Earlier draft also set

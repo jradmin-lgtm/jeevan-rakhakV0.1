@@ -72,7 +72,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
     try {
       const perm = await Location.requestForegroundPermissionsAsync();
       if (perm.status !== "granted") {
-        setLocationNote("Allow location access to book — we need it to send the ambulance to you.");
+        setLocationNote("Allow location access to book · we need it to send the ambulance to you.");
         return;
       }
       const fix = await Location.getCurrentPositionAsync({
@@ -87,7 +87,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
         const last = await Location.getLastKnownPositionAsync();
         if (last) {
           setPickupCoords({ lat: last.coords.latitude, lng: last.coords.longitude });
-          setLocationNote("Using your last known location (GPS lock failed) — tap Refresh to retry.");
+          setLocationNote("Using your last known location (GPS lock failed) · tap Refresh to retry.");
           return;
         }
       } catch {

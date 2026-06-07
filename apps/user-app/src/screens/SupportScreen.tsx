@@ -224,7 +224,7 @@ function ListView({ onBack, onOpen, t }: { onBack: () => void; onOpen: (id: stri
                 {rides.map((b) => (
                   <RideChip
                     key={b.id}
-                    label={`#${b.displayId ?? "—"}`}
+                    label={`#${b.displayId ?? "-"}`}
                     active={rideId === b.id}
                     onPress={() => setRideId(b.id)}
                   />
@@ -289,7 +289,7 @@ function TicketRow({ item, onPress, t }: { item: SupportTicket; onPress: () => v
             <Pill label={t(`support.category.${item.category}`)} />
             {item.subject_type === "RIDE" ? (
               <Pill
-                label={t("support.ride_tag").replace("{id}", `#${item.booking_display_id ?? "—"}`)}
+                label={t("support.ride_tag").replace("{id}", `#${item.booking_display_id ?? "-"}`)}
                 color={colors.accent}
                 bg="rgba(30,94,255,0.10)"
               />
@@ -431,7 +431,7 @@ function ThreadView({ ticketId, onBack, t }: { ticketId: string; onBack: () => v
               ticket
                 ? `${t(`support.category.${ticket.category}`)}${
                     ticket.subject_type === "RIDE"
-                      ? ` · ${t("support.ride_tag").replace("{id}", `#${ticket.booking_display_id ?? "—"}`)}`
+                      ? ` · ${t("support.ride_tag").replace("{id}", `#${ticket.booking_display_id ?? "-"}`)}`
                       : ""
                   }`
                 : undefined

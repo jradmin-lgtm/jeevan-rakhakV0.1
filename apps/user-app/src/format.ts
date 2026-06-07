@@ -9,8 +9,8 @@
  * row/bubble never shows "Invalid Date" to a patient.
  */
 export function formatDateTime(value: string | number | Date | null | undefined): string {
-  if (value == null) return "—";
+  if (value == null) return "-";
   const ms = value instanceof Date ? value.getTime() : new Date(value).getTime();
-  if (!Number.isFinite(ms)) return "—";
+  if (!Number.isFinite(ms)) return "-";
   return new Date(ms).toLocaleString();
 }

@@ -18,7 +18,7 @@ import { SosScreen } from "./src/screens/SosScreen";
 import { PaymentScreen } from "./src/screens/PaymentScreen";
 import { SupportScreen } from "./src/screens/SupportScreen";
 import { hydrateLang } from "./src/i18n";
-import { registerPushToken } from "./src/push";
+import { registerPushToken, teardownPushDismissHandlers } from "./src/push";
 
 type GooglePending = {
   idToken: string;
@@ -101,6 +101,7 @@ export default function App() {
   // token so status updates reach the patient even when backgrounded.
   useEffect(() => {
     if (profile) void registerPushToken();
+    return () => { teardownPushDismissHandlers(); };
   }, [profile]);
 
   if (!hydrated) {
