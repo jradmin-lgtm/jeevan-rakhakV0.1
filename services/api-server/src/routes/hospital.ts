@@ -208,6 +208,9 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
   // subject belongs to THIS hospital (RIDE → bookingId destined here; DRIVER →
   // driverId associated here) so a hospital can't file a ticket about another
   // client's ride/driver. Inserts an OPEN support_tickets row scoped to hid.
+  // v1.2.4: stamps source='HOSPITAL' and ALSO seeds the raiser's first message
+  // into the support_ticket_messages thread (author_role HOSPITAL, author_name =
+  // hospital name) so the ticket card reads as one continuous conversation.
   app.post("/api/v1/hospital/tickets", { preHandler: [(app as any).requireHospital] }, async (req: any, reply: any) => {
     const hid = req.user.hospitalId;
     const subjectType = String(req.body?.subjectType ?? "").trim().toUpperCase();
@@ -238,10 +241,19 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
       if (!ok) return reply.code(400).send({ error: "invalid_driver" }); // not associated here
     }
 
+    // Hospital display name for the seeded first message's author_name (the JWT
+    // carries only hospitalId; resolve the name from the row). Null-safe.
+    const [{ name: hospitalName = null } = {}] = await pgClient<any[]>`
+      SELECT name FROM hospitals WHERE id = ${hid} LIMIT 1`;
+
     const [{ id } = {}] = await pgClient`
-      INSERT INTO support_tickets (hospital_id, subject_type, category, driver_id, booking_id, message, status)
-      VALUES (${hid}, ${subjectType}, ${category}, ${driverId}, ${bookingId}, ${message}, 'OPEN')
+      INSERT INTO support_tickets (hospital_id, subject_type, category, source, driver_id, booking_id, message, status)
+      VALUES (${hid}, ${subjectType}, ${category}, 'HOSPITAL', ${driverId}, ${bookingId}, ${message}, 'OPEN')
       RETURNING id`;
+    // Seed the first thread row so the card reads as one conversation.
+    await pgClient`
+      INSERT INTO support_ticket_messages (ticket_id, author_role, author_name, body)
+      VALUES (${id}, 'HOSPITAL', ${hospitalName}, ${message})`;
     return reply.send({ ok: true, id });
   });
 
@@ -267,6 +279,58 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
         ${category ? pgClient`AND t.category = ${category}` : pgClient``}
       ORDER BY t.created_at DESC`;
     return reply.send({ tickets: rows });
+  });
+
+  // v1.2.4: this hospital's OWN ticket + its full chat thread. RBAC — scoped to
+  // hospital_id=hid; any ticket belonging to another hospital (or an app-raised
+  // ticket) 404s, never leaking another raiser's thread. Returns the ticket with
+  // linked driver/ride display info + the ordered message thread.
+  app.get("/api/v1/hospital/tickets/:id", { preHandler: [(app as any).requireHospital] }, async (req: any, reply: any) => {
+    const hid = req.user.hospitalId;
+    const id = String(req.params.id);
+    const [t] = await pgClient<any[]>`
+      SELECT t.id, t.subject_type, t.category, t.message, t.status, t.created_at, t.resolved_at,
+             t.driver_id, t.booking_id,
+             d.name AS driver_name, d.vehicle_number AS ambulance_number,
+             b.display_id AS booking_display_id
+      FROM support_tickets t
+      LEFT JOIN drivers  d ON d.id = t.driver_id
+      LEFT JOIN bookings b ON b.id = t.booking_id
+      WHERE t.id = ${id} AND t.hospital_id = ${hid}
+      LIMIT 1`;
+    if (!t) return reply.code(404).send({ error: "not_found" }); // not this hospital's → 404, never leak
+
+    const messages = await pgClient`
+      SELECT id, ticket_id, author_role, author_name, body, created_at
+      FROM support_ticket_messages
+      WHERE ticket_id = ${id}
+      ORDER BY created_at ASC`;
+    return reply.send({ ticket: t, messages });
+  });
+
+  // v1.2.4: post a reply on this hospital's OWN ticket thread. RBAC — verifies
+  // the ticket belongs to hospital_id=hid before inserting (else 404, never
+  // posting into another raiser's thread). author_role HOSPITAL, author_name =
+  // hospital name (resolved from the row, not the body). body ≥2 chars.
+  app.post("/api/v1/hospital/tickets/:id/messages", { preHandler: [(app as any).requireHospital] }, async (req: any, reply: any) => {
+    const hid = req.user.hospitalId;
+    const id = String(req.params.id);
+    const body = String(req.body?.body ?? "").trim();
+    if (body.length < 2) return reply.code(400).send({ error: "message_too_short" });
+
+    // Ownership check — the ticket must belong to THIS hospital.
+    const [t] = await pgClient<any[]>`
+      SELECT id FROM support_tickets WHERE id = ${id} AND hospital_id = ${hid} LIMIT 1`;
+    if (!t) return reply.code(404).send({ error: "not_found" }); // not owned → 404, never leak
+
+    const [{ name: hospitalName = null } = {}] = await pgClient<any[]>`
+      SELECT name FROM hospitals WHERE id = ${hid} LIMIT 1`;
+
+    const [message] = await pgClient`
+      INSERT INTO support_ticket_messages (ticket_id, author_role, author_name, body)
+      VALUES (${id}, 'HOSPITAL', ${hospitalName}, ${body})
+      RETURNING id, ticket_id, author_role, author_name, body, created_at`;
+    return reply.send({ message });
   });
 
   // CR#3: "acknowledge — preparing" loop-closer. Scope-checked (404 cross-hospital).
