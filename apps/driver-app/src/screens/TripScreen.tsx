@@ -419,7 +419,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
           <View style={{ gap: space.sm }}>
             <Text variant="label" tone="danger">NEED HELP?</Text>
             <Text variant="small" tone="secondary">
-              Contact support any time during the trip — vehicle issue,
+              Contact support any time during the trip · vehicle issue,
               patient change, can&apos;t reach drop, anything.
             </Text>
             <ContactSupport bookingId={booking.id} compact />

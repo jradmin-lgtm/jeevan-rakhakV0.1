@@ -49,8 +49,8 @@ export function ProfileScreen({ initial, onBack, onUpdated }: Props) {
       <Card>
         <View style={{ gap: space.md }}>
           <Text variant="label" tone="secondary">ACCOUNT</Text>
-          <Row label="Phone" value={initial?.phone ?? "—"} />
-          <Row label="Driver ID" value={initial?.id ? `${initial.id.slice(0, 8)}…` : "—"} />
+          <Row label="Phone" value={initial?.phone ?? "-"} />
+          <Row label="Driver ID" value={initial?.id ? `${initial.id.slice(0, 8)}…` : "-"} />
           <Row label="Rating" value={`⭐ ${(initial?.rating ?? 5).toFixed(1)}`} />
         </View>
       </Card>

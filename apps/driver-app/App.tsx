@@ -16,7 +16,7 @@ import { ProfileScreen } from "./src/screens/ProfileScreen";
 import { SupportScreen } from "./src/screens/SupportScreen";
 import { KycOnboardingScreen, KycPendingScreen } from "./src/screens/KycOnboardingScreen";
 import { hydrateLang } from "./src/i18n";
-import { registerPushToken } from "./src/push";
+import { registerPushToken, teardownPushDismissHandlers } from "./src/push";
 
 type GooglePending = {
   idToken: string;
@@ -94,8 +94,10 @@ export default function App() {
 
   // v1.1.0 push: register the FCM token once authenticated so a new SOS /
   // booking wakes the driver even with the app backgrounded/killed.
+  // v1.2.8: tear down the silent dismiss-on-death listeners on unmount.
   useEffect(() => {
     if (profile) void registerPushToken();
+    return () => { teardownPushDismissHandlers(); };
   }, [profile]);
 
   if (!hydrated) {

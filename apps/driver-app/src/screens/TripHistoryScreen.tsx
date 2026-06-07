@@ -75,13 +75,13 @@ function TripHistoryRow({ item, t }: { item: Booking; t: (k: string) => string }
     ? Math.max(1, Math.round((endMs - startMs) / 60_000))
     : null;
   const durationLabel = durationMin == null
-    ? "—"
+    ? "-"
     : durationMin >= 60
       ? t("trip_history.duration_long")
           .replace("{hours}", String(Math.floor(durationMin / 60)))
           .replace("{minutes}", String(durationMin % 60))
       : t("trip_history.duration").replace("{minutes}", String(durationMin));
-  const kmLabel = km == null ? "—" : t("trip_history.km").replace("{km}", km.toFixed(1));
+  const kmLabel = km == null ? "-" : t("trip_history.km").replace("{km}", km.toFixed(1));
   const dateLabel = formatDateTime(item.completedAt ?? item.createdAt);
 
   return (
@@ -96,7 +96,7 @@ function TripHistoryRow({ item, t }: { item: Booking; t: (k: string) => string }
             {truncate(item.pickupAddress ?? `${item.pickupLat.toFixed(3)}, ${item.pickupLng.toFixed(3)}`, 36)}
           </Text>
           <Text variant="small" tone="secondary" numberOfLines={1}>
-            → {truncate(item.dropAddress ?? "—", 36)}
+            → {truncate(item.dropAddress ?? "-", 36)}
           </Text>
         </View>
         <View style={{ flexDirection: "row", justifyContent: "space-between", paddingTop: space.xs, borderTopWidth: 1, borderTopColor: colors.border }}>
