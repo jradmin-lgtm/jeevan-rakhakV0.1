@@ -83,7 +83,8 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
              b.drop_lat, b.drop_lng, b.accepted_at, b.arrived_at, b.picked_up_at,
              b.hospital_ack_at,
              (b.paramedic_assessment IS NOT NULL) AS has_assessment,
-             d.name AS driver_name, d.vehicle_number AS ambulance_number, d.last_lat, d.last_lng
+             d.name AS driver_name, d.id AS driver_id,
+             d.vehicle_number AS ambulance_number, d.last_lat, d.last_lng
       FROM bookings b
       LEFT JOIN drivers d ON d.id = b.driver_id
       WHERE b.dest_hospital_id = ${hid}

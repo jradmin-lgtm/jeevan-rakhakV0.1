@@ -26,6 +26,7 @@ type HBooking = {
   hospital_ack_at?: string | null;
   has_assessment?: boolean;
   driver_name?: string | null;
+  driver_id?: string | null;
   ambulance_number?: string | null;
   paramedic_name?: string | null;
   last_lat?: number | null;
@@ -192,7 +193,18 @@ function BookingCard({ b, onAck }: { b: HBooking; onAck: () => void }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "8px 20px", marginTop: 12 }}>
         <CardField label="Patient" value={patientLine || "—"} />
         <CardField label="Ambulance" value={b.ambulance_number ?? "—"} />
-        <CardField label="Driver / Paramedic" value={b.driver_name ?? b.paramedic_name ?? "—"} />
+        <CardField
+          label="Driver / Paramedic"
+          value={
+            b.driver_id ? (
+              <Link href={`/h/drivers/${b.driver_id}`} style={{ color: "var(--accent)", fontWeight: 600 }}>
+                {b.driver_name ?? b.paramedic_name ?? "View driver"}
+              </Link>
+            ) : (
+              b.driver_name ?? b.paramedic_name ?? "—"
+            )
+          }
+        />
         <CardField label="Pickup" value={b.pickup_address ?? "—"} />
         <CardField label="ETA to hospital" value={etaText} />
         <CardField label="Distance" value={distText} />

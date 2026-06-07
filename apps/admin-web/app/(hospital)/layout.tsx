@@ -43,6 +43,7 @@ export default async function HospitalLayout({ children }: any) {
         </div>
         <nav>
           <a className="active" href="/h">Dashboard</a>
+          <a href="/h/history">History</a>
           <a href="/h/drivers">Drivers</a>
           <a href="/h/support">Support</a>
         </nav>
