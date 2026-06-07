@@ -35,7 +35,7 @@ import {
 } from "@jr/db";
 import { haversineDistanceKm } from "@jr/utils";
 import { emitEvent } from "./events";
-import { pushToDriver } from "./push";
+import { dismissPushToDriver, pushToDriver } from "./push";
 
 const MAX_DRIVERS = Number(process.env.SOS_CASCADE_MAX_DRIVERS ?? 10);
 // v1.1.0 (CR#2): default cut 60s → 20s. Still env-overridable on Render.
@@ -202,7 +202,7 @@ async function runWave(app: FastifyInstance, state: RunnerState): Promise<void> 
       void pushToDriver(
         target.driverId,
         "🚨 New SOS request",
-        `${state.emergencyType} · ${target.distanceKm.toFixed(1)} km away — open to accept.`,
+        `${state.emergencyType} · ${target.distanceKm.toFixed(1)} km away · tap to accept.`,
         { bookingId: state.bookingId, kind: "sos" }
       );
     } catch (err) {
@@ -295,6 +295,10 @@ export async function notifyCascadeLosers(bookingId: string, winnerDriverId: str
   for (const row of rows) {
     if (row.driverId === winnerDriverId) continue;
     await emitToDriver(row.driverId, "sos:cancelled", { bookingId });
+    // v1.2.8: the socket emit above only dismisses the modal on a foregrounded
+    // app — also fire a silent data-only dismiss so a backgrounded/killed
+    // loser's tray notification for this dead SOS clears too.
+    void dismissPushToDriver(row.driverId, bookingId);
   }
 }
 

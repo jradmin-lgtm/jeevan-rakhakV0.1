@@ -12,7 +12,7 @@ import {
   sql as pgClient
 } from "@jr/db";
 import { config } from "@jr/config";
-import { pushToUser } from "../push";
+import { dismissPushToDriver, pushToUser } from "../push";
 import { redispatchBooking } from "../redispatch";
 
 const availabilitySchema = z.object({
@@ -317,6 +317,28 @@ export async function registerDriverRoutes(app: FastifyInstance) {
           })
         }).catch(() => {});
         await redispatchBooking(app, bookingId, sub);
+      }
+
+      // v1.2.8: the ride just closed or got re-dispatched, so any tray
+      // notifications the prior recipients still hold for THIS booking point at
+      // a dead/stale offer. Silently clear them: always the cancelling driver's
+      // own incoming-request notification, plus (for SOS) every driver the
+      // cascade pushed. Best-effort + no-op when FCM is unset.
+      void dismissPushToDriver(sub, bookingId);
+      if (b.isSos) {
+        void (async () => {
+          try {
+            const attempts = await db
+              .select({ driverId: sosDispatchAttempts.driverId })
+              .from(sosDispatchAttempts)
+              .where(eq(sosDispatchAttempts.bookingId, bookingId));
+            for (const a of attempts) {
+              if (a.driverId !== sub) void dismissPushToDriver(a.driverId, bookingId);
+            }
+          } catch {
+            /* best-effort */
+          }
+        })();
       }
 
       // Drive the patient's LiveTrackingScreen state live: it subscribes to the

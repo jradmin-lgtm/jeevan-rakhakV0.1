@@ -57,6 +57,19 @@ export async function sendPush(
     const client = await a.auth.getClient();
     const accessToken = (await client.getAccessToken()).token;
     if (!accessToken) return;
+    // v1.2.8: tag every ride/SOS push by bookingId so (a) successive pushes for
+    // the SAME booking COLLAPSE in the tray instead of stacking and (b) a later
+    // data-only dismiss can target this exact tray notification and clear it.
+    // The bookingId always rides in `data` from the callers; we promote it onto
+    // android.collapseKey + android.notification.tag. Always include bookingId
+    // in the data payload too (defensive — it's the dismiss/collapse key).
+    const bookingId = data?.bookingId;
+    const payloadData = bookingId ? { ...data, bookingId } : data ?? {};
+    const android: Record<string, unknown> = {
+      priority: "HIGH",
+      notification: { sound: "default", ...(bookingId ? { tag: bookingId } : {}) }
+    };
+    if (bookingId) android.collapseKey = bookingId;
     const res = await fetch(
       `https://fcm.googleapis.com/v1/projects/${a.projectId}/messages:send`,
       {
@@ -66,8 +79,8 @@ export async function sendPush(
           message: {
             token,
             notification: { title, body },
-            data: data ?? {},
-            android: { priority: "HIGH", notification: { sound: "default" } }
+            data: payloadData,
+            android
           }
         })
       }
@@ -77,6 +90,54 @@ export async function sendPush(
     }
   } catch (err) {
     console.warn("[push] send error", err);
+  }
+}
+
+/**
+ * v1.2.8: silent tray-clear. Sends a DATA-ONLY FCM message (NO `notification`
+ * block) carrying { type: "dismiss", bookingId } plus the same
+ * collapseKey/notification.tag the original ride/SOS push used. The app's
+ * background data handler reads type=="dismiss" and cancels the tray
+ * notification with that tag, so a request that died (accepted by another
+ * driver, cancelled, completed, timed-out) stops ringing/visible without the
+ * driver/patient having to tap it. HIGH priority so it wakes a dozing app.
+ * No-op when FCM is unset — mirrors sendPush so it's safe before FCM config.
+ */
+export async function dismissPush(
+  token: string | null | undefined,
+  bookingId: string
+): Promise<void> {
+  if (!token || !bookingId) return;
+  const a = getAuth();
+  if (!a) return; // FCM not configured yet — silent no-op
+  try {
+    const client = await a.auth.getClient();
+    const accessToken = (await client.getAccessToken()).token;
+    if (!accessToken) return;
+    const res = await fetch(
+      `https://fcm.googleapis.com/v1/projects/${a.projectId}/messages:send`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: {
+            token,
+            // No notification block — data-only so nothing new appears in the tray.
+            data: { type: "dismiss", bookingId },
+            android: {
+              priority: "HIGH",
+              collapseKey: bookingId,
+              notification: { tag: bookingId }
+            }
+          }
+        })
+      }
+    );
+    if (!res.ok) {
+      console.warn("[push] FCM dismiss failed", res.status, (await res.text()).slice(0, 200));
+    }
+  } catch (err) {
+    console.warn("[push] dismiss error", err);
   }
 }
 
@@ -105,6 +166,32 @@ export async function pushToDriver(
   try {
     const [d] = await db.select({ t: drivers.pushToken }).from(drivers).where(eq(drivers.id, driverId)).limit(1);
     await sendPush(d?.t, title, body, data);
+  } catch {
+    /* swallow */
+  }
+}
+
+/**
+ * v1.2.8: silently clear a user's tray notification for a dead booking.
+ * Looks up the user's token + fires a data-only dismiss. Fire-and-forget.
+ */
+export async function dismissPushToUser(userId: string, bookingId: string): Promise<void> {
+  try {
+    const [u] = await db.select({ t: users.pushToken }).from(users).where(eq(users.id, userId)).limit(1);
+    await dismissPush(u?.t, bookingId);
+  } catch {
+    /* swallow */
+  }
+}
+
+/**
+ * v1.2.8: silently clear a driver's tray notification for a dead booking.
+ * Looks up the driver's token + fires a data-only dismiss. Fire-and-forget.
+ */
+export async function dismissPushToDriver(driverId: string, bookingId: string): Promise<void> {
+  try {
+    const [d] = await db.select({ t: drivers.pushToken }).from(drivers).where(eq(drivers.id, driverId)).limit(1);
+    await dismissPush(d?.t, bookingId);
   } catch {
     /* swallow */
   }
