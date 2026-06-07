@@ -50,12 +50,17 @@ const CANCEL_REASON_LABELS: Record<string, string> = {
 
 function cancelReasonText(b: Booking): string {
   if (!b.cancel_reason) return "";
-  if (b.cancel_reason === "OTHER") {
-    const r = (b.cancel_remarks ?? "").trim();
-    return r ? `Other — ${r}` : "Other";
-  }
-  return CANCEL_REASON_LABELS[b.cancel_reason] ?? b.cancel_reason;
+  const label = b.cancel_reason === "OTHER" ? "Other" : (CANCEL_REASON_LABELS[b.cancel_reason] ?? b.cancel_reason);
+  // Surface driver remarks for EVERY reason (not just OTHER) — the backend
+  // returns cancel_remarks for all cancellations.
+  const r = (b.cancel_remarks ?? "").trim();
+  return r ? `${label} — ${r}` : label;
 }
+
+const CANCEL_OUTCOME_LABELS: Record<string, string> = {
+  RE_DISPATCHED: "Re-dispatched",
+  CLOSED: "Closed"
+};
 
 export function BookingsList({ initialBookings, apiBase }: { initialBookings: Booking[]; apiBase: string }) {
   const [status, setStatus] = useState<string>("all");
@@ -195,7 +200,7 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
                   const reasonLabel = isCancelled ? cancelReasonText(b) : "";
                   return (
                     <tr key={b.id}>
-                      <td className="mono"><strong>#{b.displayId ?? b.id.slice(0, 8) + "…"}</strong></td>
+                      <td className="mono"><strong>#{b.displayId ?? "—"}</strong></td>
                       <td className="mono muted">{formatIST(b.createdAt)}</td>
                       <td>{prettyEmergency(b.emergencyType)}</td>
                       <td>
@@ -214,6 +219,17 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
                       <td>{b.rating ? "★".repeat(b.rating) : <span className="muted">—</span>}</td>
                       <td>
                         <span className={`pill ${b.status.toLowerCase()}`}>{prettyStatus(b.status)}</span>
+                        {isCancelled && b.cancel_outcome ? (
+                          <span
+                            style={{
+                              marginLeft: 6, fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 999,
+                              background: b.cancel_outcome === "RE_DISPATCHED" ? "rgba(37,99,235,0.12)" : "rgba(148,163,184,0.18)",
+                              color: b.cancel_outcome === "RE_DISPATCHED" ? "#1D4ED8" : "#475569"
+                            }}
+                          >
+                            {CANCEL_OUTCOME_LABELS[b.cancel_outcome] ?? b.cancel_outcome}
+                          </span>
+                        ) : null}
                         {isCancelled && reasonLabel ? (
                           <div className="muted" style={{ fontSize: 11, marginTop: 4, maxWidth: 240 }}>
                             {reasonLabel}

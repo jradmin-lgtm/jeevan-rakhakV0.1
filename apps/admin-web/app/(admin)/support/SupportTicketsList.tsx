@@ -87,8 +87,10 @@ export function SupportTicketsList({
     };
   }, [apiBase]);
 
-  const openCount = rows.filter((r) => r.status === "OPEN").length;
-  const resolvedCount = rows.filter((r) => r.status === "RESOLVED").length;
+  // Open/resolved tallies count ISSUE tickets only — matching the nav badge +
+  // dashboard stat (feedback isn't an actionable "open" item). v1.2.2.
+  const openCount = rows.filter((r) => ticketCategory(r) === "ISSUE" && r.status === "OPEN").length;
+  const resolvedCount = rows.filter((r) => ticketCategory(r) === "ISSUE" && r.status === "RESOLVED").length;
   const issueCount = rows.filter((r) => ticketCategory(r) === "ISSUE").length;
   const feedbackCount = rows.filter((r) => ticketCategory(r) === "FEEDBACK").length;
 
