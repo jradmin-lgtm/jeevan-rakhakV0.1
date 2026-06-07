@@ -5,15 +5,18 @@ import { formatIST } from "../../../../lib/dates";
 import { RaiseTicketForm } from "../../RaiseTicketForm";
 
 /**
- * Hospital portal Support page (v1.2.1, CR#3). A "Raise a concern / feedback"
- * button opens the shared RaiseTicketForm as GENERAL; below it, the hospital's
- * own tickets (GET /hospital/tickets, scoped server-side to hospital_id=hid)
- * refresh on a 10s poll. The interval is cleared on unmount (timer-leak rule).
+ * Hospital portal Help & Support page (v1.2.2; was Support in v1.2.1, CR#3). A
+ * "Raise an issue" button opens the shared RaiseTicketForm as GENERAL with
+ * category=ISSUE (locked); below it, the hospital's own ISSUE tickets (GET
+ * /hospital/tickets?category=ISSUE, scoped server-side to hospital_id=hid) show
+ * with their Open/Resolved status and refresh on a 10s poll. The interval is
+ * cleared on unmount (timer-leak rule). Soft feedback lives on the Feedbacks tab.
  */
 
 type Ticket = {
   id: string;
   subject_type: "DRIVER" | "RIDE" | "GENERAL";
+  category: "FEEDBACK" | "ISSUE";
   message: string;
   status: "OPEN" | "RESOLVED";
   created_at: string;
@@ -40,10 +43,10 @@ function subjectLabel(t: Ticket): string {
   if (t.subject_type === "RIDE") {
     return `Ride · #${t.booking_display_id ?? "—"}`;
   }
-  return "General feedback";
+  return "General";
 }
 
-export function HospitalSupportLive() {
+export function HospitalHelpLive() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -51,7 +54,7 @@ export function HospitalSupportLive() {
 
   const fetchTickets = useCallback(async () => {
     try {
-      const res = await fetch("/api/hospital-proxy/api/v1/hospital/tickets", { cache: "no-store" });
+      const res = await fetch("/api/hospital-proxy/api/v1/hospital/tickets?category=ISSUE", { cache: "no-store" });
       if (!res.ok) return;
       const json = await res.json();
       if (!aliveRef.current) return;
@@ -81,7 +84,7 @@ export function HospitalSupportLive() {
             onClick={() => setShowForm(true)}
             style={{ background: "var(--accent)", color: "#fff", border: "none", padding: "9px 16px", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: "pointer" }}
           >
-            Raise a concern / feedback
+            Raise an issue
           </button>
         ) : null}
       </div>
@@ -89,6 +92,8 @@ export function HospitalSupportLive() {
       {showForm ? (
         <RaiseTicketForm
           subjectType="GENERAL"
+          category="ISSUE"
+          lockCategory
           onDone={(submitted) => {
             setShowForm(false);
             if (submitted) void fetchTickets();
@@ -98,16 +103,16 @@ export function HospitalSupportLive() {
 
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <h3 style={{ margin: 0 }}>Your tickets · {tickets.length}</h3>
+          <h3 style={{ margin: 0 }}>Your issues · {tickets.length}</h3>
           <span className="muted" style={{ fontSize: 12 }}>
             <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "var(--success)", marginRight: 6 }} />
             Live
           </span>
         </div>
         {!loaded ? (
-          <div className="muted">Loading tickets…</div>
+          <div className="muted">Loading issues…</div>
         ) : tickets.length === 0 ? (
-          <div className="muted">No tickets yet. Use “Raise a concern / feedback” above to send one to the operations team.</div>
+          <div className="muted">No issues raised yet. Use “Raise an issue” above to send one to the operations team.</div>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>

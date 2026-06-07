@@ -43,9 +43,10 @@ export default async function HospitalLayout({ children }: any) {
         </div>
         <nav>
           <a className="active" href="/h">Dashboard</a>
-          <a href="/h/history">History</a>
           <a href="/h/drivers">Drivers</a>
-          <a href="/h/support">Support</a>
+          <a href="/h/rides">Rides</a>
+          <a href="/h/feedbacks">Feedbacks</a>
+          <a href="/h/help">Help &amp; Support</a>
         </nav>
         <div className="footer" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <HospitalLogoutButton />

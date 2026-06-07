@@ -227,10 +227,13 @@ export function PatientRecordLive({ bookingId }: { bookingId: string }) {
         <WorkflowIndicator step={step} />
       </div>
 
-      {/* Contextual ticket form — pre-filled RIDE + bookingId, subject locked. */}
+      {/* Contextual ticket form — pre-filled RIDE + bookingId, subject locked.
+        * Defaults to ISSUE (a concern); the form's type toggle lets the user
+        * flip it to FEEDBACK if it's praise rather than a problem (v1.2.2). */}
       {showTicket ? (
         <RaiseTicketForm
           subjectType="RIDE"
+          category="ISSUE"
           bookingId={bookingId}
           contextLabel={`Ride #${displayId}`}
           lockSubject

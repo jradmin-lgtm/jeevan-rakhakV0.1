@@ -172,10 +172,13 @@ export function DriverCardLive({ driverId }: { driverId: string }) {
         </div>
       </div>
 
-      {/* Contextual ticket form — pre-filled DRIVER + driverId, subject locked. */}
+      {/* Contextual ticket form — pre-filled DRIVER + driverId, subject locked.
+        * Defaults to ISSUE (a concern); the form's type toggle lets the user
+        * flip it to FEEDBACK if it's praise rather than a problem (v1.2.2). */}
       {showTicket ? (
         <RaiseTicketForm
           subjectType="DRIVER"
+          category="ISSUE"
           driverId={driverId}
           contextLabel={`Driver: ${d.name ?? d.vehicleNumber ?? driverId.slice(0, 8)}`}
           lockSubject

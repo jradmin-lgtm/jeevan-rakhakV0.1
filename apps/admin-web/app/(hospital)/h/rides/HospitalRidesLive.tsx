@@ -8,8 +8,8 @@ import { prettyStatus, prettyEmergency } from "../../../../lib/status";
 import { useHospitalSocket } from "../../HospitalSocketProvider";
 
 /**
- * Hospital portal History (v1.2.1, CR#3). The full record of every ride to THIS
- * hospital regardless of status, fetched from /hospital/bookings?scope=all
+ * Hospital portal Rides (v1.2.2; was History in v1.2.1, CR#3). The full record of
+ * every ride to THIS hospital regardless of status, fetched from /hospital/bookings?scope=all
  * (scoped server-side to dest_hospital_id=hid). Live: 10s poll + a refetch on
  * the `hospital:booking_update` socket event; both the interval and the socket
  * subscription are cleared on unmount (timer-leak rule).
@@ -57,7 +57,7 @@ function rowTime(r: HistoryRow): string {
   return t ? formatIST(t) : "—";
 }
 
-export function HospitalHistoryLive() {
+export function HospitalRidesLive() {
   const [rows, setRows] = useState<HistoryRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<number>(Date.now());
