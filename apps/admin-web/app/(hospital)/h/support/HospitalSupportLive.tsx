@@ -1,0 +1,143 @@
+"use client";
+
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { formatIST } from "../../../../lib/dates";
+import { RaiseTicketForm } from "../../RaiseTicketForm";
+
+/**
+ * Hospital portal Support page (v1.2.1, CR#3). A "Raise a concern / feedback"
+ * button opens the shared RaiseTicketForm as GENERAL; below it, the hospital's
+ * own tickets (GET /hospital/tickets, scoped server-side to hospital_id=hid)
+ * refresh on a 10s poll. The interval is cleared on unmount (timer-leak rule).
+ */
+
+type Ticket = {
+  id: string;
+  subject_type: "DRIVER" | "RIDE" | "GENERAL";
+  message: string;
+  status: "OPEN" | "RESOLVED";
+  created_at: string;
+  resolved_at?: string | null;
+  driver_id?: string | null;
+  booking_id?: string | null;
+  driver_name?: string | null;
+  ambulance_number?: string | null;
+  booking_display_id?: string | null;
+};
+
+const POLL_MS = 10000;
+
+const STATUS_CHIP: Record<string, { label: string; bg: string; fg: string }> = {
+  OPEN: { label: "Open", bg: "rgba(245,158,11,0.14)", fg: "#92400E" },
+  RESOLVED: { label: "Resolved", bg: "rgba(16,185,129,0.12)", fg: "#065F46" }
+};
+
+function subjectLabel(t: Ticket): string {
+  if (t.subject_type === "DRIVER") {
+    const who = t.driver_name ?? "Driver";
+    return t.ambulance_number ? `Driver · ${who} (${t.ambulance_number})` : `Driver · ${who}`;
+  }
+  if (t.subject_type === "RIDE") {
+    return `Ride · #${t.booking_display_id ?? (t.booking_id ? t.booking_id.slice(0, 8) : "—")}`;
+  }
+  return "General feedback";
+}
+
+export function HospitalSupportLive() {
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const aliveRef = useRef(true);
+
+  const fetchTickets = useCallback(async () => {
+    try {
+      const res = await fetch("/api/hospital-proxy/api/v1/hospital/tickets", { cache: "no-store" });
+      if (!res.ok) return;
+      const json = await res.json();
+      if (!aliveRef.current) return;
+      setTickets(Array.isArray(json.tickets) ? json.tickets : []);
+      setLoaded(true);
+    } catch {
+      /* keep last good */
+    }
+  }, []);
+
+  useEffect(() => {
+    aliveRef.current = true;
+    void fetchTickets();
+    const id = setInterval(fetchTickets, POLL_MS);
+    return () => {
+      aliveRef.current = false;
+      clearInterval(id);
+    };
+  }, [fetchTickets]);
+
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        {!showForm ? (
+          <button
+            type="button"
+            onClick={() => setShowForm(true)}
+            style={{ background: "var(--accent)", color: "#fff", border: "none", padding: "9px 16px", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: "pointer" }}
+          >
+            Raise a concern / feedback
+          </button>
+        ) : null}
+      </div>
+
+      {showForm ? (
+        <RaiseTicketForm
+          subjectType="GENERAL"
+          onDone={(submitted) => {
+            setShowForm(false);
+            if (submitted) void fetchTickets();
+          }}
+        />
+      ) : null}
+
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <h3 style={{ margin: 0 }}>Your tickets · {tickets.length}</h3>
+          <span className="muted" style={{ fontSize: 12 }}>
+            <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "var(--success)", marginRight: 6 }} />
+            Live
+          </span>
+        </div>
+        {!loaded ? (
+          <div className="muted">Loading tickets…</div>
+        ) : tickets.length === 0 ? (
+          <div className="muted">No tickets yet. Use “Raise a concern / feedback” above to send one to the operations team.</div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ textAlign: "left", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--muted)" }}>
+                  <th style={{ padding: "8px 8px 8px 0" }}>Subject</th>
+                  <th style={{ padding: 8 }}>Message</th>
+                  <th style={{ padding: 8 }}>Status</th>
+                  <th style={{ padding: 8 }}>Raised</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tickets.map((t) => {
+                  const chip = STATUS_CHIP[t.status] ?? { label: t.status, bg: "rgba(148,163,184,0.18)", fg: "#475569" };
+                  return (
+                    <tr key={t.id} style={{ borderTop: "1px solid var(--border)", verticalAlign: "top" }}>
+                      <td style={{ padding: "10px 8px 10px 0", fontWeight: 500, whiteSpace: "nowrap" }}>{subjectLabel(t)}</td>
+                      <td style={{ padding: 10, maxWidth: 420 }}>{t.message}</td>
+                      <td style={{ padding: 10 }}>
+                        <span style={{ background: chip.bg, color: chip.fg, fontWeight: 700, fontSize: 11, padding: "3px 10px", borderRadius: 999 }}>{chip.label}</span>
+                      </td>
+                      <td style={{ padding: 10, whiteSpace: "nowrap" }} className="muted">{formatIST(t.created_at)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
