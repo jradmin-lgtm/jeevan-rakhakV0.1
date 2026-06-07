@@ -75,14 +75,28 @@ export function HospitalPortalCreds({
     <div className="card">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <h3 style={{ marginTop: 0 }}>Hospital Portal</h3>
-        <a
-          href="/hospital-login"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ fontSize: 12, color: "var(--accent)", fontWeight: 600, padding: "6px 12px", border: "1px solid var(--accent, #1E5EFF)", borderRadius: 6, textDecoration: "none" }}
-        >
-          Open hospital dashboard ↗
-        </a>
+        {/* v1.2.4: gate the deep-link on portalEnabled (tracked in `enabled`,
+            so it reflects an unsaved toggle too). Active link only when access
+            is ON; when disabled show it greyed + non-clickable with a hint, so
+            the access state is obvious at a glance. */}
+        {enabled ? (
+          <a
+            href="/hospital-login"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontSize: 12, color: "var(--accent)", fontWeight: 600, padding: "6px 12px", border: "1px solid var(--accent, #1E5EFF)", borderRadius: 6, textDecoration: "none" }}
+          >
+            Open hospital dashboard ↗
+          </a>
+        ) : (
+          <span
+            title="Enable portal access to open"
+            aria-disabled="true"
+            style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600, padding: "6px 12px", border: "1px solid var(--border)", borderRadius: 6, cursor: "not-allowed", opacity: 0.6 }}
+          >
+            Open hospital dashboard ↗
+          </span>
+        )}
       </div>
       <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
         One login per hospital. The portal shows this hospital&apos;s live incoming rides and patient records.

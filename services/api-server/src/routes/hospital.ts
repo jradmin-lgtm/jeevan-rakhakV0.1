@@ -24,9 +24,16 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
     const password = String(req.body?.password ?? "");
     if (!username || !password) return reply.code(400).send({ error: "missing_credentials" });
     const [h] = await db.select().from(hospitals).where(eq(hospitals.portalUsername, username)).limit(1);
-    if (!h || !h.portalEnabled || !h.portalPasswordHash) return reply.code(401).send({ error: "invalid_login" });
+    // v1.2.4: distinguish "disabled" from "wrong credentials" — but SECURELY.
+    // Order matters: (1) the hospital must exist AND have a password hash, and
+    // (2) the password must VERIFY, before we ever reveal the disabled state.
+    // A bad username OR bad password → 401 invalid_login (no account-existence
+    // leak). Only a holder of VALID creds is told the portal is disabled (403).
+    if (!h || !h.portalPasswordHash) return reply.code(401).send({ error: "invalid_login" });
     const ok = verifyPassword(password, h.portalPasswordHash);
     if (!ok) return reply.code(401).send({ error: "invalid_login" });
+    // Creds are valid — now (and only now) gate on the enabled flag.
+    if (!h.portalEnabled) return reply.code(403).send({ error: "portal_disabled" });
     const token = app.jwt.sign({ sub: h.id, role: "hospital", hospitalId: h.id, phone: "" }, { expiresIn: "8h" });
     return reply.send({ token, hospital: { id: h.id, name: h.name } });
   });

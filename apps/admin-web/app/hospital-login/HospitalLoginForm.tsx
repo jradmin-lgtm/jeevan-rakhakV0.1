@@ -1,6 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+
+// v1.2.4: shown both when login is rejected with 403 portal_disabled AND when a
+// live session is revoked mid-use and bounced here with ?disabled=1.
+const PORTAL_DISABLED_MSG =
+  "This hospital portal is currently disabled. Please contact the JR team to enable access.";
 
 /**
  * Hospital portal login (CR#3, v1.2.0).
@@ -17,11 +22,28 @@ export function HospitalLoginForm() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // v1.2.4: a non-error notice (the portal-disabled message shown after a
+  // mid-use revocation redirect, separate from a failed login attempt).
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // v1.2.4: when requireHospital revokes a live session (403 portal_disabled),
+  // the (hospital) guard lands the user here with ?disabled=1 — surface the
+  // same disabled notice on mount. Read from window.location to avoid a
+  // Suspense boundary for useSearchParams.
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("disabled") === "1") setNotice(PORTAL_DISABLED_MSG);
+    } catch {
+      /* no-op */
+    }
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setErr(null);
+    setNotice(null);
     try {
       const res = await fetch("/api/hospital-login", {
         method: "POST",
@@ -34,9 +56,11 @@ export function HospitalLoginForm() {
         throw new Error(
           code === "missing_credentials"
             ? "Enter both username and password."
-            : code === "invalid_login"
-              ? "Invalid username or password."
-              : "Login failed. Try again."
+            : code === "portal_disabled"
+              ? PORTAL_DISABLED_MSG
+              : code === "invalid_login"
+                ? "Invalid username or password."
+                : "Login failed. Try again."
         );
       }
       // Redirect to the hospital dashboard after a successful login.
@@ -81,6 +105,7 @@ export function HospitalLoginForm() {
             style={styles.input}
           />
         </label>
+        {notice ? <div style={styles.notice}>{notice}</div> : null}
         {err ? <div style={styles.err}>{err}</div> : null}
         <button
           type="submit"
@@ -156,6 +181,7 @@ const styles: Record<string, React.CSSProperties> = {
     outline: "none"
   },
   err: { background: "rgba(220,38,38,0.08)", color: "#DC2626", padding: 10, borderRadius: 8, fontSize: 13 },
+  notice: { background: "rgba(217,119,6,0.10)", color: "#B45309", padding: 10, borderRadius: 8, fontSize: 13, lineHeight: 1.5 },
   btn: {
     background: TEAL,
     color: "#fff",

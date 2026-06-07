@@ -44,6 +44,14 @@ export async function POST(req: NextRequest) {
       cache: "no-store"
     });
     if (!upstream.ok) {
+      // v1.2.4: forward the api-server's "valid creds but portal disabled"
+      // signal (403 portal_disabled) so the form can show the disabled-vs-
+      // wrong-password message. Every other upstream failure collapses to the
+      // generic 401 invalid_login (no account-existence leak).
+      const data = await upstream.json().catch(() => ({}));
+      if (upstream.status === 403 && (data as any)?.error === "portal_disabled") {
+        return NextResponse.json({ error: "portal_disabled" }, { status: 403 });
+      }
       return NextResponse.json({ error: "invalid_login" }, { status: 401 });
     }
     const data = await upstream.json();

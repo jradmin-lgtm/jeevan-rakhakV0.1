@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { HospitalLogoutButton } from "./HospitalLogoutButton";
 import { HospitalSocketProvider } from "./HospitalSocketProvider";
+import { HospitalSessionGuard } from "./HospitalSessionGuard";
 
 /**
  * Hospital portal shell (CR#3, v1.2.0).
@@ -30,6 +31,7 @@ export default async function HospitalLayout({ children }: any) {
   const token = (await cookies()).get("jr-hospital-session")?.value ?? null;
   return (
     <HospitalSocketProvider token={token}>
+    <HospitalSessionGuard />
     <div className="shell">
       <aside className="sidebar" style={{ background: "linear-gradient(180deg, #0F2A28 0%, #134E48 100%)" }}>
         <div className="brand">
