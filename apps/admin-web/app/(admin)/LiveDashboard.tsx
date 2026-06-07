@@ -67,16 +67,30 @@ export function LiveDashboard({
     let alive = true;
     const tick = async () => {
       try {
-        const [s, b, d] = await Promise.all([
-          adminFetch(`${apiBase}/api/v1/admin/dashboard`).then((r) => r.json()),
-          adminFetch(`${apiBase}/api/v1/admin/bookings`).then((r) => r.json()),
-          adminFetch(`${apiBase}/api/v1/admin/drivers`).then((r) => r.json())
+        // The same-origin proxy returns a RESOLVED JSON error body on a
+        // transient 401/502 (cold start) rather than throwing, so each
+        // response is guarded on res.ok before its setState — a bad tick
+        // keeps the last good table/stat instead of wiping it. The three
+        // are independent: a blip on one doesn't drop the other two.
+        const [sRes, bRes, dRes] = await Promise.all([
+          adminFetch(`${apiBase}/api/v1/admin/dashboard`),
+          adminFetch(`${apiBase}/api/v1/admin/bookings`),
+          adminFetch(`${apiBase}/api/v1/admin/drivers`)
         ]);
         if (!alive) return;
-        setStats(s);
-        setBookings(b.bookings ?? []);
-        setDrivers(d.drivers ?? []);
-        setUpdatedAt(formatTimeIST(new Date()));
+        if (sRes.ok) {
+          const s = await sRes.json();
+          if (alive) setStats(s);
+        }
+        if (bRes.ok) {
+          const b = await bRes.json();
+          if (alive) setBookings(b.bookings ?? []);
+        }
+        if (dRes.ok) {
+          const d = await dRes.json();
+          if (alive) setDrivers(d.drivers ?? []);
+        }
+        if (alive) setUpdatedAt(formatTimeIST(new Date()));
       } catch {
         /* keep last good */
       }
@@ -114,7 +128,7 @@ export function LiveDashboard({
         </div>
         <div className="kpi">
           <p>Avg response (min)</p>
-          <h2>{stats.avgResponseTimeMinutes.toFixed(1)}</h2>
+          <h2>{Number.isFinite(stats.avgResponseTimeMinutes) ? stats.avgResponseTimeMinutes.toFixed(1) : "—"}</h2>
         </div>
         <a href="/support" className="kpi" style={{ textDecoration: "none", color: "inherit" }}>
           <p>Open support tickets</p>

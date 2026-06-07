@@ -17,6 +17,10 @@ export function SupportNavBadge() {
     const tick = async () => {
       try {
         const res = await adminFetch(`${API_BASE}/api/v1/admin/tickets/count`);
+        // The same-origin proxy resolves (not throws) a JSON error body on a
+        // transient 401/502 cold start — skip this tick so a blip doesn't zero
+        // the badge. A later good poll restores the real count.
+        if (!res.ok) return;
         const data = await res.json();
         if (!alive) return;
         setOpen(Number(data?.open ?? 0));

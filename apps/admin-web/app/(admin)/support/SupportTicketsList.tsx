@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { adminFetch } from "../../../lib/adminFetch";
 import { formatIST } from "../../../lib/dates";
@@ -173,6 +173,10 @@ export function SupportTicketsList({
   // of the active filters, matching the nav badge + dashboard stat semantics.
   const [tally, setTally] = useState<{ open: number; resolved: number }>({ open: 0, resolved: 0 });
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Pause the poll's setRows while a row toggle (PATCH) is in flight so a poll
+  // landing mid-mutation can't clobber the optimistic row. Mirrors
+  // TicketDetailLive's mutatingRef. A later good poll reconciles either way.
+  const mutatingRef = useRef(false);
 
   const query = useMemo(
     () => buildQuery({ status, category, source, priority, severity, from, to }),
@@ -185,11 +189,15 @@ export function SupportTicketsList({
   useEffect(() => {
     let alive = true;
     const tick = async () => {
+      // Don't repaint rows from a poll that landed mid-mutation — it would
+      // overwrite the optimistic toggle. Skip this tick; the next poll after
+      // the PATCH settles reconciles the row.
+      if (mutatingRef.current) return;
       try {
         const res = await adminFetch(`${apiBase}/api/v1/admin/tickets${query}`);
         if (!res.ok) throw new Error(`fetch ${res.status}`);
         const data = await res.json();
-        if (!alive) return;
+        if (!alive || mutatingRef.current) return;
         setRows(data.tickets ?? []);
         setLoadError(false);
       } catch {
@@ -230,6 +238,9 @@ export function SupportTicketsList({
 
   async function setTicketStatus(t: Ticket, next: "OPEN" | "RESOLVED") {
     setBusyId(t.id);
+    // Block the poll's setRows for the duration of the round-trip so an
+    // in-flight poll can't overwrite the optimistic flip below.
+    mutatingRef.current = true;
     // Optimistic flip so the table reacts instantly; the 10s poll reconciles.
     setRows((prev) =>
       prev.map((r) =>
@@ -252,6 +263,7 @@ export function SupportTicketsList({
       // quick reopen/resolve and reconciles on the next poll.)
       setRows((prev) => prev.map((r) => (r.id === t.id ? t : r)));
     } finally {
+      mutatingRef.current = false;
       setBusyId(null);
     }
   }

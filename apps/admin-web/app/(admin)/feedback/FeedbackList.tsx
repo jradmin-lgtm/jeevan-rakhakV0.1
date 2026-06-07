@@ -41,6 +41,10 @@ export function FeedbackList({ initialBookings, apiBase }: { initialBookings: Bo
         if (range.since) params.set("since", range.since);
         if (range.until) params.set("until", range.until);
         const res = await adminFetch(`${apiBase}/api/v1/admin/feedback?${params.toString()}`);
+        // The same-origin proxy resolves (not throws) a JSON error body on a
+        // transient 401/502 cold start — skip this tick so a blip can't wipe
+        // the live rows. A later good poll repaints them.
+        if (!res.ok) return;
         const data = await res.json();
         if (!alive) return;
         setRows(data.bookings ?? []);

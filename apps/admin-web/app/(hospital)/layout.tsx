@@ -52,7 +52,7 @@ export default async function HospitalLayout({ children }: any) {
         </nav>
         <div className="footer" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <HospitalLogoutButton />
-          <span style={{ opacity: 0.5 }}>Jeevan Rakshak Hospital Portal · v1.2.4</span>
+          <span style={{ opacity: 0.5 }}>Jeevan Rakshak Hospital Portal · v1.2.6</span>
         </div>
       </aside>
       <main className="content">{children}</main>
