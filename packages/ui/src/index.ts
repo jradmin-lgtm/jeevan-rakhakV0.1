@@ -18,7 +18,7 @@ export { MapEmbed } from "./components/MapEmbed";
 export { fetchOsrmRoute } from "./maps/osrmRoute";
 export type { OsrmRoute } from "./maps/osrmRoute";
 export { ContactSupport, SUPPORT_EMAIL, SUPPORT_PHONE, SUPPORT_PHONE_DISPLAY } from "./components/ContactSupport";
-export { EmergencyBar } from "./components/EmergencyBar";
+export { SafetyButton } from "./components/SafetyButton";
 export { FareBreakdown } from "./components/FareBreakdown";
 export type { FareQuoteForUi } from "./components/FareBreakdown";
 export { OtpInput } from "./components/OtpInput";
