@@ -188,7 +188,43 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       .where(filter)
       .orderBy(desc(bookings.createdAt))
       .limit(500);
-    return reply.send({ source, status, bookings: rows });
+
+    // v1.2.2 — surface the latest cancellation reason/remarks/outcome inline so
+    // the admin bookings list can fold in the standalone Cancellations view.
+    // Purely additive: the existing Drizzle row keys are untouched (byte-
+    // identical default response); we only attach `cancel_reason`/
+    // `cancel_remarks`/`cancel_outcome`, null for non-cancelled rows. A booking
+    // can have >1 cancellation row (driver bailed → re-dispatch → cancelled
+    // again), so DISTINCT ON (booking_id) ORDER BY created_at DESC picks the
+    // most recent. Done as a separate keyed query (vs a JOIN) precisely so the
+    // base row shape can't drift.
+    const ids = rows.map((r) => r.id);
+    const cancelMap = new Map<string, { reason_code: string; remarks: string | null; outcome: string }>();
+    if (ids.length > 0) {
+      const cancelRows = await pgClient<
+        { booking_id: string; reason_code: string; remarks: string | null; outcome: string }[]
+      >`
+        SELECT DISTINCT ON (booking_id)
+               booking_id, reason_code, remarks, outcome
+        FROM booking_cancellations
+        WHERE booking_id = ANY(${ids})
+        ORDER BY booking_id, created_at DESC
+      `;
+      for (const c of cancelRows) {
+        cancelMap.set(String(c.booking_id), { reason_code: c.reason_code, remarks: c.remarks, outcome: c.outcome });
+      }
+    }
+    const enriched = rows.map((r) => {
+      const c = cancelMap.get(String(r.id));
+      return {
+        ...r,
+        cancel_reason: c?.reason_code ?? null,
+        cancel_remarks: c?.remarks ?? null,
+        cancel_outcome: c?.outcome ?? null
+      };
+    });
+
+    return reply.send({ source, status, bookings: enriched });
   });
 
   app.get("/api/v1/admin/bookings/:id", adminGuard, async (req, reply) => {
