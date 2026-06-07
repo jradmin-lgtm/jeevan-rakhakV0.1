@@ -28,6 +28,7 @@ import {
   SupportTicket,
   SupportTicketMessage
 } from "../api";
+import { formatDateTime } from "../format";
 import { useT } from "../i18n";
 
 /**
@@ -301,7 +302,7 @@ function TicketRow({ item, onPress, t }: { item: SupportTicket; onPress: () => v
           />
         </View>
         <Text variant="body" numberOfLines={2}>{item.message}</Text>
-        <Text variant="tiny" tone="muted">{new Date(item.created_at).toLocaleString()}</Text>
+        <Text variant="tiny" tone="muted">{formatDateTime(item.created_at)}</Text>
       </View>
     </Card>
   );
@@ -532,7 +533,7 @@ const Bubble = React.memo(function Bubble({ message, t }: { message: SupportTick
           {message.body}
         </Text>
         <Text variant="tiny" style={{ color: mine ? "rgba(255,255,255,0.7)" : colors.textMuted }}>
-          {new Date(message.created_at).toLocaleString()}
+          {formatDateTime(message.created_at)}
         </Text>
       </View>
     </View>

@@ -15,6 +15,7 @@ import {
   useFadeIn
 } from "@jr/ui";
 import { Booking, bookings as bookingsApi } from "../api";
+import { formatDateTime } from "../format";
 import { prettyEmergency } from "./HomeScreen";
 
 type Decoration = { glyph: string; tint: string; tintBg: string };
@@ -115,7 +116,7 @@ function HistoryRow({ item, index, onOpen }: { item: Booking; index: number; onO
               <Text variant="small" tone="secondary">→ {item.dropAddress}</Text>
             ) : null}
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <Text variant="small" tone="muted">{new Date(item.createdAt).toLocaleString()}</Text>
+              <Text variant="small" tone="muted">{formatDateTime(item.createdAt)}</Text>
               {paidLabel ? (
                 <Text variant="body" weight="bold" tone={item.paidInr === 0 ? "success" : "primary"}>
                   {paidLabel}
