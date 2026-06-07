@@ -195,7 +195,7 @@ export function AlertsClient({ initialHealth, initialEvents, apiBase }: Props) {
                   </td>
                   <td className="nowrap">{e.source}</td>
                   <td>{e.message}</td>
-                  <td className="meta">{e.notified ? "✓" : "—"}</td>
+                  <td className="meta">{e.notified ? "✓" : "-"}</td>
                 </tr>
               ))}
             </tbody>

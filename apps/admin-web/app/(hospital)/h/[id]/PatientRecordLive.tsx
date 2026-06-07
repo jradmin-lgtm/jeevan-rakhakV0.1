@@ -44,7 +44,7 @@ function prettyEmergency(t?: string | null): string {
     case "BREATHING_DISTRESS": return "Breathing distress";
     case "PREGNANCY_NEONATAL": return "Pregnancy / Neonatal";
     case "GENERAL_CRITICAL_TRANSFER": return "Critical transfer";
-    default: return t ?? "—";
+    default: return t ?? "-";
   }
 }
 
@@ -163,7 +163,7 @@ export function PatientRecordLive({ bookingId }: { bookingId: string }) {
 
   // Locked human id — shown identically on every surface (queue, history,
   // driver card, here). The UUID stays a routing key only.
-  const displayId = data.displayId ?? "—";
+  const displayId = data.displayId ?? "-";
 
   // Live 8-step workflow position — same helper + indicator the incoming-queue
   // cards use, so the ride card mirrors the admin booking detail's liveness.
@@ -171,8 +171,8 @@ export function PatientRecordLive({ bookingId }: { bookingId: string }) {
   const step = workflowStep({ status: c.status, has_assessment: b != null, hospital_ack_at: c.ackAt });
 
   // ETA/distance: prefer OSRM road estimate, else straight-line haversine.
-  let etaText = "—";
-  let distText = "—";
+  let etaText = "-";
+  let distText = "-";
   if (route) {
     distText = fmtDistance(route.distanceKm);
     etaText = fmtEta(route.durationMin);
@@ -216,7 +216,7 @@ export function PatientRecordLive({ bookingId }: { bookingId: string }) {
                 disabled={acking}
                 style={{ background: "var(--accent)", color: "#fff", border: "none", padding: "9px 16px", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: acking ? "default" : "pointer", opacity: acking ? 0.6 : 1 }}
               >
-                {acking ? "Acknowledging…" : "Acknowledge — preparing"}
+                {acking ? "Acknowledging…" : "Acknowledge · preparing"}
               </button>
             )}
           </div>
@@ -269,15 +269,15 @@ export function PatientRecordLive({ bookingId }: { bookingId: string }) {
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Section A · Patient</h3>
         <dl style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 16px", margin: 0 }}>
-          <dt className="muted">Name</dt><dd style={{ margin: 0 }}>{a.name ?? "—"}</dd>
-          <dt className="muted">Age</dt><dd style={{ margin: 0 }}>{a.age ?? "—"}</dd>
-          <dt className="muted">Gender</dt><dd style={{ margin: 0 }}>{a.gender === "M" ? "Male" : a.gender === "F" ? "Female" : a.gender === "O" ? "Other" : a.gender ?? "—"}</dd>
+          <dt className="muted">Name</dt><dd style={{ margin: 0 }}>{a.name ?? "-"}</dd>
+          <dt className="muted">Age</dt><dd style={{ margin: 0 }}>{a.age ?? "-"}</dd>
+          <dt className="muted">Gender</dt><dd style={{ margin: 0 }}>{a.gender === "M" ? "Male" : a.gender === "F" ? "Female" : a.gender === "O" ? "Other" : a.gender ?? "-"}</dd>
           <dt className="muted">Emergency</dt><dd style={{ margin: 0 }}>{prettyEmergency(a.emergencyType)}</dd>
-          <dt className="muted">Condition</dt><dd style={{ margin: 0 }}>{a.condition ? <strong style={{ color: "var(--danger)" }}>{a.condition}</strong> : "—"}</dd>
-          <dt className="muted">Notes</dt><dd style={{ margin: 0 }}>{a.notes ?? "—"}</dd>
+          <dt className="muted">Condition</dt><dd style={{ margin: 0 }}>{a.condition ? <strong style={{ color: "var(--danger)" }}>{a.condition}</strong> : "-"}</dd>
+          <dt className="muted">Notes</dt><dd style={{ margin: 0 }}>{a.notes ?? "-"}</dd>
         </dl>
         <div style={{ marginTop: 10, fontSize: 12, color: "var(--muted)" }}>
-          Ambulance {data.ambulanceNumber ?? "—"} · Paramedic {data.paramedicName ?? data.driverName ?? "—"}
+          Ambulance {data.ambulanceNumber ?? "-"} · Paramedic {data.paramedicName ?? data.driverName ?? "-"}
         </div>
       </div>
 
@@ -302,7 +302,7 @@ export function PatientRecordLive({ bookingId }: { bookingId: string }) {
             {b.notes ? <p style={{ marginTop: 10 }}><span className="muted">Notes: </span>{b.notes}</p> : null}
           </>
         ) : (
-          <p className="muted">No paramedic assessment yet — appears here in real time as the paramedic records it.</p>
+          <p className="muted">No paramedic assessment yet · appears here in real time as the paramedic records it.</p>
         )}
       </div>
 

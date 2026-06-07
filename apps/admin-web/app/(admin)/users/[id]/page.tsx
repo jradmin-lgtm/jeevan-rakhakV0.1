@@ -61,7 +61,7 @@ export default async function UserDetail({ params }: { params: Promise<{ id: str
             Click ✎ to edit any field. Changes reflect in the user's app on next refresh.
           </p>
           <Field label="Phone" value={user.phone} />
-          <Field label="Email" value={user.email ?? <span style={{ color: "var(--muted)" }}>—</span>} />
+          <Field label="Email" value={user.email ?? <span style={{ color: "var(--muted)" }}>-</span>} />
           <Field label="Auth provider" value={user.authProvider === "google" ? "Google Sign-In" : <span style={{ color: "var(--muted)" }}>OTP (legacy)</span>} />
           <EditableField label="Name" value={user.name} apiBase={API_BASE} patchUrl={`/api/v1/admin/users/${user.id}`} fieldKey="name" placeholder="Full name" />
           <EditableField label="Blood group" value={user.bloodGroup} apiBase={API_BASE} patchUrl={`/api/v1/admin/users/${user.id}`} fieldKey="bloodGroup" placeholder="e.g. O+" />
@@ -103,7 +103,7 @@ export default async function UserDetail({ params }: { params: Promise<{ id: str
                     <td className="mono muted">{formatIST(b.createdAt)}</td>
                     <td>{prettyEmergency(b.emergencyType)}</td>
                     <td>
-                      <div>{b.pickupAddress ?? "—"}</div>
+                      <div>{b.pickupAddress ?? "-"}</div>
                       {b.dropAddress ? <div className="muted" style={{ fontSize: 12 }}>→ {b.dropAddress}</div> : null}
                     </td>
                     <td className="mono">
@@ -112,7 +112,7 @@ export default async function UserDetail({ params }: { params: Promise<{ id: str
                         return (
                           <>
                             <div style={{ fontWeight: 600 }}>
-                              {paid.amount == null ? "—" : `₹${paid.amount}`}
+                              {paid.amount == null ? "-" : `₹${paid.amount}`}
                               {paid.overridden ? <span style={{ marginLeft: 6, fontSize: 9, padding: "1px 4px", borderRadius: 3, background: "rgba(245,158,11,0.15)", color: "#B45309", fontWeight: 700 }}>OR</span> : null}
                             </div>
                             {b.couponCode ? <div className="muted" style={{ fontSize: 11 }}>{b.couponCode}</div> : null}

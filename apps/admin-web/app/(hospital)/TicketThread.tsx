@@ -163,7 +163,7 @@ export function TicketThread({ ticketId, showStatus = false }: { ticketId: strin
       setReply("");
       void fetchThread();
     } catch {
-      if (aliveRef.current) setError("Network error — please try again.");
+      if (aliveRef.current) setError("Network error · please try again.");
     } finally {
       if (aliveRef.current) setSending(false);
     }
@@ -218,7 +218,7 @@ export function TicketThread({ ticketId, showStatus = false }: { ticketId: strin
       <div style={{ display: "grid", gap: 6 }}>
           {resolved ? (
             <div className="muted" style={{ fontSize: 12 }}>
-              This ticket is resolved — replying will reopen it.
+              This ticket is resolved · replying will reopen it.
             </div>
           ) : null}
           <textarea

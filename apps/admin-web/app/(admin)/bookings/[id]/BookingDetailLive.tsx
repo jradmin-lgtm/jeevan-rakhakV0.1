@@ -150,7 +150,7 @@ export function BookingDetailLive({
           <Field label="Emergency type" value={prettyEmergency(booking.emergencyType)} />
           <Field label="Pickup" value={booking.pickupAddress ?? `${booking.pickupLat}, ${booking.pickupLng}`} />
           <Field label="Drop" value={booking.dropAddress ?? "Not specified"} />
-          <Field label="Ride OTP" value={booking.rideOtpCode ?? "—"} />
+          <Field label="Ride OTP" value={booking.rideOtpCode ?? "-"} />
           {/* Both directions of the rating shown side-by-side. Stars styled
             * gold so they stand out from the muted grey labels. */}
           <Field
@@ -209,7 +209,7 @@ export function BookingDetailLive({
               ) : null}
             </span>
             <span style={{ fontSize: 20, fontWeight: 700, color: netPay.amount === 0 ? "var(--success)" : "var(--ink)" }}>
-              {netPay.amount == null ? "—" : `₹${netPay.amount}`}
+              {netPay.amount == null ? "-" : `₹${netPay.amount}`}
             </span>
           </div>
           <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
@@ -248,7 +248,7 @@ export function BookingDetailLive({
                 <Link href={`/drivers/${driver.id}`} style={{ color: "var(--accent)", fontSize: 13, fontWeight: 500 }}>{driver.name ?? "Unnamed"} →</Link>
               </div>
               <Field label="Driver phone" value={driver.phone} />
-              <Field label="Vehicle" value={driver.vehicleNumber ?? "—"} />
+              <Field label="Vehicle" value={driver.vehicleNumber ?? "-"} />
               <Field label="Rating" value={`⭐ ${(driver.rating ?? 5).toFixed(1)}`} />
             </>
           ) : <div className="muted">No driver assigned yet.</div>}
@@ -266,7 +266,7 @@ export function BookingDetailLive({
               booking.patientName,
               booking.patientAge ? `${booking.patientAge}y` : null,
               booking.patientGender === "M" ? "Male" : booking.patientGender === "F" ? "Female" : booking.patientGender === "O" ? "Other" : null
-            ].filter(Boolean).join(" · ") || "—"} />
+            ].filter(Boolean).join(" · ") || "-"} />
           ) : null}
           {booking.patientCondition ? <Field label="Condition" value={<strong style={{ color: "var(--danger, #DC2626)" }}>{booking.patientCondition}</strong>} /> : null}
           {booking.patientNotes ? <Field label="User notes" value={booking.patientNotes} /> : null}
@@ -465,7 +465,7 @@ function prettyAssessmentKey(k: string): string {
 
 function sourceExplanation(source: "override" | "payable" | "final" | "estimate" | "none"): string {
   switch (source) {
-    case "override": return "Admin override active — this value is also what analytics records.";
+    case "override": return "Admin override active · this value is also what analytics records.";
     case "payable":  return "From in-app payment (fare − discount).";
     case "final":    return "Fare closed at completion (less any coupon discount).";
     case "estimate": return "Quoted fare; trip not yet closed.";

@@ -73,5 +73,5 @@ export function assessmentBadge(
   if (["ARRIVED", "PICKED_UP", "COMPLETED"].includes(status)) {
     return { label: "Awaiting paramedic", variant: "awaiting" };
   }
-  return { label: "—", variant: "na" };
+  return { label: "-", variant: "na" };
 }

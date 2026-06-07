@@ -69,7 +69,7 @@ export function EditableField({
         <span style={labelStyle}>{label}</span>
         <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 500, color: value ? "var(--ink)" : "var(--muted)" }}>
-            {value ?? "—"}
+            {value ?? "-"}
           </span>
           <button
             onClick={() => { setDraft(value ?? ""); setEditing(true); setErr(null); }}

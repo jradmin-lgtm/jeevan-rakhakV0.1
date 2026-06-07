@@ -45,7 +45,7 @@ function patientLine(r: HistoryRow): string {
       r.patient_gender === "M" ? "Male" : r.patient_gender === "F" ? "Female" : r.patient_gender === "O" ? "Other" : null
     ]
       .filter(Boolean)
-      .join(" · ") || "—"
+      .join(" · ") || "-"
   );
 }
 
@@ -54,7 +54,7 @@ function patientLine(r: HistoryRow): string {
 // created_at, so this is purely the displayed "Time" column.
 function rowTime(r: HistoryRow): string {
   const t = r.completed_at ?? r.cancelled_at ?? r.created_at;
-  return t ? formatIST(t) : "—";
+  return t ? formatIST(t) : "-";
 }
 
 export function HospitalRidesLive() {
@@ -128,7 +128,7 @@ export function HospitalRidesLive() {
                     style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }}
                   >
                     <td style={{ padding: "10px 8px 10px 0", fontFamily: "var(--mono, monospace)", fontWeight: 600, whiteSpace: "nowrap" }}>
-                      #{r.display_id ?? "—"}
+                      #{r.display_id ?? "-"}
                     </td>
                     <td style={{ padding: 10 }}>{patientLine(r)}</td>
                     <td style={{ padding: 10 }}>{prettyEmergency(r.emergency_type)}</td>
@@ -142,7 +142,7 @@ export function HospitalRidesLive() {
                           {r.driver_name ?? "View driver"}
                         </Link>
                       ) : (
-                        <span className="muted">—</span>
+                        <span className="muted">-</span>
                       )}
                     </td>
                     <td style={{ padding: 10 }}>

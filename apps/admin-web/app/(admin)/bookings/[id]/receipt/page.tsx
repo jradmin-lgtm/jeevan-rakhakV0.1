@@ -62,8 +62,8 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
           <div className="grid">
             <KV label="Emergency type" value={prettyEmergency(booking.emergencyType)} />
             <KV label="Booked on" value={formatIST(booking.createdAt)} />
-            <KV label="Completed at" value={booking.completedAt ? formatIST(booking.completedAt) : (booking.status === "COMPLETED" ? "—" : "Not completed")} />
-            <KV label="Ride OTP" value={booking.rideOtpCode ?? "—"} />
+            <KV label="Completed at" value={booking.completedAt ? formatIST(booking.completedAt) : (booking.status === "COMPLETED" ? "-" : "Not completed")} />
+            <KV label="Ride OTP" value={booking.rideOtpCode ?? "-"} />
             <KV label="Pickup" value={booking.pickupAddress ?? `${booking.pickupLat}, ${booking.pickupLng}`} fullWidth />
             <KV label="Drop / hospital" value={booking.dropAddress ?? "Not specified"} fullWidth />
           </div>
@@ -72,21 +72,21 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
         <section className="rcpt-section">
           <h2>Patient</h2>
           <div className="grid">
-            <KV label="Name" value={booking.patientName ?? user?.name ?? "—"} />
-            <KV label="Phone" value={user?.phone ?? "—"} />
-            <KV label="Age" value={booking.patientAge ? `${booking.patientAge} years` : "—"} />
+            <KV label="Name" value={booking.patientName ?? user?.name ?? "-"} />
+            <KV label="Phone" value={user?.phone ?? "-"} />
+            <KV label="Age" value={booking.patientAge ? `${booking.patientAge} years` : "-"} />
             <KV
               label="Gender"
               value={
                 booking.patientGender === "M" ? "Male"
                 : booking.patientGender === "F" ? "Female"
                 : booking.patientGender === "O" ? "Other"
-                : "—"
+                : "-"
               }
             />
-            <KV label="Blood group" value={user?.bloodGroup ?? "—"} />
-            <KV label="Allergies" value={user?.allergies ?? "—"} />
-            <KV label="Emergency contact" value={user?.emergencyContact ?? "—"} fullWidth />
+            <KV label="Blood group" value={user?.bloodGroup ?? "-"} />
+            <KV label="Allergies" value={user?.allergies ?? "-"} />
+            <KV label="Emergency contact" value={user?.emergencyContact ?? "-"} fullWidth />
           </div>
         </section>
 
@@ -94,11 +94,11 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
           <h2>Ambulance & driver</h2>
           {driver ? (
             <div className="grid">
-              <KV label="Driver" value={driver.name ?? "—"} />
-              <KV label="Phone" value={driver.phone ?? "—"} />
-              <KV label="Vehicle number" value={driver.vehicleNumber ?? "—"} />
-              <KV label="Vehicle type" value={driver.vehicleType ?? "—"} />
-              <KV label="Hospital / org" value={driver.hospitalName ?? "—"} />
+              <KV label="Driver" value={driver.name ?? "-"} />
+              <KV label="Phone" value={driver.phone ?? "-"} />
+              <KV label="Vehicle number" value={driver.vehicleNumber ?? "-"} />
+              <KV label="Vehicle type" value={driver.vehicleType ?? "-"} />
+              <KV label="Hospital / org" value={driver.hospitalName ?? "-"} />
               <KV label="Driver rating" value={`${(driver.rating ?? 5).toFixed(1)} / 5 ★`} />
             </div>
           ) : (
@@ -141,7 +141,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
               <tr className="total">
                 <td><strong>Net Pay</strong></td>
                 <td className="amt total-amt">
-                  <strong>{paid.amount == null ? "—" : `₹${paid.amount}`}</strong>
+                  <strong>{paid.amount == null ? "-" : `₹${paid.amount}`}</strong>
                 </td>
               </tr>
             </tbody>
@@ -150,7 +150,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
             {paid.overridden
               ? "Net Pay reflects the admin-recorded billing amount (e.g. hospital invoice or off-app settlement)."
               : paid.amount === 0
-                ? "Free ride during pilot — no charge collected from the patient."
+                ? "Free ride during pilot · no charge collected from the patient."
                 : "Net Pay is the amount the patient was billed through the app."}
           </div>
         </section>
@@ -180,7 +180,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
         <footer className="rcpt-footer">
           <div>Receipt generated {formatIST(new Date().toISOString())} · Internal record · Jeevan Rakshak</div>
           <div className="muted small">
-            For queries, contact mobile 0581 258 2000 or email contact.jeevanrakshak@gmail.com — quote Booking
+            For queries, contact mobile 0581 258 2000 or email contact.jeevanrakshak@gmail.com · quote Booking
             #{booking.displayId ?? booking.id.slice(0, 8) + "…"}.
           </div>
         </footer>

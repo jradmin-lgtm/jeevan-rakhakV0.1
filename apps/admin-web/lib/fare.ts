@@ -54,5 +54,5 @@ export function resolveAmountPaid(b: FareLikeBooking): ResolvedAmount {
 /** Convenience formatter for list cells. */
 export function formatAmountPaid(b: FareLikeBooking): string {
   const r = resolveAmountPaid(b);
-  return r.amount == null ? "—" : `₹${r.amount}`;
+  return r.amount == null ? "-" : `₹${r.amount}`;
 }

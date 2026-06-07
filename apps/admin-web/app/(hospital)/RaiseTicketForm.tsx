@@ -139,7 +139,7 @@ export function RaiseTicketForm({
       setMessage("");
       onDone?.(true);
     } catch {
-      setError("Network error — please try again.");
+      setError("Network error · please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -226,7 +226,7 @@ export function RaiseTicketForm({
                 <option value="">{rideList.length ? "Select a ride…" : "No rides to your hospital yet"}</option>
                 {rideList.map((r) => (
                   <option key={r.id} value={r.id}>
-                    {"#" + (r.display_id ?? "—") + (r.patient_name ? ` · ${r.patient_name}` : "")}
+                    {"#" + (r.display_id ?? "-") + (r.patient_name ? ` · ${r.patient_name}` : "")}
                   </option>
                 ))}
               </select>

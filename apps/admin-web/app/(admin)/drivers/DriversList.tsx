@@ -171,7 +171,7 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
                       <div className="mono muted" style={{ fontSize: 12 }}>{d.phone}</div>
                     </td>
                     <td>
-                      <div>{d.vehicleNumber ?? "—"}</div>
+                      <div>{d.vehicleNumber ?? "-"}</div>
                       <div className="muted" style={{ fontSize: 11 }}>{d.vehicleType ?? "BLS"}</div>
                     </td>
                     <td>
@@ -180,7 +180,7 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
                       </span>
                     </td>
                     <td>⭐ {d.rating?.toFixed(1) ?? "5.0"}</td>
-                    <td className="mono muted">{d.lastSeenAt ? formatIST(d.lastSeenAt) : "—"}</td>
+                    <td className="mono muted">{d.lastSeenAt ? formatIST(d.lastSeenAt) : "-"}</td>
                     <td>
                       {d.disabled ? (
                         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>

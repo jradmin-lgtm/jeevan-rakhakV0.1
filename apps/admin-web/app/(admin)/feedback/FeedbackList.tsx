@@ -24,7 +24,7 @@ type Booking = {
 
 type Side = "all" | "user" | "driver";
 
-const STARS = (n?: number | null) => n ? "★".repeat(n) + "☆".repeat(5 - n) : "—";
+const STARS = (n?: number | null) => n ? "★".repeat(n) + "☆".repeat(5 - n) : "-";
 
 export function FeedbackList({ initialBookings, apiBase }: { initialBookings: Booking[]; apiBase: string }) {
   const [side, setSide] = useState<Side>("all");
@@ -127,7 +127,7 @@ export function FeedbackList({ initialBookings, apiBase }: { initialBookings: Bo
                     #{b.displayId ?? b.id.slice(0, 8) + "…"} · {prettyEmergency(b.emergencyType)}
                   </Link>
                   <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-                    {b.pickupAddress ?? "—"} · completed {b.completedAt ? formatIST(b.completedAt) : "—"}
+                    {b.pickupAddress ?? "-"} · completed {b.completedAt ? formatIST(b.completedAt) : "-"}
                   </div>
                 </div>
               </div>

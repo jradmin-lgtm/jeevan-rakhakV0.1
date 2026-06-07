@@ -141,8 +141,8 @@ function BookingCard({ b, onAck }: { b: HBooking; onAck: () => void }) {
   const step = workflowStep(b);
 
   // ETA/distance: ambulance (last_lat/lng) → destination hospital (drop_lat/lng).
-  let etaText = "—";
-  let distText = "—";
+  let etaText = "-";
+  let distText = "-";
   if (b.last_lat != null && b.last_lng != null && b.drop_lat != null && b.drop_lng != null) {
     const km = haversineKm(
       { lat: Number(b.last_lat), lng: Number(b.last_lng) },
@@ -184,15 +184,15 @@ function BookingCard({ b, onAck }: { b: HBooking; onAck: () => void }) {
             <span style={{ background: "rgba(30,94,255,0.10)", color: "var(--accent)", fontWeight: 700, fontSize: 11, letterSpacing: 0.5, padding: "4px 10px", borderRadius: 999 }}>🚑 BOOKING</span>
           )}
           <span style={{ fontWeight: 700 }}>{prettyEmergency(b.emergency_type)}</span>
-          <span className="muted" style={{ fontSize: 12 }}>· #{b.display_id ?? "—"}</span>
+          <span className="muted" style={{ fontSize: 12 }}>· #{b.display_id ?? "-"}</span>
           <span className="muted" style={{ fontSize: 12 }}>· {prettyStatus(b.status)}</span>
         </div>
         <Link href={`/h/${b.id}`} style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600 }}>View record →</Link>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "8px 20px", marginTop: 12 }}>
-        <CardField label="Patient" value={patientLine || "—"} />
-        <CardField label="Ambulance" value={b.ambulance_number ?? "—"} />
+        <CardField label="Patient" value={patientLine || "-"} />
+        <CardField label="Ambulance" value={b.ambulance_number ?? "-"} />
         <CardField
           label="Driver / Paramedic"
           value={
@@ -201,11 +201,11 @@ function BookingCard({ b, onAck }: { b: HBooking; onAck: () => void }) {
                 {b.driver_name ?? b.paramedic_name ?? "View driver"}
               </Link>
             ) : (
-              b.driver_name ?? b.paramedic_name ?? "—"
+              b.driver_name ?? b.paramedic_name ?? "-"
             )
           }
         />
-        <CardField label="Pickup" value={b.pickup_address ?? "—"} />
+        <CardField label="Pickup" value={b.pickup_address ?? "-"} />
         <CardField label="ETA to hospital" value={etaText} />
         <CardField label="Distance" value={distText} />
       </div>
@@ -226,7 +226,7 @@ function BookingCard({ b, onAck }: { b: HBooking; onAck: () => void }) {
             disabled={acking}
             style={{ background: "var(--accent)", color: "#fff", border: "none", padding: "9px 16px", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: acking ? "default" : "pointer", opacity: acking ? 0.6 : 1 }}
           >
-            {acking ? "Acknowledging…" : "Acknowledge — preparing"}
+            {acking ? "Acknowledging…" : "Acknowledge · preparing"}
           </button>
         )}
       </div>

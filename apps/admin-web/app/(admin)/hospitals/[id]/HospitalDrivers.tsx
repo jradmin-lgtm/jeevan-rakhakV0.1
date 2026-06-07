@@ -111,10 +111,10 @@ export function HospitalDrivers({
           {drivers.map((d) => (
             <tr key={d.id} style={{ borderTop: "1px solid var(--border)" }}>
               <td style={{ padding: "6px 8px" }}>
-                <Link href={`/drivers/${d.id}`} style={{ color: "var(--accent)", textDecoration: "none" }}>{d.name ?? "—"}</Link>
+                <Link href={`/drivers/${d.id}`} style={{ color: "var(--accent)", textDecoration: "none" }}>{d.name ?? "-"}</Link>
               </td>
               <td style={{ padding: "6px 8px" }}>{d.phone}</td>
-              <td style={{ padding: "6px 8px" }}>{d.vehicleNumber ?? "—"} {d.vehicleType ? `(${d.vehicleType})` : ""}</td>
+              <td style={{ padding: "6px 8px" }}>{d.vehicleNumber ?? "-"} {d.vehicleType ? `(${d.vehicleType})` : ""}</td>
               <td style={{ padding: "6px 8px" }}>{d.kycVerified ? "✓" : "pending"}</td>
               <td style={{ padding: "6px 8px" }}>{d.isPrimary ? <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "#DCFCE7", color: "#166534" }}>PRIMARY</span> : ""}</td>
               <td style={{ padding: "6px 8px" }}>
@@ -122,7 +122,7 @@ export function HospitalDrivers({
               </td>
             </tr>
           ))}
-          {drivers.length === 0 ? <tr><td colSpan={6} className="muted" style={{ padding: 12 }}>No drivers assigned yet — use the dropdown above.</td></tr> : null}
+          {drivers.length === 0 ? <tr><td colSpan={6} className="muted" style={{ padding: 12 }}>No drivers assigned yet · use the dropdown above.</td></tr> : null}
         </tbody>
       </table>
     </div>

@@ -45,9 +45,9 @@ function prettyEmergency(t: string): string {
   }
 }
 
-// Avg pickup→hospital minutes → "12m" / "1h 4m" / "—".
+// Avg pickup→hospital minutes → "12m" / "1h 4m" / "-".
 function fmtMinutes(min: number | null): string {
-  if (min == null || !isFinite(min)) return "—";
+  if (min == null || !isFinite(min)) return "-";
   const m = Math.round(min);
   if (m < 60) return `${m}m`;
   const h = Math.floor(m / 60);

@@ -80,13 +80,13 @@ function patientLine(r: RideRow): string {
       r.patient_gender === "M" ? "Male" : r.patient_gender === "F" ? "Female" : r.patient_gender === "O" ? "Other" : null
     ]
       .filter(Boolean)
-      .join(" · ") || "—"
+      .join(" · ") || "-"
   );
 }
 
 function rowTime(r: RideRow): string {
   const t = r.completed_at ?? r.cancelled_at ?? r.created_at;
-  return t ? formatIST(t) : "—";
+  return t ? formatIST(t) : "-";
 }
 
 export function DriverCardLive({ driverId }: { driverId: string }) {
@@ -225,7 +225,7 @@ export function DriverCardLive({ driverId }: { driverId: string }) {
                   >
                     <td style={{ padding: "10px 8px 10px 0", fontFamily: "var(--mono, monospace)", fontWeight: 600, whiteSpace: "nowrap" }}>
                       {r.is_sos ? <span title="SOS emergency" style={{ marginRight: 4 }}>🚨</span> : null}
-                      #{r.display_id ?? "—"}
+                      #{r.display_id ?? "-"}
                     </td>
                     <td style={{ padding: 10 }}>{patientLine(r)}</td>
                     <td style={{ padding: 10 }}>{prettyEmergency(r.emergency_type)}</td>

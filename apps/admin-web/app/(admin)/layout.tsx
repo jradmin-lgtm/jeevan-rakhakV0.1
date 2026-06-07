@@ -27,7 +27,7 @@ export default function AdminLayout({ children }: any) {
           <a href="/alerts">Alerts</a>
           <SupportNavBadge />
         </nav>
-        <div className="footer">Jeevan Rakshak Operations · v1.2.6</div>
+        <div className="footer">Jeevan Rakshak Operations · v1.2.8</div>
       </aside>
       <main className="content">{children}</main>
     </div>

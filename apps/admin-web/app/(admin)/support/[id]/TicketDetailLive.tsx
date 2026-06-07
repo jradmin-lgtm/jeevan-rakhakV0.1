@@ -106,7 +106,7 @@ function roleTone(role: string): { name: string; bg: string; border: string; fg:
     case "HOSPITAL":
       return { name: "Hospital", bg: "rgba(139,92,246,0.10)", border: "rgba(139,92,246,0.30)", fg: "var(--ink, #0F172A)" };
     default:
-      return { name: role || "—", bg: "rgba(148,163,184,0.12)", border: "var(--border, #E2E8F0)", fg: "var(--ink, #0F172A)" };
+      return { name: role || "-", bg: "rgba(148,163,184,0.12)", border: "var(--border, #E2E8F0)", fg: "var(--ink, #0F172A)" };
   }
 }
 
@@ -120,7 +120,7 @@ function raiserLabel(d: Detail): string {
     return veh ? `${name} · ${veh}` : name;
   }
   if (src === "USER") return d.raiser.name ?? t.raiser_user_name ?? "User";
-  return d.raiser.name ?? t.hospital_name ?? "—";
+  return d.raiser.name ?? t.hospital_name ?? "-";
 }
 
 // Subject reference — never a raw UUID. Rides show #displayId (or '—').
@@ -136,7 +136,7 @@ function subjectRef(t: Ticket): React.ReactNode {
   if (t.subject_type === "RIDE" && t.booking_id) {
     return (
       <Link href={`/bookings/${t.booking_id}`} style={{ color: "var(--accent)", textDecoration: "none" }}>
-        #{t.booking_display_id ?? "—"}
+        #{t.booking_display_id ?? "-"}
       </Link>
     );
   }
@@ -301,7 +301,7 @@ export function TicketDetailLive({
     const authorName = operator.trim();
     if (!body) return;
     if (authorName.length < 2) {
-      setReplyErr("Enter your name (the operator replying) — at least 2 characters.");
+      setReplyErr("Enter your name (the operator replying) · at least 2 characters.");
       return;
     }
     setReplyBusy(true);
@@ -436,8 +436,8 @@ export function TicketDetailLive({
           <Field label="Created" value={formatIST(ticket.created_at)} />
           {isResolved ? (
             <>
-              <Field label="Resolved" value={ticket.resolved_at ? formatIST(ticket.resolved_at) : "—"} />
-              <Field label="Resolved by" value={ticket.resolved_by ?? "—"} />
+              <Field label="Resolved" value={ticket.resolved_at ? formatIST(ticket.resolved_at) : "-"} />
+              <Field label="Resolved by" value={ticket.resolved_by ?? "-"} />
             </>
           ) : null}
 

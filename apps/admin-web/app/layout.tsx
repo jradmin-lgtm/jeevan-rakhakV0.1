@@ -2,7 +2,7 @@ import "./globals.css";
 import type { Metadata, Viewport } from "next";
 
 export const metadata: Metadata = {
-  title: "Jeevan Rakshak — Operations",
+  title: "Jeevan Rakshak · Operations",
   description: "Live operations dashboard for emergency ambulance dispatch",
   // Next 13+ picks up `app/icon.png` + `app/apple-icon.png` automatically;
   // these explicit links keep older crawlers + Slack unfurls happy.

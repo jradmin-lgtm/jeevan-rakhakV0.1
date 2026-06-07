@@ -60,12 +60,12 @@ export async function fetchOsrmRoute(
 }
 
 export function fmtDistance(km: number | null | undefined): string {
-  if (km == null || !isFinite(km)) return "—";
+  if (km == null || !isFinite(km)) return "-";
   return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`;
 }
 
 export function fmtEta(min: number | null | undefined): string {
-  if (min == null || !isFinite(min)) return "—";
+  if (min == null || !isFinite(min)) return "-";
   const m = Math.max(1, Math.round(min));
   if (m < 60) return `${m} min`;
   return `${Math.floor(m / 60)}h ${m % 60}m`;

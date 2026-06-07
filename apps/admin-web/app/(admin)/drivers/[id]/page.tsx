@@ -79,7 +79,7 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
             Click ✎ to edit any field. Changes reflect in the driver's app on next refresh.
           </p>
           <Field label="Phone" value={driver.phone} />
-          <Field label="Email" value={driver.email ?? <span style={{ color: "var(--muted)" }}>—</span>} />
+          <Field label="Email" value={driver.email ?? <span style={{ color: "var(--muted)" }}>-</span>} />
           <Field label="Auth provider" value={driver.authProvider === "google" ? "Google Sign-In" : <span style={{ color: "var(--muted)" }}>OTP (legacy)</span>} />
           <EditableField label="Name" value={driver.name} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="name" placeholder="Full name" />
           <EditableField label="Vehicle #" value={driver.vehicleNumber} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="vehicleNumber" placeholder="DL07AB1234" />
@@ -89,9 +89,9 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
           <EditableField label="Insurance #" value={driver.insuranceNumber} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="insuranceNumber" placeholder="Policy number" />
           {/* Hospital assignment moved to the dedicated multi-select card
             * (DriverHospitals) — replaces the old free-text fields. */}
-          <Field label="Primary hospital" value={driver.hospitalName ?? <span style={{ color: "var(--muted)" }}>— unassigned</span>} />
+          <Field label="Primary hospital" value={driver.hospitalName ?? <span style={{ color: "var(--muted)" }}>- unassigned</span>} />
           <Field label="Rating" value={`⭐ ${(driver.rating ?? 5).toFixed(1)}`} />
-          <Field label="Last seen" value={driver.lastSeenAt ? formatIST(driver.lastSeenAt) : "—"} />
+          <Field label="Last seen" value={driver.lastSeenAt ? formatIST(driver.lastSeenAt) : "-"} />
           <Field label="Joined" value={formatIST(driver.createdAt)} />
         </div>
         <div className="card">
@@ -150,7 +150,7 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
                     <td className="mono muted">{formatIST(b.createdAt)}</td>
                     <td>{prettyEmergency(b.emergencyType)}</td>
                     <td>
-                      <div>{b.pickupAddress ?? "—"}</div>
+                      <div>{b.pickupAddress ?? "-"}</div>
                       {b.dropAddress ? <div className="muted" style={{ fontSize: 12 }}>→ {b.dropAddress}</div> : null}
                     </td>
                     <td className="mono">
@@ -159,7 +159,7 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
                         return (
                           <>
                             <div style={{ fontWeight: 600 }}>
-                              {paid.amount == null ? "—" : `₹${paid.amount}`}
+                              {paid.amount == null ? "-" : `₹${paid.amount}`}
                               {paid.overridden ? <span style={{ marginLeft: 6, fontSize: 9, padding: "1px 4px", borderRadius: 3, background: "rgba(245,158,11,0.15)", color: "#B45309", fontWeight: 700 }}>OR</span> : null}
                             </div>
                             {b.couponCode ? <div className="muted" style={{ fontSize: 11 }}>{b.couponCode}</div> : null}
@@ -167,7 +167,7 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
                         );
                       })()}
                     </td>
-                    <td>{b.rating ? "★".repeat(b.rating) : <span className="muted">—</span>}</td>
+                    <td>{b.rating ? "★".repeat(b.rating) : <span className="muted">-</span>}</td>
                     <td><span className={`pill ${b.status.toLowerCase()}`}>{prettyStatus(b.status)}</span></td>
                     <td><Link href={`/bookings/${b.id}`} style={{ color: "var(--accent)", fontSize: 12 }}>Open →</Link></td>
                   </tr>

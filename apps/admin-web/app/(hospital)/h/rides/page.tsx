@@ -14,7 +14,7 @@ export default function HospitalRidesPage() {
       <div className="page-header">
         <div>
           <h1>Rides</h1>
-          <p>Every ambulance destined to your hospital — active, completed and cancelled. Newest first.</p>
+          <p>Every ambulance destined to your hospital · active, completed and cancelled. Newest first.</p>
         </div>
       </div>
       <HospitalRidesLive />

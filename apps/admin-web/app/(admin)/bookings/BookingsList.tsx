@@ -54,7 +54,7 @@ function cancelReasonText(b: Booking): string {
   // Surface driver remarks for EVERY reason (not just OTHER) — the backend
   // returns cancel_remarks for all cancellations.
   const r = (b.cancel_remarks ?? "").trim();
-  return r ? `${label} — ${r}` : label;
+  return r ? `${label} · ${r}` : label;
 }
 
 const CANCEL_OUTCOME_LABELS: Record<string, string> = {
@@ -204,11 +204,11 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
                   const reasonLabel = isCancelled ? cancelReasonText(b) : "";
                   return (
                     <tr key={b.id}>
-                      <td className="mono"><strong>#{b.displayId ?? "—"}</strong></td>
+                      <td className="mono"><strong>#{b.displayId ?? "-"}</strong></td>
                       <td className="mono muted">{formatIST(b.createdAt)}</td>
                       <td>{prettyEmergency(b.emergencyType)}</td>
                       <td>
-                        <div>{b.pickupAddress ?? "—"}</div>
+                        <div>{b.pickupAddress ?? "-"}</div>
                         {b.dropAddress ? <div className="muted" style={{ fontSize: 12 }}>→ {b.dropAddress}</div> : null}
                       </td>
                       <td className="mono">
@@ -220,7 +220,7 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
                           <div className="muted" style={{ fontSize: 11 }}>{b.couponCode}</div>
                         ) : null}
                       </td>
-                      <td>{b.rating ? "★".repeat(b.rating) : <span className="muted">—</span>}</td>
+                      <td>{b.rating ? "★".repeat(b.rating) : <span className="muted">-</span>}</td>
                       <td>
                         <span className={`pill ${b.status.toLowerCase()}`}>{prettyStatus(b.status)}</span>
                         {isCancelled && b.cancel_outcome ? (
@@ -242,7 +242,7 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
                       </td>
                       <td>
                         {badge.variant === "na" ? (
-                          <span className="muted">—</span>
+                          <span className="muted">-</span>
                         ) : (
                           <span style={assessmentChipStyle(badge.variant)}>{badge.label}</span>
                         )}
@@ -254,7 +254,7 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
                             <Link
                               href={`/bookings/${b.id}/receipt`}
                               target="_blank"
-                              title="Open trip receipt — print or save as PDF"
+                              title="Open trip receipt · print or save as PDF"
                               style={{ color: "var(--ink)", fontSize: 11, fontWeight: 600 }}
                             >
                               📄 Receipt

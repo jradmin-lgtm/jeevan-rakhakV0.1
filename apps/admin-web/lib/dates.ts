@@ -41,25 +41,25 @@ function toDate(input: Date | string | number): Date | null {
 
 export function formatIST(input: Date | string | number): string {
   const d = toDate(input);
-  if (!d) return "—";
+  if (!d) return "-";
   return `${dateTimeFmt.format(d)} IST`;
 }
 
 export function formatTimeIST(input: Date | string | number): string {
   const d = toDate(input);
-  if (!d) return "—";
+  if (!d) return "-";
   return `${timeFmt.format(d)} IST`;
 }
 
 export function formatTimeShortIST(input: Date | string | number): string {
   const d = toDate(input);
-  if (!d) return "—";
+  if (!d) return "-";
   return `${timeShortFmt.format(d)} IST`;
 }
 
 export function relativeIST(input: Date | string | number, now: number = Date.now()): string {
   const d = toDate(input);
-  if (!d) return "—";
+  if (!d) return "-";
   const diff = Math.max(0, Math.floor((now - d.getTime()) / 1000));
   if (diff < 60) return `${diff}s ago`;
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;

@@ -288,11 +288,11 @@ export function SupportTicketsList({
           onClick={(e) => e.stopPropagation()}
           style={{ color: "var(--accent)", textDecoration: "none" }}
         >
-          #{t.booking_display_id ?? "—"}
+          #{t.booking_display_id ?? "-"}
         </a>
       );
     }
-    return <span className="muted">—</span>;
+    return <span className="muted">-</span>;
   }
 
   // Who raised the ticket, picked by source (hospital name / driver / user).
@@ -310,7 +310,7 @@ export function SupportTicketsList({
     if (src === "USER") {
       return <span>{t.raiser_user_name ?? "User"}</span>;
     }
-    return <span>{t.hospital_name ?? "—"}</span>;
+    return <span>{t.hospital_name ?? "-"}</span>;
   }
 
   const selectStyle: React.CSSProperties = {
@@ -454,11 +454,11 @@ export function SupportTicketsList({
 
       {rows.length === 0 && loadError ? (
         <div className="card" style={{ padding: 24, textAlign: "center", color: "var(--danger, #DC2626)" }}>
-          Couldn’t load tickets — retrying every 10s. Check your connection; the list will refresh once it reconnects.
+          Couldn’t load tickets · retrying every 10s. Check your connection; the list will refresh once it reconnects.
         </div>
       ) : rows.length === 0 ? (
         <div className="card muted" style={{ padding: 24, textAlign: "center" }}>
-          No tickets in this view. Hospital, driver and user tickets all land here — adjust the filters above to widen the view.
+          No tickets in this view. Hospital, driver and user tickets all land here · adjust the filters above to widen the view.
         </div>
       ) : (
         <div className="card" style={{ padding: 0, overflowX: "auto" }}>

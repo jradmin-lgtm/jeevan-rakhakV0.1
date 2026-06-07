@@ -130,7 +130,7 @@ export function LiveDashboard({
         </div>
         <div className="kpi">
           <p>Avg response (min)</p>
-          <h2>{Number.isFinite(stats.avgResponseTimeMinutes) ? stats.avgResponseTimeMinutes.toFixed(1) : "—"}</h2>
+          <h2>{Number.isFinite(stats.avgResponseTimeMinutes) ? stats.avgResponseTimeMinutes.toFixed(1) : "-"}</h2>
         </div>
         <a href="/support" className="kpi" style={{ textDecoration: "none", color: "inherit" }}>
           <p>Open support tickets</p>
@@ -168,7 +168,7 @@ export function LiveDashboard({
                       <td className="mono muted" suppressHydrationWarning>{formatTimeShortIST(b.createdAt)}</td>
                       <td>{prettyEmergency(b.emergencyType)}</td>
                       <td>
-                        <div>{b.pickupAddress ?? "—"}</div>
+                        <div>{b.pickupAddress ?? "-"}</div>
                         {b.dropAddress ? <div className="muted" style={{ fontSize: 12 }}>→ {b.dropAddress}</div> : null}
                       </td>
                       <td className="mono">{formatAmountPaid(b)}</td>

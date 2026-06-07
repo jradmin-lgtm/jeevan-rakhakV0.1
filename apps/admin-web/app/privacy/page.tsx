@@ -2,7 +2,7 @@ import React from "react";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy — Jeevan Rakshak",
+  title: "Privacy Policy · Jeevan Rakshak",
   description:
     "How Jeevan Rakshak collects, uses, stores, and shares personal information of patients and drivers using the ambulance dispatch service."
 };
@@ -45,34 +45,34 @@ export default function PrivacyPolicyPage() {
         <h3>From patients (Jeevan Rakshak user app)</h3>
         <ul>
           <li>
-            <strong>Phone number</strong> — used as your account identifier and
+            <strong>Phone number</strong> · used as your account identifier and
             for OTP-based sign-in. During the current pilot phase, sign-in is
             simplified to verify ownership of your phone without sending an
             SMS; once the pilot ends we move to SMS-delivered OTPs.
           </li>
           <li>
-            <strong>Name, blood group, allergies, age, gender</strong> — entered
+            <strong>Name, blood group, allergies, age, gender</strong> · entered
             voluntarily in your medical profile so first responders have it
             during an emergency.
           </li>
           <li>
-            <strong>Emergency contact</strong> — one contact name and phone
+            <strong>Emergency contact</strong> · one contact name and phone
             number so we can notify them if you trigger an SOS.
           </li>
           <li>
-            <strong>Location data</strong> — your pickup location at the moment
+            <strong>Location data</strong> · your pickup location at the moment
             you book, and your live location during an active trip so the
             driver can find you. Background location is <em>only</em> requested
             while you have an active booking; it stops the moment the trip
             ends or you cancel.
           </li>
           <li>
-            <strong>Booking history</strong> — pickup and drop coordinates,
+            <strong>Booking history</strong> · pickup and drop coordinates,
             timestamps, emergency type, driver assigned, fare, payment status,
             and rating you give the driver.
           </li>
           <li>
-            <strong>Payment information</strong> — when payments are enabled,
+            <strong>Payment information</strong> · when payments are enabled,
             we collect the payment-method token issued by our payment gateway.
             We do <em>not</em> store your full card number, CVV, or UPI PIN on
             our servers; those are held by the payment gateway.
@@ -82,30 +82,30 @@ export default function PrivacyPolicyPage() {
         <h3>From drivers (Jeevan Rakshak driver app)</h3>
         <ul>
           <li>
-            <strong>Phone number</strong> — account identifier and OTP sign-in,
+            <strong>Phone number</strong> · account identifier and OTP sign-in,
             same as the patient app.
           </li>
           <li>
-            <strong>Identity and verification documents</strong> — driving
+            <strong>Identity and verification documents</strong> · driving
             licence, government-issued ID, photograph, vehicle registration
             certificate, insurance certificate, and ambulance permit. We need
             these to confirm you are legally authorised to operate an ambulance
             before you accept any patient.
           </li>
           <li>
-            <strong>Vehicle details</strong> — registration number,
+            <strong>Vehicle details</strong> · registration number,
             make/model, equipment type (basic life support, advanced life
             support, etc.).
           </li>
           <li>
-            <strong>Continuous location</strong> — while you are marked
+            <strong>Continuous location</strong> · while you are marked
             &ldquo;online&rdquo; we record your latitude/longitude and heading
             every few seconds so we can offer you incoming trips near you and
             so patients can see an accurate ETA. Background location is
             collected only while the app is set to online.
           </li>
           <li>
-            <strong>Earnings and trip ledger</strong> — every trip you complete,
+            <strong>Earnings and trip ledger</strong> · every trip you complete,
             distance, time, fare, and the payment we owe you.
           </li>
         </ul>
@@ -113,12 +113,12 @@ export default function PrivacyPolicyPage() {
         <h3>Automatically collected from both apps</h3>
         <ul>
           <li>
-            <strong>Device and crash data</strong> — device model, operating
+            <strong>Device and crash data</strong> · device model, operating
             system version, app version, anonymised crash stack traces. Used
             only to keep the app working.
           </li>
           <li>
-            <strong>Server access logs</strong> — IP address, request path,
+            <strong>Server access logs</strong> · IP address, request path,
             timestamp. Used to investigate abuse and outages.
           </li>
         </ul>
@@ -128,31 +128,31 @@ export default function PrivacyPolicyPage() {
         <h2>3. Why we collect each kind of data</h2>
         <ul>
           <li>
-            <strong>Authentication and account integrity</strong> — phone
+            <strong>Authentication and account integrity</strong> · phone
             number, OTP records.
           </li>
           <li>
-            <strong>Dispatching the right ambulance</strong> — pickup location,
+            <strong>Dispatching the right ambulance</strong> · pickup location,
             driver location, vehicle equipment type.
           </li>
           <li>
-            <strong>Medical first response</strong> — blood group, allergies,
+            <strong>Medical first response</strong> · blood group, allergies,
             age, gender (only the fields you choose to enter).
           </li>
           <li>
-            <strong>Regulatory compliance for drivers</strong> — driving
+            <strong>Regulatory compliance for drivers</strong> · driving
             licence, vehicle papers, ambulance permit. We are required to
             verify these before allowing a driver to accept trips.
           </li>
           <li>
-            <strong>Trip safety and dispute resolution</strong> — booking
+            <strong>Trip safety and dispute resolution</strong> · booking
             history, ratings, location traces of completed trips.
           </li>
           <li>
-            <strong>Payments</strong> — payment-method token, fare amount.
+            <strong>Payments</strong> · payment-method token, fare amount.
           </li>
           <li>
-            <strong>Fraud and abuse prevention</strong> — IP, device, login
+            <strong>Fraud and abuse prevention</strong> · IP, device, login
             attempts, rate-limit and brute-force lockout records.
           </li>
         </ul>
@@ -166,46 +166,46 @@ export default function PrivacyPolicyPage() {
         </p>
         <ul>
           <li>
-            <strong>The driver you booked</strong> — when you book a trip, the
+            <strong>The driver you booked</strong> · when you book a trip, the
             driver receives your pickup location, drop location, name (if
             entered), phone number for the duration of the trip, and emergency
             type. After the trip ends, the driver app no longer surfaces your
             phone number.
           </li>
           <li>
-            <strong>The patient who booked you</strong> (driver-facing) — the
+            <strong>The patient who booked you</strong> (driver-facing) · the
             patient sees your name, photograph, vehicle number, and live
             location during the trip.
           </li>
           <li>
-            <strong>SMS / OTP delivery provider</strong> — when SMS delivery
+            <strong>SMS / OTP delivery provider</strong> · when SMS delivery
             is active, your phone number and the OTP are sent to our SMS
             provider. The OTP code is short-lived (5 minutes) and is deleted
             once used.
           </li>
           <li>
-            <strong>Map and routing provider</strong> — your location
+            <strong>Map and routing provider</strong> · your location
             coordinates are sent to the map provider to compute routes and
             ETAs.
           </li>
           <li>
-            <strong>Payment gateway</strong> — when payments are enabled, your
+            <strong>Payment gateway</strong> · when payments are enabled, your
             payment-method token and fare amount are sent to a regulated
             payment gateway to settle the trip.
           </li>
           <li>
-            <strong>Push-notification platform</strong> — anonymised device
+            <strong>Push-notification platform</strong> · anonymised device
             tokens are sent to our push-notification provider so we can
             deliver dispatch alerts.
           </li>
           <li>
-            <strong>Operations staff</strong> — our internal dispatchers can
+            <strong>Operations staff</strong> · our internal dispatchers can
             see live booking, driver, and trip data through a secure admin
             dashboard, only to keep the service running.
           </li>
           <li>
             <strong>Regulators, law enforcement, and emergency services</strong>{" "}
-            — we share data with hospitals, police, or government bodies when
+            · we share data with hospitals, police, or government bodies when
             (i) you trigger SOS, (ii) the law requires us to, or (iii) it is
             necessary to protect life.
           </li>
@@ -222,31 +222,31 @@ export default function PrivacyPolicyPage() {
         </p>
         <ul>
           <li>
-            <strong>Account profile (phone, name, medical info)</strong> —
+            <strong>Account profile (phone, name, medical info)</strong> · 
             retained while your account is active. Deleted within 30 days of a
             verified deletion request.
           </li>
           <li>
-            <strong>Booking and trip records</strong> — retained for{" "}
+            <strong>Booking and trip records</strong> · retained for{" "}
             <em>7 years</em> after the trip, to comply with medical-record and
             taxation laws.
           </li>
           <li>
-            <strong>Driver KYC documents</strong> — retained while the driver
+            <strong>Driver KYC documents</strong> · retained while the driver
             is active on the platform and for <em>7 years</em> after departure,
             to comply with permit and insurance rules.
           </li>
           <li>
-            <strong>Location traces</strong> — raw GPS pings are retained for
+            <strong>Location traces</strong> · raw GPS pings are retained for
             <em> 90 days</em>, then aggregated and anonymised. Trip-bound
             location segments are retained with the booking record.
           </li>
           <li>
-            <strong>OTP codes</strong> — deleted as soon as consumed or after
+            <strong>OTP codes</strong> · deleted as soon as consumed or after
             5 minutes, whichever is sooner.
           </li>
           <li>
-            <strong>Server logs</strong> — retained for 30 days, then deleted.
+            <strong>Server logs</strong> · retained for 30 days, then deleted.
           </li>
         </ul>
       </section>
@@ -256,26 +256,26 @@ export default function PrivacyPolicyPage() {
         <p>You have the right to:</p>
         <ul>
           <li>
-            <strong>Access</strong> — receive a copy of the personal data we
+            <strong>Access</strong> · receive a copy of the personal data we
             hold about you.
           </li>
           <li>
-            <strong>Correction</strong> — ask us to correct anything that is
+            <strong>Correction</strong> · ask us to correct anything that is
             wrong.
           </li>
           <li>
-            <strong>Deletion</strong> — close your account and have your
+            <strong>Deletion</strong> · close your account and have your
             personal profile deleted. Some records (trip ledger, KYC) are kept
             for the retention periods listed in §5 because the law requires it.
           </li>
           <li>
-            <strong>Withdraw consent</strong> — for any optional data you
+            <strong>Withdraw consent</strong> · for any optional data you
             shared, such as medical profile fields. Note: certain data
             (location during an active trip; driver KYC) is essential for the
             service to function, and the app cannot operate without it.
           </li>
           <li>
-            <strong>Object or complain</strong> — file a grievance with our
+            <strong>Object or complain</strong> · file a grievance with our
             Grievance Officer (below) or with the Data Protection Board.
           </li>
         </ul>
@@ -300,21 +300,21 @@ export default function PrivacyPolicyPage() {
         <h2>8. App permissions and how they map to data</h2>
         <ul>
           <li>
-            <strong>Location (foreground and background)</strong> — used only
+            <strong>Location (foreground and background)</strong> · used only
             for trip pickup, live driver tracking, and ETA. You can revoke
             anytime in your phone&rsquo;s settings; the app stops working for
             booking and dispatch when revoked.
           </li>
           <li>
-            <strong>Notifications</strong> — used for dispatch alerts (driver)
+            <strong>Notifications</strong> · used for dispatch alerts (driver)
             and trip-status updates (patient). Can be revoked anytime.
           </li>
           <li>
-            <strong>Camera / Photos</strong> — used only when you upload a
+            <strong>Camera / Photos</strong> · used only when you upload a
             KYC document.
           </li>
           <li>
-            <strong>Phone calls (driver app)</strong> — used so you can call
+            <strong>Phone calls (driver app)</strong> · used so you can call
             the patient back through the app during an active trip.
           </li>
         </ul>

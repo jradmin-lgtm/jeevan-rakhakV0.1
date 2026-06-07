@@ -37,7 +37,7 @@ function subjectLabel(t: Ticket): string {
     return t.ambulance_number ? `Driver · ${who} (${t.ambulance_number})` : `Driver · ${who}`;
   }
   if (t.subject_type === "RIDE") {
-    return `Ride · #${t.booking_display_id ?? "—"}`;
+    return `Ride · #${t.booking_display_id ?? "-"}`;
   }
   return "General";
 }
@@ -122,7 +122,7 @@ export function HospitalFeedbacksLive() {
         {!loaded ? (
           <div className="muted">Loading feedback…</div>
         ) : loadError && tickets.length === 0 ? (
-          <div style={{ color: "var(--danger)" }}>Couldn’t load your feedback — retrying…</div>
+          <div style={{ color: "var(--danger)" }}>Couldn’t load your feedback · retrying…</div>
         ) : tickets.length === 0 ? (
           <div className="muted">No feedback yet. Use “Leave feedback” above to share it with the operations team.</div>
         ) : (

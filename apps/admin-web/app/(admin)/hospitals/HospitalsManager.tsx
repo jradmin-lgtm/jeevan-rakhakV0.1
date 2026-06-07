@@ -151,7 +151,7 @@ export function HospitalsManager({ initial, apiBase }: { initial: Hospital[]; ap
         <h3 style={{ marginTop: 0 }}>Hospital Portal Logins</h3>
         <p className="muted" style={{ marginTop: 0, fontSize: 12 }}>
           Each hospital can sign in to its own portal at <span className="mono">/hospital-login</span>. The Login ID
-          defaults to the hospital name slug. Set or reset the password below — it stays viewable here.
+          defaults to the hospital name slug. Set or reset the password below · it stays viewable here.
         </p>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
@@ -208,7 +208,7 @@ function HospitalRow({ h, busy, onPatch }: { h: Hospital; busy: boolean; onPatch
       </td>
       <td style={{ padding: "6px 8px" }}>{h.driverCount ?? 0}</td>
       <td style={{ padding: "6px 8px" }}>{h.bookingCount ?? 0}</td>
-      <td style={{ padding: "6px 8px" }}>{h.city ?? "—"}</td>
+      <td style={{ padding: "6px 8px" }}>{h.city ?? "-"}</td>
       <td style={{ padding: "6px 8px" }}>
         {h.isDefault ? (
           <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "#DCFCE7", color: "#166534" }}>DEFAULT</span>

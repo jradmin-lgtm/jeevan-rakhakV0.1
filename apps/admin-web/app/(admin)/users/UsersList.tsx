@@ -149,7 +149,7 @@ export function UsersList({ initialUsers, apiBase }: { initialUsers: User[]; api
                       ) : null}
                       <div className="mono muted" style={{ fontSize: 12 }}>{u.phone}</div>
                     </td>
-                    <td>{u.bloodGroup ?? <span className="muted">—</span>}</td>
+                    <td>{u.bloodGroup ?? <span className="muted">-</span>}</td>
                     <td className="mono muted">{formatIST(u.createdAt)}</td>
                     <td>
                       {u.disabled

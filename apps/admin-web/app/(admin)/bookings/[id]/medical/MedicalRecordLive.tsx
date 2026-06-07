@@ -137,14 +137,14 @@ export function MedicalRecordLive({
           )}
         </h3>
         <dl style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 16px", margin: 0 }}>
-          <dt className="muted">Name</dt><dd style={{ margin: 0 }}>{data.patient.name ?? "—"}</dd>
-          <dt className="muted">Age</dt><dd style={{ margin: 0 }}>{data.patient.age ?? "—"}</dd>
-          <dt className="muted">Gender</dt><dd style={{ margin: 0 }}>{data.patient.gender ?? "—"}</dd>
-          <dt className="muted">Condition</dt><dd style={{ margin: 0 }}>{data.patient.condition ?? "—"}</dd>
-          <dt className="muted">Blood group</dt><dd style={{ margin: 0 }}>{data.patient.bloodGroup ?? "—"}</dd>
-          <dt className="muted">Allergies</dt><dd style={{ margin: 0 }}>{data.patient.allergies ?? "—"}</dd>
-          <dt className="muted">Notes</dt><dd style={{ margin: 0 }}>{data.patient.notes ?? "—"}</dd>
-          <dt className="muted">Phone</dt><dd style={{ margin: 0 }}>{data.patient.phone ?? "—"}</dd>
+          <dt className="muted">Name</dt><dd style={{ margin: 0 }}>{data.patient.name ?? "-"}</dd>
+          <dt className="muted">Age</dt><dd style={{ margin: 0 }}>{data.patient.age ?? "-"}</dd>
+          <dt className="muted">Gender</dt><dd style={{ margin: 0 }}>{data.patient.gender ?? "-"}</dd>
+          <dt className="muted">Condition</dt><dd style={{ margin: 0 }}>{data.patient.condition ?? "-"}</dd>
+          <dt className="muted">Blood group</dt><dd style={{ margin: 0 }}>{data.patient.bloodGroup ?? "-"}</dd>
+          <dt className="muted">Allergies</dt><dd style={{ margin: 0 }}>{data.patient.allergies ?? "-"}</dd>
+          <dt className="muted">Notes</dt><dd style={{ margin: 0 }}>{data.patient.notes ?? "-"}</dd>
+          <dt className="muted">Phone</dt><dd style={{ margin: 0 }}>{data.patient.phone ?? "-"}</dd>
         </dl>
       </div>
 
@@ -172,7 +172,7 @@ export function MedicalRecordLive({
             {a.notes ? <p style={{ marginTop: 10 }}><span className="muted">Notes: </span>{a.notes}</p> : null}
           </>
         ) : (
-          <p className="muted">No paramedic assessment yet — appears here in real time as the paramedic records it.</p>
+          <p className="muted">No paramedic assessment yet · appears here in real time as the paramedic records it.</p>
         )}
       </div>
 

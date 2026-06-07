@@ -108,11 +108,11 @@ export function HospitalDriversLive() {
                         {d.name ?? "View driver"}
                       </Link>
                     </td>
-                    <td style={{ padding: 10 }}>{d.vehicle_number ?? "—"}</td>
+                    <td style={{ padding: 10 }}>{d.vehicle_number ?? "-"}</td>
                     <td style={{ padding: 10 }}>
                       <span style={{ background: chip.bg, color: chip.fg, fontWeight: 700, fontSize: 11, padding: "3px 10px", borderRadius: 999 }}>{chip.label}</span>
                     </td>
-                    <td style={{ padding: 10 }}>{d.is_primary ? "★" : "—"}</td>
+                    <td style={{ padding: 10 }}>{d.is_primary ? "★" : "-"}</td>
                   </tr>
                 );
               })}

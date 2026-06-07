@@ -179,7 +179,7 @@ export function TrendsCard({ apiBase }: { apiBase: string }) {
           <Stat label="Completed" value={s?.completed ?? 0} tone="success" sub={`${s?.completionRate ?? 0}% completion`} />
           <Stat label="Cancelled" value={s?.cancelled ?? 0} tone="danger" sub={`${s?.cancellationRate ?? 0}% cancellation`} />
           <Stat label="In flight right now" value={s?.active ?? 0} tone="primary" />
-          <Stat label="Avg rating" value={s?.avgRating ? `★ ${s.avgRating.toFixed(2)}` : "—"} sub="from rated trips" />
+          <Stat label="Avg rating" value={s?.avgRating ? `★ ${s.avgRating.toFixed(2)}` : "-"} sub="from rated trips" />
         </Grid>
       </Section>
 
@@ -198,7 +198,7 @@ export function TrendsCard({ apiBase }: { apiBase: string }) {
             <Stat label="Total drivers" value={s?.totalDrivers ?? 0} />
             <Stat label="KYC verified" value={s?.verifiedDrivers ?? 0} tone="success" sub={`of ${s?.totalDrivers ?? 0}`} />
             <Stat label="Online now" value={s?.liveDrivers ?? 0} tone="primary" sub={`${s?.onTripDrivers ?? 0} on trip`} />
-            <Stat label="Avg response time" value={s?.avgResponseMin ? `${s.avgResponseMin.toFixed(1)} min` : "—"} sub="request → accept" />
+            <Stat label="Avg response time" value={s?.avgResponseMin ? `${s.avgResponseMin.toFixed(1)} min` : "-"} sub="request → accept" />
           </Grid>
         </Section>
       </div>
@@ -225,9 +225,9 @@ export function TrendsCard({ apiBase }: { apiBase: string }) {
       {/* Ops quality */}
       <Section kind="ops">
         <Grid cols={3}>
-          <Stat label="Avg trip duration" value={s?.avgTripMin ? `${s.avgTripMin.toFixed(1)} min` : "—"} sub="accept → complete" />
-          <Stat label="Avg response time" value={s?.avgResponseMin ? `${s.avgResponseMin.toFixed(1)} min` : "—"} sub="request → accept" />
-          <Stat label="Avg trip distance" value={s?.avgTripKm ? `${s.avgTripKm.toFixed(2)} km` : "—"} sub="pickup → drop (haversine)" />
+          <Stat label="Avg trip duration" value={s?.avgTripMin ? `${s.avgTripMin.toFixed(1)} min` : "-"} sub="accept → complete" />
+          <Stat label="Avg response time" value={s?.avgResponseMin ? `${s.avgResponseMin.toFixed(1)} min` : "-"} sub="request → accept" />
+          <Stat label="Avg trip distance" value={s?.avgTripKm ? `${s.avgTripKm.toFixed(2)} km` : "-"} sub="pickup → drop (haversine)" />
         </Grid>
       </Section>
 
@@ -266,7 +266,7 @@ export function TrendsCard({ apiBase }: { apiBase: string }) {
 // ─── Helpers ────────────────────────────────────────────────────────
 
 function inr(n: number | undefined | null): string {
-  if (n === undefined || n === null) return "—";
+  if (n === undefined || n === null) return "-";
   if (n >= 10_000_000) return `₹${(n / 10_000_000).toFixed(2)} Cr`;
   if (n >= 100_000) return `₹${(n / 100_000).toFixed(2)} L`;
   if (n >= 1000) return `₹${(n / 1000).toFixed(1)}k`;
@@ -386,10 +386,10 @@ function HourlyTrend({ hourly }: { hourly: { hour: number; count: number; user_a
         {hourly.map((h) => (
           <g key={h.hour}>
             <circle cx={PAD_L + h.hour * stepX} cy={H - PAD_B - ((h.user_app / max) * (H - PAD_T - PAD_B))} r={3} fill="#1E5EFF">
-              <title>{`${h.hour}:00 IST — user app: ${h.user_app}`}</title>
+              <title>{`${h.hour}:00 IST · user app: ${h.user_app}`}</title>
             </circle>
             <circle cx={PAD_L + h.hour * stepX} cy={H - PAD_B - ((h.driver_app / max) * (H - PAD_T - PAD_B))} r={3} fill="#E5322B">
-              <title>{`${h.hour}:00 IST — driver app: ${h.driver_app}`}</title>
+              <title>{`${h.hour}:00 IST · driver app: ${h.driver_app}`}</title>
             </circle>
           </g>
         ))}

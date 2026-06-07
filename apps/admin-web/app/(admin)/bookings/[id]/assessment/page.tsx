@@ -57,8 +57,8 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
         <section className="assess-section">
           <h2>Patient</h2>
           <div className="grid">
-            <KV label="Name" value={booking.patientName ?? user?.name ?? "—"} />
-            <KV label="Age" value={booking.patientAge ? `${booking.patientAge} years` : "—"} />
+            <KV label="Name" value={booking.patientName ?? user?.name ?? "-"} />
+            <KV label="Age" value={booking.patientAge ? `${booking.patientAge} years` : "-"} />
             <KV
               label="Gender"
               value={
@@ -68,14 +68,14 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
                     ? "Female"
                     : booking.patientGender === "O"
                       ? "Other"
-                      : "—"
+                      : "-"
               }
             />
-            <KV label="Phone" value={user?.phone ?? "—"} />
-            <KV label="Blood group" value={user?.bloodGroup ?? "—"} />
-            <KV label="Known allergies" value={user?.allergies ?? "—"} />
-            <KV label="Patient-reported condition" value={booking.patientCondition ?? "—"} fullWidth />
-            <KV label="User notes" value={booking.patientNotes ?? "—"} fullWidth />
+            <KV label="Phone" value={user?.phone ?? "-"} />
+            <KV label="Blood group" value={user?.bloodGroup ?? "-"} />
+            <KV label="Known allergies" value={user?.allergies ?? "-"} />
+            <KV label="Patient-reported condition" value={booking.patientCondition ?? "-"} fullWidth />
+            <KV label="User notes" value={booking.patientNotes ?? "-"} fullWidth />
           </div>
         </section>
 
@@ -85,7 +85,7 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
             <KV label="Pickup" value={booking.pickupAddress ?? `${booking.pickupLat}, ${booking.pickupLng}`} fullWidth />
             <KV label="Drop / hospital" value={booking.dropAddress ?? "Not specified"} fullWidth />
             <KV label="Booking created (IST)" value={formatIST(booking.createdAt)} />
-            <KV label="Ride OTP" value={booking.rideOtpCode ?? "—"} />
+            <KV label="Ride OTP" value={booking.rideOtpCode ?? "-"} />
           </div>
         </section>
 
@@ -93,11 +93,11 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
           <h2>Driver / Paramedic</h2>
           <div className="grid">
             <KV label="Name" value={driver?.name ?? "Not assigned"} />
-            <KV label="Phone" value={driver?.phone ?? "—"} />
-            <KV label="Vehicle" value={driver?.vehicleNumber ?? "—"} />
-            <KV label="Vehicle type" value={driver?.vehicleType ?? "—"} />
-            <KV label="Licence #" value={driver?.licenseNumber ?? "—"} />
-            <KV label="Hospital / org" value={driver?.hospitalName ?? "—"} />
+            <KV label="Phone" value={driver?.phone ?? "-"} />
+            <KV label="Vehicle" value={driver?.vehicleNumber ?? "-"} />
+            <KV label="Vehicle type" value={driver?.vehicleType ?? "-"} />
+            <KV label="Licence #" value={driver?.licenseNumber ?? "-"} />
+            <KV label="Hospital / org" value={driver?.hospitalName ?? "-"} />
           </div>
         </section>
 
@@ -116,7 +116,7 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
                 <KV label="Breathing" value={prettyAssessmentValue("breathing", a.breathing)} />
                 <KV label="Pulse" value={prettyAssessmentValue("pulse", a.pulse)} />
                 <KV label="Bleeding severity" value={prettyAssessmentValue("bleeding", a.bleedingSeverity ?? a.bleeding)} />
-                <KV label="Paramedic notes" value={a.notes ?? "—"} fullWidth />
+                <KV label="Paramedic notes" value={a.notes ?? "-"} fullWidth />
               </div>
             </>
           ) : (
@@ -149,7 +149,7 @@ function KV({ label, value, fullWidth }: { label: string; value: React.ReactNode
 }
 
 function prettyAssessmentValue(field: string, v: unknown): string {
-  if (v == null || v === "") return "—";
+  if (v == null || v === "") return "-";
   const s = String(v);
   if (field === "consciousness") {
     switch (s) {
