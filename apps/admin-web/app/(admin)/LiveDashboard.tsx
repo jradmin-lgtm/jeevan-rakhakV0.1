@@ -90,7 +90,9 @@ export function LiveDashboard({
           const d = await dRes.json();
           if (alive) setDrivers(d.drivers ?? []);
         }
-        if (alive) setUpdatedAt(formatTimeIST(new Date()));
+        // Only stamp "refreshed at" when something actually refreshed — a
+        // fully-failed tick must not claim a fresh update over stale data.
+        if (alive && (sRes.ok || bRes.ok || dRes.ok)) setUpdatedAt(formatTimeIST(new Date()));
       } catch {
         /* keep last good */
       }
