@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { formatIST } from "../../../../lib/dates";
 import { RaiseTicketForm } from "../../RaiseTicketForm";
+import { TicketThread } from "../../TicketThread";
 
 /**
  * Hospital portal Feedbacks page (v1.2.2). A "Leave feedback" button opens the
@@ -45,6 +46,7 @@ export function HospitalFeedbacksLive() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
   const aliveRef = useRef(true);
 
   const fetchTickets = useCallback(async () => {
@@ -119,13 +121,31 @@ export function HospitalFeedbacksLive() {
                 </tr>
               </thead>
               <tbody>
-                {tickets.map((t) => (
-                  <tr key={t.id} style={{ borderTop: "1px solid var(--border)", verticalAlign: "top" }}>
-                    <td style={{ padding: "10px 8px 10px 0", fontWeight: 500, whiteSpace: "nowrap" }}>{subjectLabel(t)}</td>
-                    <td style={{ padding: 10, maxWidth: 420 }}>{t.message}</td>
-                    <td style={{ padding: 10, whiteSpace: "nowrap" }} className="muted">{formatIST(t.created_at)}</td>
-                  </tr>
-                ))}
+                {tickets.map((t) => {
+                  const open = openId === t.id;
+                  return (
+                    <React.Fragment key={t.id}>
+                      <tr
+                        onClick={() => setOpenId(open ? null : t.id)}
+                        style={{ borderTop: "1px solid var(--border)", verticalAlign: "top", cursor: "pointer", background: open ? "rgba(148,163,184,0.06)" : undefined }}
+                      >
+                        <td style={{ padding: "10px 8px 10px 0", fontWeight: 500, whiteSpace: "nowrap" }}>
+                          <span style={{ color: "var(--muted)", marginRight: 6, display: "inline-block", transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
+                          {subjectLabel(t)}
+                        </td>
+                        <td style={{ padding: 10, maxWidth: 420 }}>{t.message}</td>
+                        <td style={{ padding: 10, whiteSpace: "nowrap" }} className="muted">{formatIST(t.created_at)}</td>
+                      </tr>
+                      {open ? (
+                        <tr style={{ background: "rgba(148,163,184,0.06)" }}>
+                          <td colSpan={3} style={{ padding: "0 10px 14px 10px" }}>
+                            <TicketThread ticketId={t.id} />
+                          </td>
+                        </tr>
+                      ) : null}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>

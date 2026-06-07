@@ -289,7 +289,7 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
     const hid = req.user.hospitalId;
     const id = String(req.params.id);
     const [t] = await pgClient<any[]>`
-      SELECT t.id, t.subject_type, t.category, t.message, t.status, t.created_at, t.resolved_at,
+      SELECT t.id, t.subject_type, t.category, t.message, t.status, t.created_at, t.resolved_at, t.resolved_by,
              t.driver_id, t.booking_id,
              d.name AS driver_name, d.vehicle_number AS ambulance_number,
              b.display_id AS booking_display_id

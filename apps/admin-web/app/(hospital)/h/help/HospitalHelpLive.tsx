@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { formatIST } from "../../../../lib/dates";
 import { RaiseTicketForm } from "../../RaiseTicketForm";
+import { TicketThread } from "../../TicketThread";
 
 /**
  * Hospital portal Help & Support page (v1.2.2; was Support in v1.2.1, CR#3). A
@@ -50,6 +51,7 @@ export function HospitalHelpLive() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
   const aliveRef = useRef(true);
 
   const fetchTickets = useCallback(async () => {
@@ -127,15 +129,31 @@ export function HospitalHelpLive() {
               <tbody>
                 {tickets.map((t) => {
                   const chip = STATUS_CHIP[t.status] ?? { label: t.status, bg: "rgba(148,163,184,0.18)", fg: "#475569" };
+                  const open = openId === t.id;
                   return (
-                    <tr key={t.id} style={{ borderTop: "1px solid var(--border)", verticalAlign: "top" }}>
-                      <td style={{ padding: "10px 8px 10px 0", fontWeight: 500, whiteSpace: "nowrap" }}>{subjectLabel(t)}</td>
-                      <td style={{ padding: 10, maxWidth: 420 }}>{t.message}</td>
-                      <td style={{ padding: 10 }}>
-                        <span style={{ background: chip.bg, color: chip.fg, fontWeight: 700, fontSize: 11, padding: "3px 10px", borderRadius: 999 }}>{chip.label}</span>
-                      </td>
-                      <td style={{ padding: 10, whiteSpace: "nowrap" }} className="muted">{formatIST(t.created_at)}</td>
-                    </tr>
+                    <React.Fragment key={t.id}>
+                      <tr
+                        onClick={() => setOpenId(open ? null : t.id)}
+                        style={{ borderTop: "1px solid var(--border)", verticalAlign: "top", cursor: "pointer", background: open ? "rgba(148,163,184,0.06)" : undefined }}
+                      >
+                        <td style={{ padding: "10px 8px 10px 0", fontWeight: 500, whiteSpace: "nowrap" }}>
+                          <span style={{ color: "var(--muted)", marginRight: 6, display: "inline-block", transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
+                          {subjectLabel(t)}
+                        </td>
+                        <td style={{ padding: 10, maxWidth: 420 }}>{t.message}</td>
+                        <td style={{ padding: 10 }}>
+                          <span style={{ background: chip.bg, color: chip.fg, fontWeight: 700, fontSize: 11, padding: "3px 10px", borderRadius: 999 }}>{chip.label}</span>
+                        </td>
+                        <td style={{ padding: 10, whiteSpace: "nowrap" }} className="muted">{formatIST(t.created_at)}</td>
+                      </tr>
+                      {open ? (
+                        <tr style={{ background: "rgba(148,163,184,0.06)" }}>
+                          <td colSpan={4} style={{ padding: "0 10px 14px 10px" }}>
+                            <TicketThread ticketId={t.id} showStatus />
+                          </td>
+                        </tr>
+                      ) : null}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
