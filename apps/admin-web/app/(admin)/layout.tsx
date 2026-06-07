@@ -4,7 +4,7 @@
 // fail under Next's typed-routes validator even though runtime is identical.
 // Cast at the destructure site instead.
 import { SupportNavBadge } from "./SupportNavBadge";
-import { SafetyNavBadge } from "./SafetyNavBadge";
+import { AlertsNavBadge } from "./AlertsNavBadge";
 import { SafetyBanner } from "./SafetyBanner";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -26,11 +26,10 @@ export default function AdminLayout({ children }: any) {
           <a href="/users">Users</a>
           <a href="/feedback">Feedback</a>
           <a href="/hospitals">Hospitals</a>
-          <a href="/alerts">Alerts</a>
-          <SafetyNavBadge />
+          <AlertsNavBadge />
           <SupportNavBadge />
         </nav>
-        <div className="footer">Jeevan Rakshak Operations · v1.2.8</div>
+        <div className="footer">Jeevan Rakshak Operations · v1.3.0</div>
       </aside>
       <main className="content">
         <SafetyBanner />

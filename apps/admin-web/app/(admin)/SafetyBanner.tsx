@@ -49,7 +49,7 @@ export function SafetyBanner() {
 
   return (
     <a
-      href="/safety-alerts"
+      href="/alerts"
       style={{
         position: "sticky",
         top: 0,

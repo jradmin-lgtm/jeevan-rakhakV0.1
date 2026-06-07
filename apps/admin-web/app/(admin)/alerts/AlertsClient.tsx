@@ -25,6 +25,10 @@ type Props = {
   initialHealth: Health | null;
   initialEvents: SystemEvent[];
   apiBase: string;
+  // When rendered inside the merged Alerts hub, the hub supplies the page title
+  // and the System Alerts banner, so we drop this component's own header block
+  // and outer page padding (the hub already provides them).
+  embedded?: boolean;
 };
 
 const LEVELS = ["all", "critical", "error", "warn", "info"] as const;
@@ -52,7 +56,7 @@ function relative(ts: string, now: number): string {
   return formatIST(ts);
 }
 
-export function AlertsClient({ initialHealth, initialEvents, apiBase }: Props) {
+export function AlertsClient({ initialHealth, initialEvents, apiBase, embedded }: Props) {
   const [health, setHealth] = useState<Health | null>(initialHealth);
   const [events, setEvents] = useState<SystemEvent[]>(initialEvents);
   const [level, setLevel] = useState<Level>("all");
@@ -101,19 +105,30 @@ export function AlertsClient({ initialHealth, initialEvents, apiBase }: Props) {
   const apiUp = health?.api.status === "up";
   const dbUp = health?.db.status === "up";
 
-  return (
-    <div className="content">
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 16 }}>
-        <div>
-          <h1>Alerts</h1>
+  const body = (
+    <div className="alerts-section">
+      {embedded ? (
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
           <p className="meta">
             Live service health and event stream · refreshes every 30s · last refresh {relative(new Date(lastRefresh).toISOString(), now)}
           </p>
+          <button onClick={() => void refresh()} disabled={refreshing} className="btn-secondary">
+            {refreshing ? "Refreshing…" : "Refresh now"}
+          </button>
         </div>
-        <button onClick={() => void refresh()} disabled={refreshing} className="btn-secondary">
-          {refreshing ? "Refreshing…" : "Refresh now"}
-        </button>
-      </div>
+      ) : (
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 16 }}>
+          <div>
+            <h1>Alerts</h1>
+            <p className="meta">
+              Live service health and event stream · refreshes every 30s · last refresh {relative(new Date(lastRefresh).toISOString(), now)}
+            </p>
+          </div>
+          <button onClick={() => void refresh()} disabled={refreshing} className="btn-secondary">
+            {refreshing ? "Refreshing…" : "Refresh now"}
+          </button>
+        </div>
+      )}
 
       {/* Health pills */}
       <div className="health-grid">
@@ -204,9 +219,9 @@ export function AlertsClient({ initialHealth, initialEvents, apiBase }: Props) {
       </div>
 
       <style>{`
-        .content { padding: 24px 32px 80px; }
-        h1 { font-size: 26px; margin: 0; color: var(--ink); }
-        h2 { font-size: 16px; margin: 0 0 12px; color: var(--ink); }
+        .alerts-page { padding: 24px 32px 80px; }
+        .alerts-section h1 { font-size: 26px; margin: 0; color: var(--ink); }
+        .alerts-section h2 { font-size: 16px; margin: 0 0 12px; color: var(--ink); }
         .meta { color: var(--muted); font-size: 13px; }
         .nowrap { white-space: nowrap; }
         .health-grid {
@@ -292,6 +307,8 @@ export function AlertsClient({ initialHealth, initialEvents, apiBase }: Props) {
       `}</style>
     </div>
   );
+
+  return embedded ? body : <div className="alerts-page">{body}</div>;
 }
 
 function HealthCard({ label, ok, detail }: { label: string; ok: boolean; detail: string }) {

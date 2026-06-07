@@ -60,10 +60,15 @@ function statusChip(status: string): { label: string; bg: string; fg: string } {
 
 export function SafetyAlertsClient({
   initialAlerts,
-  apiBase
+  apiBase,
+  embedded
 }: {
   initialAlerts: SafetyAlert[];
   apiBase: string;
+  // When rendered inside the merged Alerts hub, the hub supplies the page title
+  // and the Emergency Safety Alerts banner, so this component drops its own
+  // header block (the filter chips + table stay).
+  embedded?: boolean;
 }) {
   const router = useRouter();
   const [status, setStatus] = useState<StatusFilter>("ACTIVE");
@@ -140,12 +145,14 @@ export function SafetyAlertsClient({
 
   return (
     <>
-      <div className="page-header">
-        <div>
-          <h1>Safety Alerts</h1>
-          <p>{activeCount} active · {visible.length} shown</p>
+      {!embedded ? (
+        <div className="page-header">
+          <div>
+            <h1>Safety Alerts</h1>
+            <p>{activeCount} active · {visible.length} shown</p>
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {/* Status chips */}
       <div className="filter-bar">

@@ -33,7 +33,7 @@ export default async function SafetyAlertDetail({ params }: { params: Promise<{ 
         <div>
           <h1>Safety alert</h1>
           <p>
-            <Link href="/safety-alerts" style={{ color: "var(--accent)" }}>← Back to Safety Alerts</Link>
+            <Link href="/alerts" style={{ color: "var(--accent)" }}>← Back to Alerts</Link>
             <span className="muted mono" style={{ marginLeft: 12, fontSize: 11 }}>{id}</span>
           </p>
         </div>

@@ -1,23 +1,9 @@
-import React from "react";
-import { SafetyAlertsClient } from "./SafetyAlertsClient";
-import { adminFetch } from "../../../lib/adminFetch";
+import { redirect } from "next/navigation";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
-
-// Seed with the Active view (default the backend serves at ?status=active) so
-// the operator lands on live alerts first; the client then live-polls.
-async function getAlerts() {
-  try {
-    const res = await adminFetch(`${API_BASE}/api/v1/admin/safety?status=active`);
-    if (!res.ok) throw new Error("safety");
-    const data = await res.json();
-    return data.alerts ?? [];
-  } catch {
-    return [];
-  }
-}
-
-export default async function SafetyAlertsPage() {
-  const alerts = await getAlerts();
-  return <SafetyAlertsClient initialAlerts={alerts} apiBase={API_BASE} />;
+// The standalone Safety Alerts list was merged into the unified Alerts hub
+// (one sidebar entry, two banner sections). The list now lives at /alerts on
+// the Emergency Safety Alerts banner; the per-alert detail stays at
+// /safety-alerts/[id] (linked from the list rows + the top safety banner).
+export default function SafetyAlertsRedirect() {
+  redirect("/alerts");
 }
