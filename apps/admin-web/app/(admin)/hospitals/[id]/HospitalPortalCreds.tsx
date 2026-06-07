@@ -29,6 +29,9 @@ export function HospitalPortalCreds({
   const [username, setUsername] = useState<string>(initialUsername ?? "");
   const [password, setPassword] = useState<string>("");
   const [enabled, setEnabled] = useState<boolean>(!!initialEnabled);
+  // Persisted (server-truth) enabled — drives the deep-link so it only opens
+  // when access is ACTUALLY on, not on an unsaved toggle. Updated after a save.
+  const [savedEnabled, setSavedEnabled] = useState<boolean>(!!initialEnabled);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -61,6 +64,7 @@ export function HospitalPortalCreds({
       }
       // Reflect the new state; never keep the password around.
       if (body.username) setCurrentUsername(body.username);
+      setSavedEnabled(enabled); // server now matches the toggle → link reflects truth
       setPassword("");
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -75,11 +79,11 @@ export function HospitalPortalCreds({
     <div className="card">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <h3 style={{ marginTop: 0 }}>Hospital Portal</h3>
-        {/* v1.2.4: gate the deep-link on portalEnabled (tracked in `enabled`,
-            so it reflects an unsaved toggle too). Active link only when access
-            is ON; when disabled show it greyed + non-clickable with a hint, so
+        {/* v1.2.4: gate the deep-link on the PERSISTED enabled state (savedEnabled),
+            not the unsaved toggle — so it only opens when access is actually ON on
+            the server. When disabled show it greyed + non-clickable with a hint, so
             the access state is obvious at a glance. */}
-        {enabled ? (
+        {savedEnabled ? (
           <a
             href="/hospital-login"
             target="_blank"

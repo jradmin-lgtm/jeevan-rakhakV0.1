@@ -318,6 +318,7 @@ export async function registerMeRoutes(app: FastifyInstance) {
       const { sub, role } = req.user;
       if (role !== "user") return reply.code(403).send({ error: "user_only" });
       const id = String(req.params.id);
+      if (!/^[0-9a-f-]{36}$/i.test(id)) return reply.code(404).send({ error: "not_found" });
       const body = String(req.body?.body ?? "").trim();
       if (body.length < 2) return reply.code(400).send({ error: "message_too_short" });
 
@@ -333,6 +334,11 @@ export async function registerMeRoutes(app: FastifyInstance) {
         INSERT INTO support_ticket_messages (ticket_id, author_role, author_name, body)
         VALUES (${id}, 'USER', ${userName}, ${body})
         RETURNING id, ticket_id, author_role, author_name, body, created_at`;
+      // v1.2.4 fix: a raiser reply REOPENS a resolved ticket (honours the
+      // "reply to reopen the conversation" promise shown in the app).
+      await pgClient`
+        UPDATE support_tickets SET status = 'OPEN', resolved_at = NULL, resolved_by = NULL
+        WHERE id = ${id} AND status = 'RESOLVED'`;
       return reply.send({ message });
     }
   );

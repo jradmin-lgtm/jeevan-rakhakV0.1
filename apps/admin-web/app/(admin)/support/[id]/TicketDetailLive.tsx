@@ -470,7 +470,8 @@ export function TicketDetailLive({
               <button
                 type="button"
                 onClick={openResolve}
-                style={primaryBtn}
+                disabled={!hasAdminReply}
+                style={{ ...primaryBtn, opacity: hasAdminReply ? 1 : 0.5, cursor: hasAdminReply ? "pointer" : "not-allowed" }}
                 title={hasAdminReply ? "Resolve this ticket" : "Add a reply before resolving"}
               >
                 Resolve…

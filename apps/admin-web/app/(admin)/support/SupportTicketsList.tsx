@@ -515,28 +515,34 @@ export function SupportTicketsList({
                         >
                           Open →
                         </a>
-                        <button
-                          type="button"
-                          disabled={busyId === t.id}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void setTicketStatus(t, isOpen ? "RESOLVED" : "OPEN");
-                          }}
-                          style={{
-                            padding: "5px 12px",
-                            borderRadius: 8,
-                            border: "1px solid var(--border, #E2E8F0)",
-                            background: isOpen ? "var(--accent)" : "transparent",
-                            color: isOpen ? "#fff" : "var(--ink, #0F172A)",
-                            fontWeight: 600,
-                            fontSize: 12,
-                            cursor: busyId === t.id ? "default" : "pointer",
-                            opacity: busyId === t.id ? 0.6 : 1,
-                            whiteSpace: "nowrap"
-                          }}
-                        >
-                          {busyId === t.id ? "…" : isOpen ? "Mark resolved" : "Reopen"}
-                        </button>
+                        {/* Resolving requires a reply + closer name (the API
+                           resolve-gate), so it happens in the ticket card via
+                           "Open →". The inline action is only a quick Reopen for
+                           already-resolved tickets (allowed without a reply). */}
+                        {!isOpen ? (
+                          <button
+                            type="button"
+                            disabled={busyId === t.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void setTicketStatus(t, "OPEN");
+                            }}
+                            style={{
+                              padding: "5px 12px",
+                              borderRadius: 8,
+                              border: "1px solid var(--border, #E2E8F0)",
+                              background: "transparent",
+                              color: "var(--ink, #0F172A)",
+                              fontWeight: 600,
+                              fontSize: 12,
+                              cursor: busyId === t.id ? "default" : "pointer",
+                              opacity: busyId === t.id ? 0.6 : 1,
+                              whiteSpace: "nowrap"
+                            }}
+                          >
+                            {busyId === t.id ? "…" : "Reopen"}
+                          </button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
