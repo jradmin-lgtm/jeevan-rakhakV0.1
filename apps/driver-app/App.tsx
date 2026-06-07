@@ -13,6 +13,7 @@ import { DashboardScreen } from "./src/screens/DashboardScreen";
 import { TripScreen } from "./src/screens/TripScreen";
 import { TripHistoryScreen } from "./src/screens/TripHistoryScreen";
 import { ProfileScreen } from "./src/screens/ProfileScreen";
+import { SupportScreen } from "./src/screens/SupportScreen";
 import { KycOnboardingScreen, KycPendingScreen } from "./src/screens/KycOnboardingScreen";
 import { hydrateLang } from "./src/i18n";
 import { registerPushToken } from "./src/push";
@@ -32,6 +33,7 @@ type RootStackParamList = {
   Trip: { booking: Booking };
   TripHistory: undefined;
   Profile: undefined;
+  Support: undefined;
 };
 
 // A driver is "KYC complete" once they've filled at least the four
@@ -174,6 +176,7 @@ export default function App() {
                   onTrip={(b) => navigation.navigate("Trip", { booking: b })}
                   onProfile={() => navigation.navigate("Profile")}
                   onEarnings={() => navigation.navigate("TripHistory")}
+                  onSupport={() => navigation.navigate("Support")}
                   onProfileRefresh={() => void refreshProfile(setProfile)}
                 />
               )}
@@ -197,6 +200,9 @@ export default function App() {
                   onUpdated={(p) => { setProfile(p); void setCachedProfile(p); }}
                 />
               )}
+            </Stack.Screen>
+            <Stack.Screen name="Support">
+              {({ navigation }) => <SupportScreen onBack={() => navigation.goBack()} />}
             </Stack.Screen>
           </>
         )}

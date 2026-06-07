@@ -49,11 +49,13 @@ type Props = {
   onTrip: (b: Booking) => void;
   onProfile: () => void;
   onEarnings: () => void;
+  /** v1.2.4: open the Help & Support (helpdesk ticket) screen. */
+  onSupport: () => void;
   /** v1.1.2: refresh /me so admin hospital reassignment reflects near-realtime. */
   onProfileRefresh?: () => void;
 };
 
-export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnings, onProfileRefresh }: Props) {
+export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnings, onSupport, onProfileRefresh }: Props) {
   const { t } = useT();
   const [available, setAvailable] = useState(profile?.status !== "OFFLINE");
   // v1.0.15: emit a "I'm online" heartbeat to the SOS cascade engine every
@@ -441,6 +443,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
               <Button label="Trip history" variant="outline" onPress={onEarnings} fullWidth testID="trip-history-cta" />
             </View>
           </View>
+          <Button label={t("support.dashboard_cta")} variant="outline" onPress={onSupport} fullWidth testID="support-cta" />
           <Button
             label="Sign out"
             variant="ghost"

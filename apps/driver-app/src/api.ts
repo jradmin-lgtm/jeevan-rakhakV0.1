@@ -264,6 +264,50 @@ export const rideCancel = {
     })
 };
 
+// v1.2.4 (helpdesk): driver Help & Support tickets. The /driver/tickets*
+// endpoints stream raw pgClient rows (snake_case, like /driver/incoming), so
+// these types mirror the SQL aliases exactly — keep them in lockstep with the
+// SELECT column lists in the api-server `/api/v1/driver/tickets*` handlers.
+export type SupportTicket = {
+  id: string;
+  subject_type: "GENERAL" | "RIDE";
+  category: "ISSUE" | "FEEDBACK";
+  message: string;
+  status: "OPEN" | "RESOLVED";
+  created_at: string;
+  resolved_at: string | null;
+  booking_id: string | null;
+  // Human-readable ride number (#1000xx) — never the raw UUID. May be null
+  // for a RIDE ticket whose booking predates display ids, or a GENERAL ticket.
+  booking_display_id: string | null;
+};
+
+export type SupportTicketMessage = {
+  id: string;
+  ticket_id: string;
+  author_role: "ADMIN" | "HOSPITAL" | "DRIVER" | "USER";
+  author_name: string | null;
+  body: string;
+  created_at: string;
+};
+
+export const tickets = {
+  list: () => api<{ tickets: SupportTicket[] }>("/api/v1/driver/tickets"),
+  create: (input: {
+    category?: "ISSUE" | "FEEDBACK";
+    subjectType?: "GENERAL" | "RIDE";
+    bookingId?: string;
+    message: string;
+  }) => api<{ ok: true; id: string }>("/api/v1/driver/tickets", { method: "POST", body: input }),
+  get: (id: string) =>
+    api<{ ticket: SupportTicket; messages: SupportTicketMessage[] }>(`/api/v1/driver/tickets/${id}`),
+  reply: (id: string, body: string) =>
+    api<{ message: SupportTicketMessage }>(`/api/v1/driver/tickets/${id}/messages`, {
+      method: "POST",
+      body: { body }
+    })
+};
+
 export const bookings = {
   pending: () => api<{ bookings: Booking[] }>("/api/v1/bookings/pending"),
   // v1.1.0 (CR#4): polling fallback for SOS dispatch — surfaces SOS requests
