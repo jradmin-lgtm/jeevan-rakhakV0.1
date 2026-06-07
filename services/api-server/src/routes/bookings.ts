@@ -11,6 +11,10 @@ const MAX_ACTIVE_BOOKINGS_PER_USER = 1;
 import { config } from "@jr/config";
 import { haversineDistanceKm } from "@jr/utils";
 import { dismissPushToDriver, dismissPushToUser, pushToUser, sendPush } from "../push";
+// v1.3.1: when a ride reaches a terminal state (COMPLETED / CANCELLED) any
+// still-ACTIVE in-ride safety alert for that booking is stale and must be
+// auto-resolved (clears responder cards + stands the raiser's bar down).
+import { autoResolveSafetyForBooking } from "./safety";
 // v1.0.14: fare logic is in services/api-server/src/fare-config.ts —
 // the single editable spot for rates, multipliers, surcharges. Change a
 // constant there → redeploy → mobile UI re-quotes on next mount. No APK
@@ -444,11 +448,47 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       if (!b) return reply.code(404).send({ error: "not_found" });
       if (b.status !== "REQUESTED" || b.driverId)
         return reply.code(409).send({ error: "already_taken" });
+      // Overlap guard (race-safe): the assignment succeeds ONLY IF this booking
+      // is still up for grabs AND the accepting driver has no other active
+      // assigned booking. Both conditions live in the same guarded UPDATE so a
+      // second concurrent accept (the driver double-tapping, or a normal accept
+      // racing an SOS accept) can never slip an overlapping ride through a
+      // check-then-act gap. Covers BOTH normal and SOS accepts (same endpoint).
       const [updated] = await db
         .update(bookings)
         .set({ driverId: sub, status: "ACCEPTED", acceptedAt: new Date() })
-        .where(eq(bookings.id, id))
+        .where(
+          and(
+            eq(bookings.id, id),
+            eq(bookings.status, "REQUESTED"),
+            isNull(bookings.driverId),
+            drizzleSql`NOT EXISTS (
+              SELECT 1 FROM ${bookings} AS active_b
+              WHERE active_b.driver_id = ${sub}
+                AND active_b.status IN ('ACCEPTED','ARRIVED','PICKED_UP')
+            )`
+          )
+        )
         .returning();
+      if (!updated) {
+        // The guarded UPDATE matched no row. Figure out which condition failed
+        // so the driver app shows the right message. If the driver already
+        // holds an active assigned booking, this is an overlap attempt; else
+        // the booking was taken / left REQUESTED in the meantime.
+        const [activeRow] = await db
+          .select({ c: count() })
+          .from(bookings)
+          .where(
+            and(
+              eq(bookings.driverId, sub),
+              drizzleSql`${bookings.status} IN ('ACCEPTED','ARRIVED','PICKED_UP')`
+            )
+          );
+        if (Number(activeRow?.c ?? 0) > 0) {
+          return reply.code(409).send({ error: "driver_on_active_ride" });
+        }
+        return reply.code(409).send({ error: "already_taken" });
+      }
       await db
         .update(drivers)
         .set({ status: "ON_TRIP", updatedAt: new Date() })
@@ -686,6 +726,9 @@ export async function registerBookingRoutes(app: FastifyInstance) {
           }
         })();
       }
+      // v1.3.1: the ride is over, so auto-resolve any still-ACTIVE safety alert
+      // for it. Fire-and-forget so it never blocks the complete response.
+      void autoResolveSafetyForBooking(id);
       return reply.send({ booking: { ...b, fareFinalInr: finalFare, discountInr, payableInr } });
     }
   );
@@ -1067,6 +1110,9 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       // (e.g. a lingering "Ambulance assigned" push) so it can't be tapped into
       // a cancelled ride. Best-effort, no-op when FCM is unset.
       void dismissPushToUser(existing.userId, id);
+      // v1.3.1: the ride is cancelled, so auto-resolve any still-ACTIVE safety
+      // alert for it. Fire-and-forget so it never blocks the cancel response.
+      void autoResolveSafetyForBooking(id);
       await emitBookingEvent(id, "booking.cancelled", `${role}:${sub}`);
       await emitToHospital(b);
       return reply.send({ booking: b });

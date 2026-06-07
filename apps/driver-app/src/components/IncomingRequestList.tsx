@@ -11,8 +11,18 @@ type Props = {
   requests: Record<string, IncomingRequest>;
   /** Driver's last GPS fix — used to show "X.X km away" per request. */
   myPos: LatLng | null;
-  onAccept: (req: IncomingRequest) => void | Promise<void>;
-  onReject: (req: IncomingRequest) => void | Promise<void>;
+  onAccept?: (req: IncomingRequest) => void | Promise<void>;
+  onReject?: (req: IncomingRequest) => void | Promise<void>;
+  /**
+   * v1.3.0 (D2): read-only "deferred" mode for the TripScreen waiting-requests
+   * peek. When true, every row reuses the exact same rendering (SOS-first sort,
+   * danger border, distance chip, age, badges) but the Accept / Reject controls
+   * are replaced by a single disabled, muted label: rides are visible so the
+   * driver knows work is queued, but accept is deferred until the current ride
+   * completes. onAccept / onReject are not called in this mode. The same rows
+   * become actionable again on the dashboard once the trip clears.
+   */
+  deferred?: boolean;
 };
 
 /**
@@ -52,7 +62,7 @@ function distanceKm(from: LatLng | null, lat: number, lng: number): number | nul
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-export function IncomingRequestList({ requests, myPos, onAccept, onReject }: Props) {
+export function IncomingRequestList({ requests, myPos, onAccept, onReject, deferred = false }: Props) {
   const { t } = useT();
   const sorted = Object.values(requests).sort(
     (a, b) =>
@@ -71,7 +81,7 @@ export function IncomingRequestList({ requests, myPos, onAccept, onReject }: Pro
   return (
     <View style={{ gap: space.sm }}>
       {sorted.map((r) => (
-        <IncomingRow key={r.id} req={r} myPos={myPos} onAccept={onAccept} onReject={onReject} t={t} />
+        <IncomingRow key={r.id} req={r} myPos={myPos} onAccept={onAccept} onReject={onReject} deferred={deferred} t={t} />
       ))}
     </View>
   );
@@ -82,12 +92,14 @@ function IncomingRow({
   myPos,
   onAccept,
   onReject,
+  deferred,
   t
 }: {
   req: IncomingRequest;
   myPos: LatLng | null;
-  onAccept: (req: IncomingRequest) => void | Promise<void>;
-  onReject: (req: IncomingRequest) => void | Promise<void>;
+  onAccept?: (req: IncomingRequest) => void | Promise<void>;
+  onReject?: (req: IncomingRequest) => void | Promise<void>;
+  deferred: boolean;
   t: (key: string) => string;
 }) {
   const [busy, setBusy] = useState(false);
@@ -104,6 +116,7 @@ function IncomingRow({
   // SOS reject is destructive (the patient is mid-emergency) and the button
   // sits next to Accept — confirm first so a stray tap can't drop a live SOS.
   const doReject = () => {
+    if (!onReject) return;
     if (req.is_sos) {
       Alert.alert(t("incoming.reject_sos_title"), t("incoming.reject_sos_body"), [
         { text: t("incoming.keep"), style: "cancel" },
@@ -146,27 +159,46 @@ function IncomingRow({
           {req.pickup_address ?? `${req.pickup_lat.toFixed(4)}, ${req.pickup_lng.toFixed(4)}`}
         </Text>
 
-        <View style={{ flexDirection: "row", gap: space.sm, marginTop: space.xs }}>
-          <View style={{ flex: 1 }}>
+        {deferred ? (
+          // v1.3.0 (D2): read-only deferred mode. The row is non-actionable —
+          // no Accept, no Reject — so a driver mid-ride can SEE that work is
+          // waiting without being able to take it until the current ride ends.
+          // A disabled, muted Button keeps the same footprint as the live
+          // action row so the list reads consistently between the peek and the
+          // dashboard.
+          <View style={{ marginTop: space.xs }}>
             <Button
-              label={t("incoming.reject")}
-              onPress={doReject}
+              label="Finish your current ride to accept"
+              onPress={() => {}}
               variant="outline"
               fullWidth
-              disabled={busy}
+              disabled
+              testID={`incoming-deferred-${req.id}`}
             />
           </View>
-          <View style={{ flex: 2 }}>
-            <Button
-              label={t("incoming.accept")}
-              onPress={() => run(() => onAccept(req))}
-              loading={busy}
-              fullWidth
-              size="lg"
-              testID={`incoming-accept-${req.id}`}
-            />
+        ) : (
+          <View style={{ flexDirection: "row", gap: space.sm, marginTop: space.xs }}>
+            <View style={{ flex: 1 }}>
+              <Button
+                label={t("incoming.reject")}
+                onPress={doReject}
+                variant="outline"
+                fullWidth
+                disabled={busy}
+              />
+            </View>
+            <View style={{ flex: 2 }}>
+              <Button
+                label={t("incoming.accept")}
+                onPress={() => onAccept && run(() => onAccept(req))}
+                loading={busy}
+                fullWidth
+                size="lg"
+                testID={`incoming-accept-${req.id}`}
+              />
+            </View>
           </View>
-        </View>
+        )}
       </View>
     </Card>
   );

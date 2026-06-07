@@ -24,7 +24,7 @@
  * still REQUESTED and within the cascade window (~10 min).
  */
 import type { FastifyInstance } from "fastify";
-import { and, eq, gte, isNotNull } from "drizzle-orm";
+import { and, eq, gte, isNotNull, sql as drizzleSql } from "drizzle-orm";
 import { config } from "@jr/config";
 import {
   bookings,
@@ -90,7 +90,17 @@ async function getEligibleDrivers(pickupLat: number, pickupLng: number): Promise
       and(
         eq(drivers.status, "AVAILABLE"),
         eq(drivers.disabled, false),
-        eq(drivers.kycVerified, true)
+        eq(drivers.kycVerified, true),
+        // Defense in depth (overlap guard): never even target a driver who
+        // currently holds an active assigned booking. A driver mid-ride should
+        // be ON_TRIP (so the AVAILABLE filter usually covers this), but if a
+        // status ever lags this NOT EXISTS keeps the cascade from pushing an
+        // SOS to a busy driver. All other eligibility logic is unchanged.
+        drizzleSql`NOT EXISTS (
+          SELECT 1 FROM ${bookings} AS active_b
+          WHERE active_b.driver_id = ${drivers.id}
+            AND active_b.status IN ('ACCEPTED','ARRIVED','PICKED_UP')
+        )`
       )
     );
   const withDistance = candidates

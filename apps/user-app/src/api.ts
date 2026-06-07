@@ -323,6 +323,19 @@ export const tickets = {
     })
 };
 
+// v1.3.0 (safety): in-ride panic / duress alert. raise() fans out to nearby
+// available drivers + admin with the raiser's live location; cancel() stands
+// the alert down. The api() wrapper auto-attaches the bearer token.
+export const safety = {
+  raise: (bookingId: string, lat: number, lng: number) =>
+    api<{ alert: { id: string }; notified: number }>("/api/v1/safety/raise", {
+      method: "POST",
+      body: { bookingId, lat, lng }
+    }),
+  cancel: (alertId: string) =>
+    api<{ ok: true }>(`/api/v1/safety/${alertId}/cancel`, { method: "POST", body: {} })
+};
+
 export const driver = {
   setAvailability: (status: "OFFLINE" | "AVAILABLE" | "ON_TRIP", lat?: number, lng?: number) =>
     api<{ driver: any }>("/api/v1/driver/availability", {

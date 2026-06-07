@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, Linking, Pressable, StyleSheet, View } from "react-native";
+import { Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import * as Location from "expo-location";
 import {
   AppHeader,
   Button,
   Card,
   ContactSupport,
+  EmergencyBar,
   Input,
   MapEmbed,
   OtpInput,
@@ -21,12 +22,13 @@ import {
   space,
   fetchOsrmRoute
 } from "@jr/ui";
-import { Booking, bookings as bookingsApi, driver as driverApi } from "../api";
+import { Booking, bookings as bookingsApi, driver as driverApi, safety as safetyApi } from "../api";
 import { getSocket } from "../socket";
 import { prettyEmergency } from "./DashboardScreen";
 import { MapLocationPicker } from "./MapLocationPicker";
 import { LangToggle } from "../components/LangToggle";
 import { CancelRideSheet } from "../components/CancelRideSheet";
+import { WaitingRequestsPeek } from "../components/WaitingRequestsPeek";
 import { useT } from "../i18n";
 
 type UserProfile = {
@@ -100,6 +102,17 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
   const [navEta, setNavEta] = useState<{ km: number; min: number } | null>(null);
   const autoNavFiredRef = useRef(false);
   const ticker = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // v1.3.0 (safety): in-ride panic alert raised by THIS driver. `safetyActive`
+  // flips the EmergencyBar into its "alert raised" state; `safetyAlertIdRef`
+  // holds the id returned by the raise so we can stand it down. `safetyBusy`
+  // guards the raise/cancel request. `helpVisible` toggles the Help & Support
+  // sheet. A `safety:cleared` socket event resets the bar if an admin resolves
+  // the alert this device raised.
+  const [safetyActive, setSafetyActive] = useState(false);
+  const [safetyBusy, setSafetyBusy] = useState(false);
+  const [helpVisible, setHelpVisible] = useState(false);
+  const safetyAlertIdRef = useRef<string | null>(null);
 
   // Push real GPS location every 5s to socket + every 15s to API for persistence.
   useEffect(() => {
@@ -193,8 +206,21 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
           if (!mounted) return;
           if (!p?.bookingId || p.bookingId === booking.id) setHospitalPreparing(true);
         };
+        // v1.3.0 (safety): admin resolved (or we stood down) the safety alert
+        // this device raised — reset the EmergencyBar back to idle when the
+        // cleared id matches our own alert.
+        const onSafetyCleared = (p: { alertId?: string }) => {
+          if (!mounted) return;
+          if (!p?.alertId || p.alertId !== safetyAlertIdRef.current) return;
+          safetyAlertIdRef.current = null;
+          setSafetyActive(false);
+        };
         sock.on("hospital:preparing", onPreparing);
-        cleanup = () => sock.off("hospital:preparing", onPreparing);
+        sock.on("safety:cleared", onSafetyCleared);
+        cleanup = () => {
+          sock.off("hospital:preparing", onPreparing);
+          sock.off("safety:cleared", onSafetyCleared);
+        };
       } catch {
         /* socket bootstrap failed — banner simply won't show; non-critical */
       }
@@ -254,6 +280,73 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
       ]);
     } else {
       void run();
+    }
+  };
+
+  // v1.3.0 (safety): capture the best location available for a safety raise.
+  // Prefer myPos (the 5s GPS ticker already running on this screen), then a
+  // fresh fix, then last-known. Final fallback is the booking pickup so the
+  // alert always carries a usable location even with GPS cold.
+  const safetyLocation = async (): Promise<{ lat: number; lng: number }> => {
+    if (myPos) return myPos;
+    try {
+      await Location.requestForegroundPermissionsAsync();
+    } catch {
+      /* ignored — fall through to fixes / fallback */
+    }
+    try {
+      const fix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      return { lat: fix.coords.latitude, lng: fix.coords.longitude };
+    } catch {
+      /* try last-known */
+    }
+    try {
+      const last = await Location.getLastKnownPositionAsync();
+      if (last) return { lat: last.coords.latitude, lng: last.coords.longitude };
+    } catch {
+      /* fall through to booking pickup */
+    }
+    return { lat: booking.pickupLat, lng: booking.pickupLng };
+  };
+
+  const raiseSafety = async () => {
+    if (safetyBusy) return;
+    setSafetyBusy(true);
+    try {
+      const pos = await safetyLocation();
+      const r = await safetyApi.raise(booking.id, pos.lat, pos.lng);
+      safetyAlertIdRef.current = r.alert.id;
+      setSafetyActive(true);
+    } catch (e: any) {
+      Alert.alert("Could not send alert", e?.message ?? "Please try again.");
+    } finally {
+      setSafetyBusy(false);
+    }
+  };
+
+  const onEmergency = () => {
+    Alert.alert(
+      "Send a safety alert now?",
+      "Your location will be shared with nearby drivers and our team so help can reach you.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Send alert", style: "destructive", onPress: () => void raiseSafety() }
+      ]
+    );
+  };
+
+  const onStandDown = async () => {
+    const alertId = safetyAlertIdRef.current;
+    if (!alertId || safetyBusy) return;
+    setSafetyBusy(true);
+    try {
+      await safetyApi.cancel(alertId);
+      safetyAlertIdRef.current = null;
+      setSafetyActive(false);
+    } catch (e: any) {
+      Alert.alert("Could not stand down", e?.message ?? "Please try again.");
+    } finally {
+      setSafetyBusy(false);
     }
   };
 
@@ -616,6 +709,17 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
       ) : (
         <Button label="Back to dashboard" onPress={onClose} fullWidth />
       )}
+
+      {/* v1.3.0 (D2): passive "waiting requests" peek (Ola / Uber style). While
+        * the driver is on an active ride they STILL SEE that rides are queued,
+        * but Accept is DEFERRED until this ride completes (read-only deferred
+        * list). Compact and subordinate to the trip actions above, never a
+        * full-screen flash. Polls /driver/incoming plus /driver/sos-pending on a
+        * light 8s interval with keep-last-good, cleaning up on unmount. Shown
+        * only while the ride is live; on completion the driver returns to the
+        * dashboard where the normal list re-enables Accept. */}
+      {!finished ? <WaitingRequestsPeek myPos={myPos} /> : null}
+
       {/* v1.2.0 (CR#2): cancellation sheet. onCancelled fires after the server
         * confirms; the driver is now AVAILABLE so we route back to Dashboard. */}
       {cancelOpen ? (
@@ -629,6 +733,11 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
           onClose={() => setCancelOpen(false)}
         />
       ) : null}
+      {/* v1.3.0 (safety): bottom spacer so the pinned EmergencyBar never hides
+        * the last action / cancel button when scrolled to the end. Only while
+        * the bar is showing (active ride). */}
+      {!finished ? <View style={{ height: 96 }} /> : null}
+
       {/* v1.0.15: full-screen map picker for SOS drop hospital. Mounted at
         * Screen root so it overlays everything when opened. Cancel = stays
         * gated on the drop card; confirm = POST /set-drop + refresh booking. */}
@@ -653,6 +762,46 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
           }
         }}
       />
+
+      {/* v1.3.0 (safety): in-ride panic alert bar, pinned to the bottom of the
+        * live ride screen while the ride is active (!finished). Rendered in a
+        * transparent, touch-through Modal layer so it stays viewport-pinned
+        * over the scroll. onEmergency confirms then raises with our live GPS;
+        * onStandDown cancels; onHelp opens the Help & Support sheet. */}
+      {!finished ? (
+        <Modal visible transparent animationType="none" onRequestClose={() => {}}>
+          <View style={safetyStyles.barLayer} pointerEvents="box-none">
+            <EmergencyBar
+              active={safetyActive}
+              busy={safetyBusy}
+              onEmergency={onEmergency}
+              onHelp={() => setHelpVisible(true)}
+              onStandDown={() => void onStandDown()}
+            />
+          </View>
+        </Modal>
+      ) : null}
+
+      {/* v1.3.0 (safety): Help & Support sheet. Reuses the shared ContactSupport
+        * (driver variant) so the in-ride help options (call ops / email) sit one
+        * tap behind the bar without changing the always-on help card above. */}
+      <Modal visible={helpVisible} transparent animationType="slide" onRequestClose={() => setHelpVisible(false)}>
+        <Pressable style={safetyStyles.helpBackdrop} onPress={() => setHelpVisible(false)}>
+          <Pressable style={safetyStyles.helpSheet} onPress={() => {}}>
+            <View style={{ gap: space.md }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <Text variant="label" tone="secondary">HELP &amp; SUPPORT</Text>
+                <Pressable onPress={() => setHelpVisible(false)} hitSlop={8}>
+                  <Text variant="small" tone="primary" weight="semi">Close</Text>
+                </Pressable>
+              </View>
+              <ScrollView keyboardShouldPersistTaps="handled">
+                <ContactSupport bookingId={booking.id} variant="driver" />
+              </ScrollView>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </Screen>
   );
 }
@@ -932,6 +1081,28 @@ const paramedicStyles = StyleSheet.create({
     borderColor: colors.border
   },
   riskOn: { backgroundColor: colors.danger, borderColor: colors.danger }
+});
+
+const safetyStyles = StyleSheet.create({
+  // Touch-through layer that pins the EmergencyBar to the viewport bottom over
+  // the scrolling trip content. box-none lets taps pass through everywhere
+  // except the bar itself (which captures its own button presses).
+  barLayer: {
+    flex: 1,
+    justifyContent: "flex-end"
+  },
+  helpBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "flex-end"
+  },
+  helpSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    padding: space.lg,
+    maxHeight: "80%"
+  }
 });
 
 const patientCardStyles = StyleSheet.create({

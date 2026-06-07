@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, Linking, Pressable, StyleSheet, View } from "react-native";
+import { Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import * as Location from "expo-location";
 import {
   AppHeader,
   Button,
   Card,
   ContactSupport,
+  EmergencyBar,
   Input,
   MapEmbed,
   OtpToast,
@@ -19,7 +21,7 @@ import {
   space,
   fetchOsrmRoute
 } from "@jr/ui";
-import { Booking, bookings as bookingsApi } from "../api";
+import { Booking, bookings as bookingsApi, safety as safetyApi } from "../api";
 import { getSocket } from "../socket";
 import { prettyEmergency } from "./HomeScreen";
 
@@ -88,6 +90,16 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastStatusRef = useRef<string>(initial.status);
+
+  // v1.3.0 (safety): in-ride panic alert. `safetyActive` flips the EmergencyBar
+  // into its "alert raised" state; `safetyAlertId` holds the id returned by the
+  // raise so we can stand it down. `safetyBusy` guards the raise/cancel request.
+  // `helpVisible` toggles the Help & Support sheet. The booking socket also
+  // listens for safety:cleared so an admin resolve resets the bar here.
+  const [safetyActive, setSafetyActive] = useState(false);
+  const [safetyBusy, setSafetyBusy] = useState(false);
+  const [helpVisible, setHelpVisible] = useState(false);
+  const safetyAlertIdRef = useRef<string | null>(null);
 
   // 1-second tick so the elapsed/ETA timer counts down/up live.
   useEffect(() => {
@@ -221,6 +233,16 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
         setToast(p?.message ?? "Reassigning to another ambulance…");
         void refreshFromApi();
       });
+      // v1.3.0 (safety): admin resolved (or someone stood down) our safety
+      // alert. Reset the EmergencyBar back to idle if the cleared id matches
+      // the alert this device raised.
+      sock.on("safety:cleared", (p: any) => {
+        if (!p?.alertId || p.alertId !== safetyAlertIdRef.current) return;
+        safetyAlertIdRef.current = null;
+        if (!mounted) return;
+        setSafetyActive(false);
+        setToast("Safety alert closed. Help has been notified.");
+      });
 
       void refreshFromApi();
       pollRef.current = setInterval(refreshFromApi, 5000);
@@ -266,6 +288,72 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
         }
       ]
     );
+  };
+
+  // v1.3.0 (safety): raise a panic alert with the rider's live location. We
+  // try a fresh GPS fix first, fall back to the last-known position, and as a
+  // final fallback use the booking pickup coordinates so the alert still goes
+  // out (just less precise) even if location is denied or unavailable.
+  const raiseSafety = async () => {
+    if (safetyBusy || safetyActive) return;
+    setSafetyBusy(true);
+    let lat = booking.pickupLat;
+    let lng = booking.pickupLng;
+    try {
+      const perm = await Location.requestForegroundPermissionsAsync();
+      if (perm.status === "granted") {
+        try {
+          const fix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+          lat = fix.coords.latitude;
+          lng = fix.coords.longitude;
+        } catch {
+          const last = await Location.getLastKnownPositionAsync();
+          if (last) {
+            lat = last.coords.latitude;
+            lng = last.coords.longitude;
+          }
+        }
+      }
+    } catch {
+      /* fall back to booking pickup coordinates */
+    }
+    try {
+      const r = await safetyApi.raise(booking.id, lat, lng);
+      safetyAlertIdRef.current = r.alert.id;
+      setSafetyActive(true);
+      setToast("Safety alert sent. Help is being notified.");
+    } catch (e: any) {
+      Alert.alert("Could not send safety alert", e?.message ?? "Please try again, or call support.");
+    } finally {
+      setSafetyBusy(false);
+    }
+  };
+
+  const onEmergency = () => {
+    Alert.alert(
+      "Send a safety alert now?",
+      "Your location will be shared with nearby drivers and our team so help can reach you.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Send alert", style: "destructive", onPress: () => void raiseSafety() }
+      ]
+    );
+  };
+
+  const onStandDown = async () => {
+    const alertId = safetyAlertIdRef.current;
+    if (!alertId || safetyBusy) return;
+    setSafetyBusy(true);
+    try {
+      await safetyApi.cancel(alertId);
+      safetyAlertIdRef.current = null;
+      setSafetyActive(false);
+      setToast("Safety alert stood down.");
+    } catch (e: any) {
+      Alert.alert("Could not stand down", e?.message ?? "Please try again.");
+    } finally {
+      setSafetyBusy(false);
+    }
   };
 
   const finished = ["COMPLETED", "CANCELLED", "TIMED_OUT"].includes(booking.status);
@@ -573,7 +661,61 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
       ) : (
         <Button label="Done" onPress={onClose} fullWidth />
       )}
+
+      {/* v1.3.0 (safety): bottom spacer so the pinned EmergencyBar never hides
+        * the last in-flow action (Cancel / Done) when scrolled to the end.
+        * Only while the bar is showing (active ride). */}
+      {!finished ? <View style={{ height: 96 }} /> : null}
+
+      {/* v1.3.0 (safety): in-ride Emergency bar, truly pinned to the viewport
+        * bottom of the live ride screen while the ride is active (!finished).
+        * Rendered in a transparent, touch-through Modal layer (flex-end +
+        * box-none) so taps pass through to the map/content above but the bar
+        * sits anchored at the real viewport bottom over the Screen ScrollView.
+        * onEmergency confirms then raises with our live GPS; onStandDown
+        * cancels; onHelp opens the Help & Support sheet. The existing NEED HELP
+        * card above stays untouched. */}
+      {!finished ? (
+        <Modal visible transparent animationType="none" onRequestClose={() => {}}>
+          <View style={styles.emergencyBarLayer} pointerEvents="box-none">
+            <EmergencyBar
+              active={safetyActive}
+              busy={safetyBusy}
+              onEmergency={onEmergency}
+              onHelp={() => setHelpVisible(true)}
+              onStandDown={() => void onStandDown()}
+            />
+          </View>
+        </Modal>
+      ) : null}
+
       <OtpToast message={toast} onHide={() => setToast(null)} />
+
+      {/* Help & Support sheet — opened from the Emergency bar. Reuses the
+        * existing ContactSupport (user variant) so call/email options are one
+        * tap away during the ride. */}
+      <Modal
+        visible={helpVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setHelpVisible(false)}
+      >
+        <View style={styles.sheetBackdrop}>
+          <Pressable style={styles.sheetBackdropFill} onPress={() => setHelpVisible(false)} />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text variant="heading" weight="bold">Help and support</Text>
+              <Pressable onPress={() => setHelpVisible(false)} accessibilityLabel="Close help">
+                <Text variant="heading" tone="secondary">✕</Text>
+              </Pressable>
+            </View>
+            <ScrollView contentContainerStyle={{ gap: space.md, paddingBottom: space.lg }}>
+              <ContactSupport variant="user" bookingId={booking.id} />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -730,6 +872,42 @@ const patientStyles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.surface,
     alignItems: "center"
+  }
+});
+
+// v1.3.0 (safety): layout for the bottom-pinned Emergency bar and the
+// Help & Support sheet opened from it.
+const styles = StyleSheet.create({
+  // Touch-through layer that pins the EmergencyBar to the viewport bottom over
+  // the scrolling live-tracking content. box-none lets taps pass through
+  // everywhere except the bar itself (which captures its own button presses).
+  emergencyBarLayer: {
+    flex: 1,
+    justifyContent: "flex-end"
+  },
+  sheetBackdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.35)"
+  },
+  sheetBackdropFill: {
+    ...StyleSheet.absoluteFillObject
+  },
+  sheet: {
+    backgroundColor: colors.bg,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    padding: space.lg,
+    gap: space.md,
+    maxHeight: "80%"
+  },
+  sheetHandle: {
+    alignSelf: "center",
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.border,
+    marginBottom: space.xs
   }
 });
 

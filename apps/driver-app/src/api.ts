@@ -308,6 +308,38 @@ export const tickets = {
     })
 };
 
+// v1.3.0 (safety): in-ride panic / duress alert. raise() fans out to nearby
+// available drivers + admin with the raiser's live location; ack() is the
+// responder tapping "I am responding"; cancel() stands the raiser's own alert
+// down; active() is the poll fallback for safety alerts pushed to this driver
+// (socket can miss, same lesson as sosPending). The api() wrapper auto-attaches
+// the bearer token.
+export type SafetyActiveAlert = {
+  id: string;
+  bookingId: string;
+  displayId: string | null;
+  lat: number;
+  lng: number;
+  createdAt: string;
+  acked: boolean;
+};
+
+export const safety = {
+  raise: (bookingId: string, lat: number, lng: number) =>
+    api<{ alert: { id: string }; notified: number }>("/api/v1/safety/raise", {
+      method: "POST",
+      body: { bookingId, lat, lng }
+    }),
+  ack: (alertId: string, lat?: number, lng?: number) =>
+    api<{ ok: true }>(`/api/v1/safety/${alertId}/ack`, {
+      method: "POST",
+      body: { lat, lng }
+    }),
+  cancel: (alertId: string) =>
+    api<{ ok: true }>(`/api/v1/safety/${alertId}/cancel`, { method: "POST", body: {} }),
+  active: () => api<{ alerts: SafetyActiveAlert[] }>("/api/v1/driver/safety-active")
+};
+
 export const bookings = {
   pending: () => api<{ bookings: Booking[] }>("/api/v1/bookings/pending"),
   // v1.1.0 (CR#4): polling fallback for SOS dispatch — surfaces SOS requests

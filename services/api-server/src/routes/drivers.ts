@@ -14,6 +14,10 @@ import {
 import { config } from "@jr/config";
 import { dismissPushToDriver, pushToUser } from "../push";
 import { redispatchBooking } from "../redispatch";
+// v1.3.1: a driver CLOSE-cancel makes the booking terminal (CANCELLED), so any
+// still-ACTIVE in-ride safety alert for it must be auto-resolved (clears
+// responder cards + stands the raiser's bar down).
+import { autoResolveSafetyForBooking } from "./safety";
 
 const availabilitySchema = z.object({
   status: z.enum(["OFFLINE", "AVAILABLE", "ON_TRIP"]),
@@ -282,6 +286,11 @@ export async function registerDriverRoutes(app: FastifyInstance) {
           .update(drivers)
           .set({ status: "AVAILABLE", updatedAt: new Date() })
           .where(eq(drivers.id, sub));
+        // v1.3.1: booking is now terminal (CANCELLED) — auto-resolve any
+        // still-ACTIVE safety alert for it. Fire-and-forget; never blocks the
+        // cancel response. (The RE_DISPATCHED branch is NOT terminal — the
+        // booking goes back to dispatch — so it intentionally skips this.)
+        void autoResolveSafetyForBooking(bookingId);
         const msg =
           reasonCode === "PATIENT_NOT_AVAILABLE"
             ? "The ambulance driver was unable to locate you at the pickup location. Please create a new request if assistance is still required."

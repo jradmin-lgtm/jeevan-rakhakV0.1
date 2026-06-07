@@ -112,6 +112,13 @@ function setupDismissHandlers(): void {
   if (!_receivedSub) {
     _receivedSub = Notifications.addNotificationReceivedListener((notification) => {
       const data = (notification.request?.content?.data ?? null) as Record<string, unknown> | null;
+      // v1.3.0 (safety): a safety alert is a real, visible message — let it
+      // surface via the notification handler (which shows the banner). It must
+      // NEVER be routed into the silent dismiss path. The in-app card is driven
+      // by the socket `safety:alert` event + the /driver/safety-active poll on
+      // the Dashboard; here we only make sure the foreground listener does not
+      // swallow it as a dismiss.
+      if (data && String(data.type) === "safety") return;
       const bookingId = dismissBookingIdFrom(data);
       if (bookingId) void dismissForBooking(bookingId);
     });

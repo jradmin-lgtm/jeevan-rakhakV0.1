@@ -11,6 +11,7 @@ import { registerBookingRoutes } from "./routes/bookings";
 import { registerDriverRoutes } from "./routes/drivers";
 import { registerAdminRoutes } from "./routes/admin";
 import { registerHospitalRoutes } from "./routes/hospital";
+import { registerSafetyRoutes } from "./routes/safety";
 import { emitEvent } from "./events";
 
 declare module "@fastify/jwt" {
@@ -124,6 +125,7 @@ async function bootstrap() {
   await registerDriverRoutes(app);
   await registerAdminRoutes(app);
   await registerHospitalRoutes(app);
+  await registerSafetyRoutes(app);
 
   // Idempotent auto-migration so observability + per-ride OTP work on a
   // fresh Neon DB without an out-of-band step. Uses the raw postgres
@@ -406,7 +408,63 @@ async function bootstrap() {
       )
     `;
     await pgClient`CREATE INDEX IF NOT EXISTS support_ticket_messages_ticket_idx ON support_ticket_messages(ticket_id, created_at)`;
-    app.log.info("[migrate] schema v1.2.4 ready (booking_cancellations + cancel_wait + hospital portal creds + hospital_ack + portal_password_plain + support_tickets + ticket category + helpdesk source/priority/severity/resolved_by/raisers + support_ticket_messages)");
+    // ---- v1.3.0 ----
+    // In-Ride Safety Alert (panic). safety_alerts is the alert entity:
+    // raiser (USER or DRIVER) + live lat/lng + a snapshot of the booking's
+    // locked display_id, with a one-shot geo fan-out recorded in
+    // notified_driver_ids (so those responders' cards can be cleared on
+    // resolve/cancel). All FKs ON DELETE SET NULL so an alert survives deletion
+    // of its booking/raiser row. status is 'ACTIVE' | 'RESOLVED' | 'CANCELLED'.
+    await pgClient`
+      CREATE TABLE IF NOT EXISTS safety_alerts (
+        id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        booking_id         uuid REFERENCES bookings(id) ON DELETE SET NULL,
+        display_id         text,
+        raiser_role        text NOT NULL,
+        raiser_user_id     uuid REFERENCES users(id)   ON DELETE SET NULL,
+        raiser_driver_id   uuid REFERENCES drivers(id) ON DELETE SET NULL,
+        lat                double precision NOT NULL,
+        lng                double precision NOT NULL,
+        note               text,
+        notified_driver_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+        status             text NOT NULL DEFAULT 'ACTIVE',
+        resolved_by        text,
+        resolved_at        timestamptz,
+        cancelled_at       timestamptz,
+        created_at         timestamptz NOT NULL DEFAULT now(),
+        updated_at         timestamptz NOT NULL DEFAULT now()
+      )
+    `;
+    await pgClient`CREATE INDEX IF NOT EXISTS safety_alerts_status_idx  ON safety_alerts(status)`;
+    await pgClient`CREATE INDEX IF NOT EXISTS safety_alerts_booking_idx ON safety_alerts(booking_id)`;
+    await pgClient`CREATE INDEX IF NOT EXISTS safety_alerts_created_idx ON safety_alerts(created_at)`;
+    // v1.3.1: at most ONE ACTIVE alert per (booking, raiser). The /safety/raise
+    // handler relies on this partial-unique constraint to make the raise
+    // idempotent under a double-tap race: it INSERTs with ON CONFLICT DO NOTHING
+    // against this exact predicate, so a concurrent second raise can never
+    // create a second ACTIVE row (and so never double fan-out). COALESCE folds
+    // the role-specific raiser id into one expression (exactly one is ever set).
+    await pgClient`
+      CREATE UNIQUE INDEX IF NOT EXISTS safety_alerts_one_active_per_raiser
+        ON safety_alerts (booking_id, COALESCE(raiser_user_id, raiser_driver_id))
+        WHERE status = 'ACTIVE'
+    `;
+    // safety_alert_acks is the "I am responding" log — one row per (alert,
+    // driver) via the UNIQUE index; the ack endpoint upserts (idempotent). FKs
+    // ON DELETE CASCADE so acks are removed with their alert or driver row.
+    await pgClient`
+      CREATE TABLE IF NOT EXISTS safety_alert_acks (
+        id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        alert_id     uuid NOT NULL REFERENCES safety_alerts(id) ON DELETE CASCADE,
+        driver_id    uuid NOT NULL REFERENCES drivers(id)       ON DELETE CASCADE,
+        lat          double precision,
+        lng          double precision,
+        responded_at timestamptz NOT NULL DEFAULT now()
+      )
+    `;
+    await pgClient`CREATE INDEX IF NOT EXISTS safety_alert_acks_alert_idx ON safety_alert_acks(alert_id)`;
+    await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS safety_alert_acks_alert_driver_unique_idx ON safety_alert_acks(alert_id, driver_id)`;
+    app.log.info("[migrate] schema v1.3.0 ready (booking_cancellations + cancel_wait + hospital portal creds + hospital_ack + portal_password_plain + support_tickets + ticket category + helpdesk source/priority/severity/resolved_by/raisers + support_ticket_messages + safety_alerts + safety_alert_acks)");
   } catch (err) {
     // Thumb rule: migrations FATAL-EXIT on failure. Silent catch+warn here
     // previously let the service start with a broken schema (system_events

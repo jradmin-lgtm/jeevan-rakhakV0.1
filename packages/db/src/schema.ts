@@ -8,7 +8,8 @@ import {
   boolean,
   pgEnum,
   jsonb,
-  index
+  index,
+  uniqueIndex
 } from "drizzle-orm/pg-core";
 
 export const emergencyTypeEnum = pgEnum("emergency_type", [
@@ -469,6 +470,80 @@ export const supportTicketMessages = pgTable(
   })
 );
 export type SupportTicketMessage = typeof supportTicketMessages.$inferSelect;
+
+/**
+ * v1.3.0 (safety alert) — in-ride panic / duress alerts. Distinct from the
+ * patient SOS booking (bookings.isSos + cascade dispatch) and the helpdesk
+ * (support_tickets): a time-critical, location-bearing "all hands near here"
+ * event raised during an active ride. On raise it pings admin (high priority)
+ * plus nearby available drivers with the raiser's live location, in one shot
+ * (no cascade waves). `displayId` snapshots the booking's locked #1000xx so
+ * the human-facing id stays stable even if the booking row later moves. All
+ * FKs are ON DELETE SET NULL so an alert survives deletion of its booking or
+ * raiser row. `notifiedDriverIds` records the responder ids pinged on raise so
+ * their cards can be cleared on resolve/cancel. `status` is
+ * 'ACTIVE' | 'RESOLVED' | 'CANCELLED'.
+ */
+export const safetyAlerts = pgTable(
+  "safety_alerts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    bookingId: uuid("booking_id").references(() => bookings.id, { onDelete: "set null" }),
+    displayId: text("display_id"),
+    raiserRole: text("raiser_role").notNull(), // 'USER' | 'DRIVER'
+    raiserUserId: uuid("raiser_user_id").references(() => users.id, { onDelete: "set null" }),
+    raiserDriverId: uuid("raiser_driver_id").references(() => drivers.id, { onDelete: "set null" }),
+    lat: doublePrecision("lat").notNull(),
+    lng: doublePrecision("lng").notNull(),
+    note: text("note"),
+    notifiedDriverIds: jsonb("notified_driver_ids").default([]).notNull(),
+    status: text("status").default("ACTIVE").notNull(), // 'ACTIVE' | 'RESOLVED' | 'CANCELLED'
+    resolvedBy: text("resolved_by"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (t) => ({
+    statusIdx: index("safety_alerts_status_idx").on(t.status),
+    bookingIdx: index("safety_alerts_booking_idx").on(t.bookingId),
+    createdIdx: index("safety_alerts_created_idx").on(t.createdAt)
+  })
+);
+export type SafetyAlert = typeof safetyAlerts.$inferSelect;
+export type NewSafetyAlert = typeof safetyAlerts.$inferInsert;
+
+/**
+ * v1.3.0 (safety alert) — driver acknowledgements ("I am responding") on a
+ * safety alert. One row per (alert, driver) via the UNIQUE(alert_id,
+ * driver_id) index; the ack endpoint upserts (idempotent via
+ * onConflictDoUpdate). `lat`/`lng` are the responder's position at ack time
+ * (nullable). FKs are ON DELETE CASCADE so acks are removed with their alert
+ * or driver row.
+ */
+export const safetyAlertAcks = pgTable(
+  "safety_alert_acks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    alertId: uuid("alert_id")
+      .references(() => safetyAlerts.id, { onDelete: "cascade" })
+      .notNull(),
+    driverId: uuid("driver_id")
+      .references(() => drivers.id, { onDelete: "cascade" })
+      .notNull(),
+    lat: doublePrecision("lat"),
+    lng: doublePrecision("lng"),
+    respondedAt: timestamp("responded_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (t) => ({
+    alertIdx: index("safety_alert_acks_alert_idx").on(t.alertId),
+    alertDriverUniqueIdx: uniqueIndex("safety_alert_acks_alert_driver_unique_idx").on(
+      t.alertId,
+      t.driverId
+    )
+  })
+);
+export type SafetyAlertAck = typeof safetyAlertAcks.$inferSelect;
 
 /**
  * v1.1.0 (CR#3/#6) — destination hospitals. In the current phase there is one

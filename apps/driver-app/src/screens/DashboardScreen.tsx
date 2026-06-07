@@ -24,11 +24,14 @@ import {
   driver as driverApi,
   incoming as incomingApi,
   IncomingRequest,
-  me
+  me,
+  safety as safetyApi,
+  SafetyActiveAlert
 } from "../api";
 import { getSocket, disconnectSocket } from "../socket";
 import { useDriverHeartbeat } from "../hooks/useDriverHeartbeat";
 import { SosIncomingModal } from "../components/SosIncomingModal";
+import { SafetyAlertCard } from "../components/SafetyAlertCard";
 import { IncomingRequestList } from "../components/IncomingRequestList";
 import { LangToggle } from "../components/LangToggle";
 import { useT } from "../i18n";
@@ -87,6 +90,17 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
   // it client-side for the session (same semantics as the v1.1 "Ignore"). Both
   // the poll reconcile and the socket merge honour this set.
   const dismissed = useRef<Set<string>>(new Set());
+
+  // v1.3.0 (safety): responder-side safety alerts pushed to THIS driver, held
+  // as a keyed map keyed by alert id (mirrors the `requests` map pattern). The
+  // /driver/safety-active poll is the reconcile source of truth; the
+  // `safety:alert` socket event merges into the SAME map (instant) and never
+  // replaces it wholesale, so a socket-only and a poll-only alert can coexist.
+  // `safetyDismissed` is a session-local set of alert ids the driver dismissed
+  // (no ack); honoured by both the poll reconcile and the socket merge so a
+  // dismissed alert never re-pops.
+  const [safetyAlerts, setSafetyAlerts] = useState<Record<string, SafetyActiveAlert>>({});
+  const safetyDismissed = useRef<Set<string>>(new Set());
   const fade = useFadeIn();
 
   // Get driver location once on mount + every 20s so dashboard ETA stays fresh
@@ -127,7 +141,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [incRes, myRes] = await Promise.all([
+      const [incRes, myRes, safetyRes] = await Promise.all([
         incomingApi
           .list()
           .then((r) => ({ ok: true as const, requests: r.requests }))
@@ -135,7 +149,13 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
         bookingsApi
           .mine()
           .then((r) => ({ ok: true as const, bookings: r.bookings }))
-          .catch(() => ({ ok: false as const, bookings: [] as Booking[] }))
+          .catch(() => ({ ok: false as const, bookings: [] as Booking[] })),
+        // v1.3.0 (safety): poll fallback for safety alerts pushed to this
+        // driver (the socket can miss, same lesson as sosPending).
+        safetyApi
+          .active()
+          .then((r) => ({ ok: true as const, alerts: r.alerts }))
+          .catch(() => ({ ok: false as const, alerts: [] as SafetyActiveAlert[] }))
       ]);
       // Reconcile the keyed map against the authoritative server list — but
       // ONLY on a SUCCESSFUL poll. A transient failure (cold free-tier API,
@@ -161,6 +181,19 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
         );
         setActiveTrip(live ?? null);
         setTodayCompleted(myRes.bookings.filter((b) => b.status === "COMPLETED").length);
+      }
+      // v1.3.0 (safety): reconcile the safetyAlerts map ONLY on a SUCCESSFUL
+      // poll — same keep-last-good discipline as the requests map. A transient
+      // failure must not wipe a live safety card. Session-dismissed ids are
+      // suppressed; the server `acked` flag is preserved so a card the driver
+      // already responded to stays in its "Responding" state across polls.
+      if (safetyRes.ok) {
+        const next: Record<string, SafetyActiveAlert> = {};
+        for (const a of safetyRes.alerts) {
+          if (safetyDismissed.current.has(a.id)) continue;
+          next[a.id] = a;
+        }
+        setSafetyAlerts(next);
       }
     } finally {
       setRefreshing(false);
@@ -248,11 +281,52 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
         );
       };
 
+      // v1.3.0 (safety): merge a safety alert pushed to this driver into the
+      // keyed safetyAlerts map (instant surfacing), never replacing the whole
+      // map — the /driver/safety-active poll stays the reconcile source of
+      // truth. Honour the session-dismissed set; preserve an existing acked
+      // flag so a "Responding" card isn't reset by a late duplicate push.
+      const mergeSafety = (p: any) => {
+        if (cancel || !p?.alertId) return;
+        if (safetyDismissed.current.has(p.alertId)) return;
+        setSafetyAlerts((prev) =>
+          prev[p.alertId]
+            ? prev
+            : {
+                ...prev,
+                [p.alertId]: {
+                  id: p.alertId,
+                  bookingId: p.bookingId,
+                  displayId: p.displayId ?? null,
+                  lat: p.lat,
+                  lng: p.lng,
+                  createdAt: p.createdAt ?? new Date().toISOString(),
+                  acked: false
+                }
+              }
+        );
+      };
+
+      // v1.3.0 (safety): the raiser stood down or admin resolved — drop the
+      // card by alert id.
+      const clearSafety = (p: { alertId?: string }) => {
+        if (cancel || !p?.alertId) return;
+        setSafetyAlerts((prev) => {
+          if (!prev[p.alertId!]) return prev;
+          const { [p.alertId!]: _gone, ...rest } = prev;
+          return rest;
+        });
+      };
+
       sock.on("booking:offered", mergeNormal);
       sock.on("sos:incoming", mergeSos);
+      sock.on("safety:alert", mergeSafety);
+      sock.on("safety:cleared", clearSafety);
       cleanup = () => {
         sock.off("booking:offered", mergeNormal);
         sock.off("sos:incoming", mergeSos);
+        sock.off("safety:alert", mergeSafety);
+        sock.off("safety:cleared", clearSafety);
       };
     })();
     return () => {
@@ -282,11 +356,30 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
   // v1.2.0 (CR#1): accept from the unified list — same atomic accept flow as
   // before; on success route to Trip, on failure drop the (now-taken) row and
   // resync via refresh.
+  //
+  // v1.3.0 (D2): handle the backend accept-guard (409 driver_on_active_ride)
+  // distinctly. If the driver somehow attempts an accept while still on a ride,
+  // the booking is NOT taken by anyone — it is just blocked for this driver —
+  // so we keep the row in the queue and show a short, plain message instead of
+  // the "may have been taken" copy. Any other failure keeps the original
+  // behaviour: drop the (now-taken) row and resync via refresh.
   const acceptRequest = async (req: IncomingRequest) => {
     try {
       const r = await bookingsApi.accept(req.id);
+      // Set activeTrip optimistically + synchronously so the !activeTrip gate
+      // engages this render: it unmounts the SosIncomingModal / safety cards
+      // immediately, closing the ~8s window (until the next /bookings/mine
+      // poll) in which a queued SOS could otherwise flash over the new trip.
+      setActiveTrip(r.booking);
       onTrip(r.booking);
     } catch (e: any) {
+      const msg = String(e?.message ?? "").toLowerCase();
+      const onActiveRide = e?.status === 409 && msg.includes("driver_on_active_ride");
+      if (onActiveRide) {
+        Alert.alert("Still on a ride", "Finish your current ride first.");
+        void refresh();
+        return;
+      }
       Alert.alert("Could not accept", e?.message ?? "Booking may have been taken.");
       setRequests((prev) => {
         const { [req.id]: _gone, ...rest } = prev;
@@ -320,6 +413,32 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
         /* row already gone locally + dismissed; next poll reconciles */
       }
     }
+  };
+
+  // v1.3.0 (safety): "I am responding" — record the ack (idempotent server
+  // side) with our current GPS if we have it, and flip the card to its calm
+  // "Responding" state locally so it doesn't keep prompting. A failed ack
+  // leaves the card actionable so the driver can retry.
+  const respondSafety = async (alert: SafetyActiveAlert) => {
+    try {
+      await safetyApi.ack(alert.id, myPos?.lat, myPos?.lng);
+      setSafetyAlerts((prev) =>
+        prev[alert.id] ? { ...prev, [alert.id]: { ...prev[alert.id], acked: true } } : prev
+      );
+    } catch (e: any) {
+      Alert.alert("Could not respond", e?.message ?? "Please try again.");
+    }
+  };
+
+  // v1.3.0 (safety): soft dismiss — remove the card for this session without
+  // acking. Suppressed by the dismissed set so neither the poll nor the socket
+  // merge re-surfaces it.
+  const dismissSafety = (alert: SafetyActiveAlert) => {
+    safetyDismissed.current.add(alert.id);
+    setSafetyAlerts((prev) => {
+      const { [alert.id]: _gone, ...rest } = prev;
+      return rest;
+    });
   };
 
   return (
@@ -368,6 +487,33 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
           />
         </View>
       </Card>
+
+      {/* v1.3.0 (safety): responder-side safety alert cards. A safety alert is
+        * an "all hands near here" event, so it surfaces high on the dashboard
+        * (above the active-trip card) styled like an incoming-request row, NOT
+        * a full-screen flash. Newest-first. Each wires "I am responding" to the
+        * ack and a soft session-local dismiss.
+        *
+        * FIX D1: do NOT surface responder safety cards while THIS driver is on
+        * an active trip. The driver is heads-down on their own emergency ride;
+        * an "all hands near here" prompt over an ongoing trip is intrusive and
+        * could pull them off-task. The poll keep-last-good still tracks the
+        * alerts in state, so the cards reappear automatically the moment the
+        * trip clears and the driver is free to respond. Fully working when the
+        * driver is NOT on a trip. */}
+      {!activeTrip
+        ? Object.values(safetyAlerts)
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+            .map((a) => (
+              <SafetyAlertCard
+                key={a.id}
+                alert={a}
+                myPos={myPos}
+                onRespond={respondSafety}
+                onDismiss={dismissSafety}
+              />
+            ))
+        : null}
 
       {activeTrip ? (
         <Animated.View style={fade}>
@@ -509,8 +655,17 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
       </Card>
       {/* v1.0.15: SOS cascade modal — fullscreen overlay that pops in when
         * the server pushes an SOS request to this driver. Sits outside the
-        * <Screen> scroll so it floats on top regardless of scroll position. */}
-      <SosIncomingModal onAccept={(b) => onTrip(b)} />
+        * <Screen> scroll so it floats on top regardless of scroll position.
+        *
+        * FIX D1: never mount the full-screen SOS flash while THIS driver is on
+        * an active trip. A big red overlay popping over an ongoing emergency
+        * ride is dangerous (it can hide the live trip actions and startle a
+        * driver mid-handover). Not rendering the modal also stops its own
+        * socket + sos-pending poll from surfacing anything while busy. When the
+        * trip clears (back on the dashboard, AVAILABLE again) the modal mounts
+        * again and the cascade can flash as normal. Waiting requests stay
+        * visible the whole time via the passive peek on TripScreen. */}
+      {!activeTrip ? <SosIncomingModal onAccept={(b) => onTrip(b)} /> : null}
     </Screen>
   );
 }
