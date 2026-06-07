@@ -13,6 +13,7 @@ type Stats = {
   bookingsToday: number;
   completedTotal: number;
   avgResponseTimeMinutes: number;
+  openTickets?: number;
 };
 
 type Booking = {
@@ -115,6 +116,10 @@ export function LiveDashboard({
           <p>Avg response (min)</p>
           <h2>{stats.avgResponseTimeMinutes.toFixed(1)}</h2>
         </div>
+        <a href="/support" className="kpi" style={{ textDecoration: "none", color: "inherit" }}>
+          <p>Open support tickets</p>
+          <h2 style={(stats.openTickets ?? 0) > 0 ? { color: "#DC2626" } : undefined}>{stats.openTickets ?? 0}</h2>
+        </a>
       </div>
 
       <div className="row">

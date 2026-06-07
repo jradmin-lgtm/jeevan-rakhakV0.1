@@ -12,7 +12,7 @@ async function getDashboard() {
     if (!res.ok) throw new Error("dashboard");
     return res.json();
   } catch {
-    return { activeTrips: 0, onlineDrivers: 0, bookingsToday: 0, completedTotal: 0, avgResponseTimeMinutes: 0 };
+    return { activeTrips: 0, onlineDrivers: 0, bookingsToday: 0, completedTotal: 0, avgResponseTimeMinutes: 0, openTickets: 0 };
   }
 }
 

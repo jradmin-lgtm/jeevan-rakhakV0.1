@@ -3,6 +3,8 @@
 // in @types/react 19.0.x makes a strict `{ children: ReactNode }` annotation
 // fail under Next's typed-routes validator even though runtime is identical.
 // Cast at the destructure site instead.
+import { SupportNavBadge } from "./SupportNavBadge";
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default function AdminLayout({ children }: any) {
   return (
@@ -24,6 +26,7 @@ export default function AdminLayout({ children }: any) {
           <a href="/hospitals">Hospitals</a>
           <a href="/alerts">Alerts</a>
           <a href="/cancellations">Cancellations</a>
+          <SupportNavBadge />
         </nav>
         <div className="footer">Jeevan Rakshak Operations · v1.2.0</div>
       </aside>
