@@ -393,6 +393,10 @@ export type BookingCancellation = typeof bookingCancellations.$inferSelect;
  * tickets surface in the admin Help & Support section. All FKs are ON DELETE
  * SET NULL so a ticket survives deletion of its hospital/driver/booking row.
  * `subjectType` is 'DRIVER' | 'RIDE' | 'GENERAL'; `status` is 'OPEN' | 'RESOLVED'.
+ * v1.2.2 (CR): `category` splits the one ticket entity into 'FEEDBACK' (soft
+ * feedback surfaced in the hospital "Feedbacks" tab) vs 'ISSUE' (actionable
+ * items admin resolves, surfaced in "Help & Support"). Defaults to 'ISSUE' so
+ * pre-v1.2.2 rows + un-tagged tickets stay in the actionable bucket.
  */
 export const supportTickets = pgTable(
   "support_tickets",
@@ -400,6 +404,7 @@ export const supportTickets = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     hospitalId: uuid("hospital_id").references(() => hospitals.id, { onDelete: "set null" }),
     subjectType: text("subject_type").notNull(), // 'DRIVER' | 'RIDE' | 'GENERAL'
+    category: text("category").default("ISSUE").notNull(), // 'FEEDBACK' | 'ISSUE'
     driverId: uuid("driver_id").references(() => drivers.id, { onDelete: "set null" }),
     bookingId: uuid("booking_id").references(() => bookings.id, { onDelete: "set null" }),
     message: text("message").notNull(),

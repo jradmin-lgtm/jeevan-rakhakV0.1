@@ -152,10 +152,12 @@ export async function registerAdminRoutes(app: FastifyInstance) {
 
     // v1.2.1 CR#6: open support-ticket count for the dashboard analytics stat
     // + nav badge. Source-agnostic (tickets aren't demo/real tagged).
+    // v1.2.2: count only actionable ISSUE tickets — FEEDBACK isn't an "open"
+    // item ops needs to clear, so it must not inflate the badge/headline stat.
     const [openTicketsRow] = await db
       .select({ c: count() })
       .from(supportTickets)
-      .where(eq(supportTickets.status, "OPEN"));
+      .where(and(eq(supportTickets.status, "OPEN"), eq(supportTickets.category, "ISSUE")));
 
     return reply.send({
       source,
@@ -1221,11 +1223,16 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   // GET /admin/tickets — every ticket, newest-first, optional ?status filter.
   // Joins hospital name + driver name/vehicle + booking displayId so the admin
   // table renders human context without N+1 lookups. Capped at 500.
+  // v1.2.2: returns `category` and accepts an optional ?category=FEEDBACK|ISSUE
+  // filter (additive, AND-combined with the existing ?status filter; no
+  // filters returns all, byte-identical to the v1.2.1 default).
   app.get("/api/v1/admin/tickets", adminGuard, async (req, reply) => {
     const statusRaw = String((req as any)?.query?.status ?? "").toUpperCase();
     const status = statusRaw === "OPEN" || statusRaw === "RESOLVED" ? statusRaw : null;
+    const catRaw = String((req as any)?.query?.category ?? "").toUpperCase();
+    const category = catRaw === "FEEDBACK" || catRaw === "ISSUE" ? catRaw : null;
     const rows = await pgClient`
-      SELECT t.id, t.subject_type, t.message, t.status,
+      SELECT t.id, t.subject_type, t.category, t.message, t.status,
              t.created_at, t.resolved_at,
              t.hospital_id, h.name           AS hospital_name,
              t.driver_id,   d.name           AS driver_name,
@@ -1235,11 +1242,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       LEFT JOIN hospitals h ON h.id = t.hospital_id
       LEFT JOIN drivers   d ON d.id = t.driver_id
       LEFT JOIN bookings  b ON b.id = t.booking_id
-      ${status ? pgClient`WHERE t.status = ${status}` : pgClient``}
+      WHERE TRUE
+        ${status ? pgClient`AND t.status = ${status}` : pgClient``}
+        ${category ? pgClient`AND t.category = ${category}` : pgClient``}
       ORDER BY t.created_at DESC
       LIMIT 500
     `;
-    return reply.send({ status, tickets: rows });
+    return reply.send({ status, category, tickets: rows });
   });
 
   // PATCH /admin/tickets/:id — flip OPEN ↔ RESOLVED. Stamps resolved_at = now()
@@ -1266,10 +1275,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   // GET /admin/tickets/count — {open, resolved} for the live nav badge (polls
   // this directly) and the dashboard analytics stat (also surfaced inline on
   // /admin/dashboard as `openTickets`).
+  // v1.2.2: scoped to category='ISSUE' to match the badge's "actionable items
+  // to clear" semantic — FEEDBACK is soft and must never light up the badge.
   app.get("/api/v1/admin/tickets/count", adminGuard, async (_req, reply) => {
     const rows = await db
       .select({ status: supportTickets.status, c: count() })
       .from(supportTickets)
+      .where(eq(supportTickets.category, "ISSUE"))
       .groupBy(supportTickets.status);
     let open = 0;
     let resolved = 0;

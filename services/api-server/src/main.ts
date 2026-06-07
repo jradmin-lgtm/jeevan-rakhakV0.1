@@ -372,7 +372,12 @@ async function bootstrap() {
     await pgClient`CREATE INDEX IF NOT EXISTS support_tickets_status_idx   ON support_tickets(status)`;
     await pgClient`CREATE INDEX IF NOT EXISTS support_tickets_hospital_idx ON support_tickets(hospital_id)`;
     await pgClient`CREATE INDEX IF NOT EXISTS support_tickets_created_idx  ON support_tickets(created_at DESC)`;
-    app.log.info("[migrate] schema v1.2.1 ready (booking_cancellations + cancel_wait + hospital portal creds + hospital_ack + portal_password_plain + support_tickets)");
+    // ---- v1.2.2 ----
+    // CR: split the one ticket entity into FEEDBACK (soft feedback, hospital
+    // "Feedbacks" tab) vs ISSUE (actionable, "Help & Support"). Pre-v1.2.2 rows
+    // default to ISSUE so they stay in the actionable / open-count bucket.
+    await pgClient`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS category text NOT NULL DEFAULT 'ISSUE'`;
+    app.log.info("[migrate] schema v1.2.2 ready (booking_cancellations + cancel_wait + hospital portal creds + hospital_ack + portal_password_plain + support_tickets + ticket category)");
   } catch (err) {
     // Thumb rule: migrations FATAL-EXIT on failure. Silent catch+warn here
     // previously let the service start with a broken schema (system_events

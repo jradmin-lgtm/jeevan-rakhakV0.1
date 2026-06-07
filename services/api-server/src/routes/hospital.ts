@@ -212,6 +212,9 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
     const hid = req.user.hospitalId;
     const subjectType = String(req.body?.subjectType ?? "").trim().toUpperCase();
     const message = String(req.body?.message ?? "").trim();
+    // v1.2.2: FEEDBACK (soft) vs ISSUE (actionable). Defaults to ISSUE so an
+    // omitted/unknown category lands in the actionable Help & Support bucket.
+    const category = String(req.body?.category ?? "ISSUE").trim().toUpperCase() === "FEEDBACK" ? "FEEDBACK" : "ISSUE";
     if (!["DRIVER", "RIDE", "GENERAL"].includes(subjectType)) return reply.code(400).send({ error: "invalid_subject" });
     if (message.length < 5) return reply.code(400).send({ error: "message_too_short" });
 
@@ -236,8 +239,8 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
     }
 
     const [{ id } = {}] = await pgClient`
-      INSERT INTO support_tickets (hospital_id, subject_type, driver_id, booking_id, message, status)
-      VALUES (${hid}, ${subjectType}, ${driverId}, ${bookingId}, ${message}, 'OPEN')
+      INSERT INTO support_tickets (hospital_id, subject_type, category, driver_id, booking_id, message, status)
+      VALUES (${hid}, ${subjectType}, ${category}, ${driverId}, ${bookingId}, ${message}, 'OPEN')
       RETURNING id`;
     return reply.send({ ok: true, id });
   });
@@ -245,10 +248,15 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
   // v1.2.1 (CR#3): the caller hospital's own tickets, newest first, with the
   // linked driver/ride display info. Scoped to hospital_id=hid — never another
   // hospital's tickets.
+  // v1.2.2: returns `category` and accepts an optional ?category=FEEDBACK|ISSUE
+  // filter (additive — no filter / unknown value returns all, byte-identical to
+  // the v1.2.1 default).
   app.get("/api/v1/hospital/tickets", { preHandler: [(app as any).requireHospital] }, async (req: any, reply: any) => {
     const hid = req.user.hospitalId;
+    const catRaw = String(req.query?.category ?? "").trim().toUpperCase();
+    const category = catRaw === "FEEDBACK" || catRaw === "ISSUE" ? catRaw : null;
     const rows = await pgClient`
-      SELECT t.id, t.subject_type, t.message, t.status, t.created_at, t.resolved_at,
+      SELECT t.id, t.subject_type, t.category, t.message, t.status, t.created_at, t.resolved_at,
              t.driver_id, t.booking_id,
              d.name AS driver_name, d.vehicle_number AS ambulance_number,
              b.display_id AS booking_display_id
@@ -256,6 +264,7 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
       LEFT JOIN drivers  d ON d.id = t.driver_id
       LEFT JOIN bookings b ON b.id = t.booking_id
       WHERE t.hospital_id = ${hid}
+        ${category ? pgClient`AND t.category = ${category}` : pgClient``}
       ORDER BY t.created_at DESC`;
     return reply.send({ tickets: rows });
   });
