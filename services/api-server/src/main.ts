@@ -340,7 +340,29 @@ async function bootstrap() {
     // CR#3: hospital "acknowledge — preparing" loop-closer.
     await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS hospital_ack_at   timestamptz`;
     await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS hospital_ack_note text`;
-    app.log.info("[migrate] schema v1.2.0 ready (booking_cancellations + cancel_wait + hospital portal creds + hospital_ack)");
+    // ---- v1.2.1 ----
+    // CR#3: admin-only recoverable copy of the portal password (for the
+    // hospitals-dashboard "view password" display). Never crosses the public
+    // /hospitals or any /hospital/* boundary — admin-key endpoints only.
+    await pgClient`ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS portal_password_plain text`;
+    // CR#3: hospital-raised feedback / issue tickets (admin Help & Support).
+    await pgClient`
+      CREATE TABLE IF NOT EXISTS support_tickets (
+        id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        hospital_id  uuid REFERENCES hospitals(id) ON DELETE SET NULL,
+        subject_type text NOT NULL,
+        driver_id    uuid REFERENCES drivers(id) ON DELETE SET NULL,
+        booking_id   uuid REFERENCES bookings(id) ON DELETE SET NULL,
+        message      text NOT NULL,
+        status       text NOT NULL DEFAULT 'OPEN',
+        created_at   timestamptz NOT NULL DEFAULT now(),
+        resolved_at  timestamptz
+      )
+    `;
+    await pgClient`CREATE INDEX IF NOT EXISTS support_tickets_status_idx   ON support_tickets(status)`;
+    await pgClient`CREATE INDEX IF NOT EXISTS support_tickets_hospital_idx ON support_tickets(hospital_id)`;
+    await pgClient`CREATE INDEX IF NOT EXISTS support_tickets_created_idx  ON support_tickets(created_at DESC)`;
+    app.log.info("[migrate] schema v1.2.1 ready (booking_cancellations + cancel_wait + hospital portal creds + hospital_ack + portal_password_plain + support_tickets)");
   } catch (err) {
     // Thumb rule: migrations FATAL-EXIT on failure. Silent catch+warn here
     // previously let the service start with a broken schema (system_events

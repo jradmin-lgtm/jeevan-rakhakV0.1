@@ -388,6 +388,34 @@ export const bookingCancellations = pgTable(
 export type BookingCancellation = typeof bookingCancellations.$inferSelect;
 
 /**
+ * v1.2.1 (CR#3) — hospital-raised feedback / issue tickets. A hospital can
+ * raise a concern about a DRIVER, a RIDE, or a GENERAL topic from the portal;
+ * tickets surface in the admin Help & Support section. All FKs are ON DELETE
+ * SET NULL so a ticket survives deletion of its hospital/driver/booking row.
+ * `subjectType` is 'DRIVER' | 'RIDE' | 'GENERAL'; `status` is 'OPEN' | 'RESOLVED'.
+ */
+export const supportTickets = pgTable(
+  "support_tickets",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    hospitalId: uuid("hospital_id").references(() => hospitals.id, { onDelete: "set null" }),
+    subjectType: text("subject_type").notNull(), // 'DRIVER' | 'RIDE' | 'GENERAL'
+    driverId: uuid("driver_id").references(() => drivers.id, { onDelete: "set null" }),
+    bookingId: uuid("booking_id").references(() => bookings.id, { onDelete: "set null" }),
+    message: text("message").notNull(),
+    status: text("status").default("OPEN").notNull(), // 'OPEN' | 'RESOLVED'
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true })
+  },
+  (t) => ({
+    statusIdx: index("support_tickets_status_idx").on(t.status),
+    hospitalIdx: index("support_tickets_hospital_idx").on(t.hospitalId),
+    createdIdx: index("support_tickets_created_idx").on(t.createdAt)
+  })
+);
+export type SupportTicket = typeof supportTickets.$inferSelect;
+
+/**
  * v1.1.0 (CR#3/#6) — destination hospitals. In the current phase there is one
  * active default (SRMS IMS Hospital, Bareilly) that every ride is routed to;
  * the schema supports onboarding more hospitals later (admin CRUD + a future
@@ -413,6 +441,11 @@ export const hospitals = pgTable(
     // login is accepted at all.
     portalUsername: text("portal_username").unique(),
     portalPasswordHash: text("portal_password_hash"),
+    // v1.2.1 (CR#3) — admin-only recoverable copy of the portal password, for
+    // the hospitals-dashboard "view password" display. NEVER returned by the
+    // public GET /api/v1/hospitals or any /hospital/* (hospital-JWT) endpoint;
+    // only the admin-key GET /admin/hospitals surfaces it (and never the hash).
+    portalPasswordPlain: text("portal_password_plain"),
     portalEnabled: boolean("portal_enabled").default(false).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()

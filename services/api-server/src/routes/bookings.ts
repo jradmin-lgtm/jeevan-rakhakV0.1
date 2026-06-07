@@ -89,8 +89,22 @@ export async function registerBookingRoutes(app: FastifyInstance) {
     "/api/v1/hospitals",
     { preHandler: [(app as any).authenticate] },
     async (_req: any, reply) => {
+      // v1.2.1 sec-fix: explicit safe-column select. A bare `db.select()`
+      // here leaked portal_password_hash (+ username) to EVERY authenticated
+      // user/driver. The KYC picker only needs id/name/coords/contact/flags —
+      // NO portal_* columns ever cross this boundary.
       const rows = await db
-        .select()
+        .select({
+          id: hospitals.id,
+          name: hospitals.name,
+          lat: hospitals.lat,
+          lng: hospitals.lng,
+          address: hospitals.address,
+          city: hospitals.city,
+          phone: hospitals.phone,
+          active: hospitals.active,
+          isDefault: hospitals.isDefault
+        })
         .from(hospitals)
         .where(eq(hospitals.active, true))
         .orderBy(desc(hospitals.isDefault), hospitals.name);
