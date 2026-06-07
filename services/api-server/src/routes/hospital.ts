@@ -290,4 +290,113 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
     }).catch(() => {});
     return reply.send({ ok: true });
   });
+
+  // v1.2.2 (CR#3): scoped client-POV analytics board for the hospital portal.
+  // RBAC: hid comes ONLY from the JWT claim and EVERY query is filtered to
+  // dest_hospital_id = hid — a hospital can never see another client's rides.
+  // No portal_* columns are touched here. "Today" is Asia/Kolkata, matching the
+  // admin dashboard's IST convention (admin.ts uses
+  // `... AT TIME ZONE 'Asia/Kolkata'` for all day-grouping); here we compare
+  // `(<ts> AT TIME ZONE 'Asia/Kolkata')::date = (now() AT TIME ZONE 'Asia/Kolkata')::date`.
+  app.get("/api/v1/hospital/analytics", { preHandler: [(app as any).requireHospital] }, async (req: any, reply: any) => {
+    const hid = req.user.hospitalId;
+
+    // Headline live + today counts. is_sos/today use IST date math. preparingNow
+    // = acknowledged (hospital_ack_at set) AND still en route (active statuses) —
+    // i.e. the patient is incoming and the hospital has confirmed it's preparing.
+    const [headline = {}] = await pgClient`
+      SELECT
+        COUNT(*) FILTER (WHERE status IN ('ACCEPTED','ARRIVED','PICKED_UP'))::int AS incoming_now,
+        COUNT(*) FILTER (
+          WHERE hospital_ack_at IS NOT NULL
+            AND status IN ('ACCEPTED','ARRIVED','PICKED_UP')
+        )::int AS preparing_now,
+        COUNT(*) FILTER (
+          WHERE status = 'COMPLETED'
+            AND (completed_at AT TIME ZONE 'Asia/Kolkata')::date = (now() AT TIME ZONE 'Asia/Kolkata')::date
+        )::int AS arrivals_today,
+        COUNT(*) FILTER (
+          WHERE is_sos
+            AND (created_at AT TIME ZONE 'Asia/Kolkata')::date = (now() AT TIME ZONE 'Asia/Kolkata')::date
+        )::int AS sos_today,
+        COUNT(*)::int AS rides_total,
+        COUNT(*) FILTER (WHERE status = 'COMPLETED')::int AS completed,
+        COUNT(*) FILTER (WHERE status IN ('ACCEPTED','ARRIVED','PICKED_UP'))::int AS active,
+        COUNT(*) FILTER (WHERE status IN ('CANCELLED','TIMED_OUT'))::int AS cancelled
+      FROM bookings
+      WHERE dest_hospital_id = ${hid}`;
+
+    // Avg pickup → hospital (minutes) over COMPLETED rides in the last 30 days.
+    // AVG over zero matching rows returns NULL in postgres → postgres.js maps it
+    // to null, which is exactly the "null if none" contract.
+    const [{ avg_pickup_to_hospital_min = null } = {}] = await pgClient`
+      SELECT AVG(EXTRACT(EPOCH FROM (completed_at - picked_up_at)) / 60)::float AS avg_pickup_to_hospital_min
+      FROM bookings
+      WHERE dest_hospital_id = ${hid}
+        AND status = 'COMPLETED'
+        AND completed_at IS NOT NULL
+        AND picked_up_at IS NOT NULL
+        AND completed_at >= now() - interval '30 days'`;
+
+    // Ambulances tagged to this hospital (mirrors /hospital/me counts).
+    const [amb = {}] = await pgClient`
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE d.status = 'AVAILABLE')::int AS online,
+        COUNT(*) FILTER (WHERE d.status = 'ON_TRIP')::int AS on_trip
+      FROM driver_hospitals dh JOIN drivers d ON d.id = dh.driver_id
+      WHERE dh.hospital_id = ${hid}`;
+
+    // Last-7-days rides/day (created_at, IST). Densified across the 7-day window
+    // so every day appears even with zero rides.
+    const last7 = await pgClient`
+      WITH days AS (
+        SELECT generate_series(
+          (now() AT TIME ZONE 'Asia/Kolkata')::date - interval '6 days',
+          (now() AT TIME ZONE 'Asia/Kolkata')::date,
+          interval '1 day'
+        )::date AS day
+      ),
+      per_day AS (
+        SELECT (created_at AT TIME ZONE 'Asia/Kolkata')::date AS day, COUNT(*)::int AS count
+        FROM bookings
+        WHERE dest_hospital_id = ${hid}
+          AND (created_at AT TIME ZONE 'Asia/Kolkata')::date
+              >= (now() AT TIME ZONE 'Asia/Kolkata')::date - interval '6 days'
+        GROUP BY 1
+      )
+      SELECT to_char(d.day, 'YYYY-MM-DD') AS day, COALESCE(p.count, 0)::int AS count
+      FROM days d LEFT JOIN per_day p USING (day)
+      ORDER BY d.day ASC`;
+
+    // Case mix by emergency type over the last 30 days (created_at).
+    const byType = await pgClient`
+      SELECT emergency_type::text AS type, COUNT(*)::int AS count
+      FROM bookings
+      WHERE dest_hospital_id = ${hid}
+        AND created_at >= now() - interval '30 days'
+      GROUP BY 1
+      ORDER BY 2 DESC`;
+
+    return reply.send({
+      incomingNow: (headline as any).incoming_now ?? 0,
+      preparingNow: (headline as any).preparing_now ?? 0,
+      arrivalsToday: (headline as any).arrivals_today ?? 0,
+      sosToday: (headline as any).sos_today ?? 0,
+      ridesTotal: (headline as any).rides_total ?? 0,
+      avgPickupToHospitalMin: avg_pickup_to_hospital_min,
+      ambulances: {
+        total: (amb as any).total ?? 0,
+        online: (amb as any).online ?? 0,
+        onTrip: (amb as any).on_trip ?? 0
+      },
+      last7Days: last7.map((r: any) => ({ day: r.day, count: r.count })),
+      byEmergencyType: byType.map((r: any) => ({ type: r.type, count: r.count })),
+      statusMix: {
+        completed: (headline as any).completed ?? 0,
+        active: (headline as any).active ?? 0,
+        cancelled: (headline as any).cancelled ?? 0
+      }
+    });
+  });
 }
