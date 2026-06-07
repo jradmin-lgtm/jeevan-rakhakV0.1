@@ -16,9 +16,21 @@ type Hospital = {
   isDefault: boolean;
   driverCount?: number;
   bookingCount?: number;
+  portalUsername?: string | null;
+  portalEnabled?: boolean;
+  portalPasswordPlain?: string | null;
 };
 
 const blank = { name: "", lat: "", lng: "", address: "", city: "", phone: "", isDefault: false };
+
+/** Mirror of the server-side slugify — default Login ID when no portalUsername is set yet. */
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+}
 
 /**
  * v1.1.0 (CR#3/#6) — list/add/edit destination hospitals. Setting one default
@@ -49,6 +61,27 @@ export function HospitalsManager({ initial, apiBase }: { initial: Hospital[]; ap
       await refresh();
     } catch (e: any) {
       setErr(e?.message ?? "Update failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const portalPut = async (id: string, body: Record<string, unknown>) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await adminFetch(`${apiBase}/api/v1/admin/hospitals/${id}/portal`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) {
+        const code = (await res.json().catch(() => null))?.error;
+        throw new Error(code === "username_taken" ? "That Login ID is already taken." : code ?? "portal_update_failed");
+      }
+      await refresh();
+    } catch (e: any) {
+      setErr(e?.message ?? "Portal update failed");
     } finally {
       setBusy(false);
     }
@@ -109,6 +142,33 @@ export function HospitalsManager({ initial, apiBase }: { initial: Hospital[]; ap
             ))}
             {rows.length === 0 ? (
               <tr><td colSpan={7} className="muted" style={{ padding: 12 }}>No hospitals yet.</td></tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="card" style={{ overflowX: "auto" }}>
+        <h3 style={{ marginTop: 0 }}>Hospital Portal Logins</h3>
+        <p className="muted" style={{ marginTop: 0, fontSize: 12 }}>
+          Each hospital can sign in to its own portal at <span className="mono">/hospital-login</span>. The Login ID
+          defaults to the hospital name slug. Set or reset the password below — it stays viewable here.
+        </p>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr style={{ textAlign: "left", color: "var(--muted)" }}>
+              <th style={{ padding: "6px 8px" }}>Hospital</th>
+              <th style={{ padding: "6px 8px" }}>Login ID</th>
+              <th style={{ padding: "6px 8px" }}>Password</th>
+              <th style={{ padding: "6px 8px" }}>Access</th>
+              <th style={{ padding: "6px 8px" }}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((h) => (
+              <PortalRow key={h.id} h={h} busy={busy} onPortalPut={portalPut} />
+            ))}
+            {rows.length === 0 ? (
+              <tr><td colSpan={5} className="muted" style={{ padding: 12 }}>No hospitals yet.</td></tr>
             ) : null}
           </tbody>
         </table>
@@ -175,6 +235,160 @@ function HospitalRow({ h, busy, onPatch }: { h: Hospital; busy: boolean; onPatch
         ) : null}
       </td>
     </tr>
+  );
+}
+
+function PortalRow({
+  h,
+  busy,
+  onPortalPut
+}: {
+  h: Hospital;
+  busy: boolean;
+  onPortalPut: (id: string, body: Record<string, unknown>) => void;
+}) {
+  const loginId = h.portalUsername ?? slugify(h.name);
+  const hasPassword = Boolean(h.portalPasswordPlain);
+  const enabled = h.portalEnabled ?? false;
+  const [pw, setPw] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const tooShort = pw.length > 0 && pw.length < 8;
+  const canSave = pw.length >= 8 && !busy;
+
+  const save = () => {
+    if (!canSave) return;
+    onPortalPut(h.id, { password: pw, enabled: true });
+    setPw("");
+  };
+
+  const copy = async () => {
+    if (!h.portalPasswordPlain) return;
+    try {
+      await navigator.clipboard.writeText(h.portalPasswordPlain);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      /* clipboard unavailable — no-op */
+    }
+  };
+
+  return (
+    <tr style={{ borderTop: "1px solid var(--border)" }}>
+      <td style={{ padding: "6px 8px", fontWeight: 600 }}>{h.name}</td>
+      <td style={{ padding: "6px 8px" }}>
+        <span className="mono">{loginId}</span>
+      </td>
+      <td style={{ padding: "6px 8px" }}>
+        {hasPassword ? (
+          <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+            <span className="mono">{h.portalPasswordPlain}</span>
+            <button disabled={busy} onClick={copy} style={miniBtn}>{copied ? "Copied ✓" : "Copy"}</button>
+          </span>
+        ) : (
+          <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+            <input
+              type="text"
+              placeholder="Set password (min 8)"
+              value={pw}
+              onChange={(e) => setPw(e.target.value)}
+              style={{ ...inp, width: 170, borderColor: tooShort ? "#B91C1C" : "var(--border)" }}
+            />
+            <button
+              disabled={!canSave}
+              onClick={save}
+              style={{ ...miniBtn, background: canSave ? "var(--accent)" : "#fff", color: canSave ? "#fff" : "var(--muted)", border: canSave ? "none" : "1px solid var(--border)" }}
+            >
+              Save
+            </button>
+          </span>
+        )}
+      </td>
+      <td style={{ padding: "6px 8px" }}>
+        <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+          <span
+            style={{
+              fontSize: 11,
+              padding: "2px 8px",
+              borderRadius: 999,
+              background: enabled ? "#DCFCE7" : "#FEE2E2",
+              color: enabled ? "#166534" : "#B91C1C"
+            }}
+          >
+            {enabled ? "Enabled" : "Disabled"}
+          </span>
+          <button disabled={busy} onClick={() => onPortalPut(h.id, { enabled: !enabled })} style={miniBtn}>
+            {enabled ? "Disable" : "Enable"}
+          </button>
+        </span>
+      </td>
+      <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
+        <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+          {hasPassword ? <ResetPassword h={h} busy={busy} onPortalPut={onPortalPut} /> : null}
+          {hasPassword ? (
+            <button
+              disabled={busy}
+              onClick={() => {
+                if (confirm(`Delete the portal password for ${h.name}? They will not be able to sign in until you set a new one.`)) {
+                  onPortalPut(h.id, { clear: true });
+                }
+              }}
+              style={{ ...miniBtn, color: "#B91C1C", borderColor: "#FCA5A5" }}
+            >
+              Delete
+            </button>
+          ) : null}
+          <a href="/hospital-login" target="_blank" rel="noopener noreferrer" style={{ ...miniBtn, textDecoration: "none", color: "var(--accent)" }}>
+            Open ↗
+          </a>
+        </span>
+      </td>
+    </tr>
+  );
+}
+
+function ResetPassword({
+  h,
+  busy,
+  onPortalPut
+}: {
+  h: Hospital;
+  busy: boolean;
+  onPortalPut: (id: string, body: Record<string, unknown>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pw, setPw] = useState("");
+  const canSave = pw.length >= 8 && !busy;
+  const tooShort = pw.length > 0 && pw.length < 8;
+
+  if (!open) {
+    return (
+      <button disabled={busy} onClick={() => setOpen(true)} style={miniBtn}>Reset</button>
+    );
+  }
+  return (
+    <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+      <input
+        type="text"
+        placeholder="New password (min 8)"
+        value={pw}
+        onChange={(e) => setPw(e.target.value)}
+        style={{ ...inp, width: 170, borderColor: tooShort ? "#B91C1C" : "var(--border)" }}
+      />
+      <button
+        disabled={!canSave}
+        onClick={() => {
+          if (!canSave) return;
+          onPortalPut(h.id, { password: pw, enabled: true });
+          setPw("");
+          setOpen(false);
+        }}
+        style={{ ...miniBtn, background: canSave ? "var(--accent)" : "#fff", color: canSave ? "#fff" : "var(--muted)", border: canSave ? "none" : "1px solid var(--border)" }}
+      >
+        Save
+      </button>
+      <button disabled={busy} onClick={() => { setPw(""); setOpen(false); }} style={miniBtn}>Cancel</button>
+    </span>
   );
 }
 
