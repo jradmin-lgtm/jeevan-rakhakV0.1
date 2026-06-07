@@ -8,10 +8,17 @@ const STALE_DRIVER_MS = 90_000;
 
 async function reapTimedOutBookings() {
   const cutoff = new Date(Date.now() - TIMEOUT_MS);
+  // v1.2.7: NEVER auto-timeout SOS bookings. SOS runs the cascade (20s waves)
+  // and, by design, STAYS `REQUESTED` after the cascade exhausts so the patient
+  // sees "call the mobile line" and any cascade-pushed driver keeps the request
+  // in their Incoming list until they accept/reject (or ops cancels it). The
+  // 90s booking timeout is for NORMAL bookings only — applying it to SOS was
+  // silently dropping live emergencies from the driver queue + killing the
+  // cascade after 90s. `is_sos = false` exempts them.
   const stale = await db
     .select({ id: bookings.id, status: bookings.status })
     .from(bookings)
-    .where(and(eq(bookings.status, "REQUESTED"), lt(bookings.createdAt, cutoff)));
+    .where(and(eq(bookings.status, "REQUESTED"), eq(bookings.isSos, false), lt(bookings.createdAt, cutoff)));
   for (const row of stale) {
     await db
       .update(bookings)
