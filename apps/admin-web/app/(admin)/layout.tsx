@@ -28,7 +28,7 @@ export default function AdminLayout({ children }: any) {
           <a href="/cancellations">Cancellations</a>
           <SupportNavBadge />
         </nav>
-        <div className="footer">Jeevan Rakshak Operations · v1.2.0</div>
+        <div className="footer">Jeevan Rakshak Operations · v1.2.1</div>
       </aside>
       <main className="content">{children}</main>
     </div>
