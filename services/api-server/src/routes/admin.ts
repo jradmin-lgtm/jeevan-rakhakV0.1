@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, count, desc, eq, gte, inArray, lte, sql as drizzleSql } from "drizzle-orm";
-import { bookingEvents, bookings, drivers, db, driverHospitals, hospitals, users, systemEvents, sql as pgClient } from "@jr/db";
+import { bookingEvents, bookings, drivers, db, driverHospitals, hospitals, supportTickets, users, systemEvents, sql as pgClient } from "@jr/db";
 import { config } from "@jr/config";
 import { hashPassword } from "../password";
 
@@ -150,13 +150,21 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       );
     const avgSec = Number(avgRows[0]?.seconds ?? 0);
 
+    // v1.2.1 CR#6: open support-ticket count for the dashboard analytics stat
+    // + nav badge. Source-agnostic (tickets aren't demo/real tagged).
+    const [openTicketsRow] = await db
+      .select({ c: count() })
+      .from(supportTickets)
+      .where(eq(supportTickets.status, "OPEN"));
+
     return reply.send({
       source,
       activeTrips: activeRow?.c ?? 0,
       onlineDrivers: onlineRow?.c ?? 0,
       bookingsToday: todayRow?.c ?? 0,
       completedTotal: completedRow?.c ?? 0,
-      avgResponseTimeMinutes: Number((avgSec / 60).toFixed(1))
+      avgResponseTimeMinutes: Number((avgSec / 60).toFixed(1)),
+      openTickets: openTicketsRow?.c ?? 0
     });
   });
 
@@ -1202,6 +1210,74 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       portalPasswordPlain: updated.portalPasswordPlain,
       portalEnabled: updated.portalEnabled
     });
+  });
+
+  // ─── Help & Support — issue tickets (v1.2.1, CR#6) ──────────────────────────
+  // Hospitals raise feedback/concern tickets from the portal (see
+  // /hospital/tickets in hospital.ts). Admins triage them here: list (with
+  // hospital/driver/ride context joined for the table), mark resolved/reopen,
+  // and a live open-count for the nav badge + dashboard analytics stat.
+
+  // GET /admin/tickets — every ticket, newest-first, optional ?status filter.
+  // Joins hospital name + driver name/vehicle + booking displayId so the admin
+  // table renders human context without N+1 lookups. Capped at 500.
+  app.get("/api/v1/admin/tickets", adminGuard, async (req, reply) => {
+    const statusRaw = String((req as any)?.query?.status ?? "").toUpperCase();
+    const status = statusRaw === "OPEN" || statusRaw === "RESOLVED" ? statusRaw : null;
+    const rows = await pgClient`
+      SELECT t.id, t.subject_type, t.message, t.status,
+             t.created_at, t.resolved_at,
+             t.hospital_id, h.name           AS hospital_name,
+             t.driver_id,   d.name           AS driver_name,
+                            d.vehicle_number AS driver_vehicle,
+             t.booking_id,  b.display_id     AS booking_display_id
+      FROM support_tickets t
+      LEFT JOIN hospitals h ON h.id = t.hospital_id
+      LEFT JOIN drivers   d ON d.id = t.driver_id
+      LEFT JOIN bookings  b ON b.id = t.booking_id
+      ${status ? pgClient`WHERE t.status = ${status}` : pgClient``}
+      ORDER BY t.created_at DESC
+      LIMIT 500
+    `;
+    return reply.send({ status, tickets: rows });
+  });
+
+  // PATCH /admin/tickets/:id — flip OPEN ↔ RESOLVED. Stamps resolved_at = now()
+  // on RESOLVED, clears it back to null on reopen.
+  const patchTicketSchema = z.object({
+    status: z.enum(["OPEN", "RESOLVED"])
+  });
+  app.patch("/api/v1/admin/tickets/:id", adminGuard, async (req, reply) => {
+    const id = (req.params as any).id as string;
+    const parsed = patchTicketSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+    }
+    const resolved = parsed.data.status === "RESOLVED";
+    const [updated] = await db
+      .update(supportTickets)
+      .set({ status: parsed.data.status, resolvedAt: resolved ? new Date() : null })
+      .where(eq(supportTickets.id, id))
+      .returning({ id: supportTickets.id });
+    if (!updated) return reply.code(404).send({ error: "not_found" });
+    return reply.send({ ok: true });
+  });
+
+  // GET /admin/tickets/count — {open, resolved} for the live nav badge (polls
+  // this directly) and the dashboard analytics stat (also surfaced inline on
+  // /admin/dashboard as `openTickets`).
+  app.get("/api/v1/admin/tickets/count", adminGuard, async (_req, reply) => {
+    const rows = await db
+      .select({ status: supportTickets.status, c: count() })
+      .from(supportTickets)
+      .groupBy(supportTickets.status);
+    let open = 0;
+    let resolved = 0;
+    for (const r of rows) {
+      if (r.status === "OPEN") open = Number(r.c);
+      else if (r.status === "RESOLVED") resolved = Number(r.c);
+    }
+    return reply.send({ open, resolved });
   });
 
   // ─── Unified medical record (v1.1.0, CR#9a) ──────────────────────────────────
