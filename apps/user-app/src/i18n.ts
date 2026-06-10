@@ -183,6 +183,8 @@ const en: Dict = {
   "emergency.pregnancy.sub": "Labour, neonatal",
   "emergency.critical_transfer.label": "Critical transfer",
   "emergency.critical_transfer.sub": "Hospital to hospital",
+  "emergency.disclaimer.title": "About emergency help",
+  "emergency.disclaimer.body": "In a life-threatening emergency you can also call 108. Jeevan Rakshak helps dispatch an ambulance, but it does not replace official emergency services.",
 
   // Live tracking — extended for SOS cascade-wait UI + post-completion routing (v1.0.15)
   "live.searching_title": "Searching for nearest ambulance",
@@ -371,6 +373,8 @@ const hi: Dict = {
   "emergency.pregnancy.sub": "प्रसव, नवजात",
   "emergency.critical_transfer.label": "अस्पताल स्थानांतरण",
   "emergency.critical_transfer.sub": "अस्पताल से अस्पताल",
+  "emergency.disclaimer.title": "आपातकालीन सहायता के बारे में",
+  "emergency.disclaimer.body": "जानलेवा आपात स्थिति में आप 108 पर भी कॉल कर सकते हैं। Jeevan Rakshak एम्बुलेंस भेजने में मदद करता है, लेकिन यह आधिकारिक आपातकालीन सेवाओं का विकल्प नहीं है।",
 
   // Live tracking — extended for v1.0.15 SOS cascade-wait + post-completion
   "live.searching_title": "नज़दीकी एम्बुलेंस ढूँढी जा रही है",

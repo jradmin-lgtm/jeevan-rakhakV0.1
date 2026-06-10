@@ -51,6 +51,11 @@ export default function PrivacyPolicyPage() {
             SMS; once the pilot ends we move to SMS-delivered OTPs.
           </li>
           <li>
+            <strong>Email address and Google account ID</strong> · when you sign
+            in with Google, we receive your email address, name, and a stable
+            Google account identifier to create and secure your account.
+          </li>
+          <li>
             <strong>Name, blood group, allergies, age, gender</strong> · entered
             voluntarily in your medical profile so first responders have it
             during an emergency.
@@ -62,9 +67,9 @@ export default function PrivacyPolicyPage() {
           <li>
             <strong>Location data</strong> · your pickup location at the moment
             you book, and your live location during an active trip so the
-            driver can find you. Background location is <em>only</em> requested
-            while you have an active booking; it stops the moment the trip
-            ends or you cancel.
+            driver can find you. This is collected only while the app is open
+            during an active booking; it stops the moment the trip ends or you
+            cancel.
           </li>
           <li>
             <strong>Booking history</strong> · pickup and drop coordinates,
@@ -86,11 +91,16 @@ export default function PrivacyPolicyPage() {
             same as the patient app.
           </li>
           <li>
-            <strong>Identity and verification documents</strong> · driving
-            licence, government-issued ID, photograph, vehicle registration
-            certificate, insurance certificate, and ambulance permit. We need
-            these to confirm you are legally authorised to operate an ambulance
-            before you accept any patient.
+            <strong>Email address and Google account ID</strong> · when you sign
+            in with Google, we receive your email address, name, and a stable
+            Google account identifier to create and secure your account.
+          </li>
+          <li>
+            <strong>Identity and verification details</strong> · driving licence
+            number, vehicle registration (RC) number, insurance certificate
+            number, and ambulance permit number. We need these to confirm you are
+            legally authorised to operate an ambulance before you accept any
+            patient. Document photo upload is planned for a future release.
           </li>
           <li>
             <strong>Vehicle details</strong> · registration number,
@@ -99,10 +109,11 @@ export default function PrivacyPolicyPage() {
           </li>
           <li>
             <strong>Continuous location</strong> · while you are marked
-            &ldquo;online&rdquo; we record your latitude/longitude and heading
-            every few seconds so we can offer you incoming trips near you and
-            so patients can see an accurate ETA. Background location is
-            collected only while the app is set to online.
+            &ldquo;online&rdquo; and the app is open we record your
+            latitude/longitude and heading every few seconds so we can offer you
+            incoming trips near you and so patients can see an accurate ETA. This
+            location is collected only in the foreground while you are online; it
+            stops when you go offline or close the app.
           </li>
           <li>
             <strong>Earnings and trip ledger</strong> · every trip you complete,
@@ -174,8 +185,8 @@ export default function PrivacyPolicyPage() {
           </li>
           <li>
             <strong>The patient who booked you</strong> (driver-facing) · the
-            patient sees your name, photograph, vehicle number, and live
-            location during the trip.
+            patient sees your name, vehicle number, and live location during
+            the trip.
           </li>
           <li>
             <strong>SMS / OTP delivery provider</strong> · when SMS delivery
@@ -300,18 +311,18 @@ export default function PrivacyPolicyPage() {
         <h2>8. App permissions and how they map to data</h2>
         <ul>
           <li>
-            <strong>Location (foreground and background)</strong> · used only
-            for trip pickup, live driver tracking, and ETA. You can revoke
-            anytime in your phone&rsquo;s settings; the app stops working for
-            booking and dispatch when revoked.
+            <strong>Location (foreground only)</strong> · used only for trip
+            pickup, live driver tracking, and ETA while the app is open. You can
+            revoke anytime in your phone&rsquo;s settings; the app stops working
+            for booking and dispatch when revoked.
           </li>
           <li>
             <strong>Notifications</strong> · used for dispatch alerts (driver)
             and trip-status updates (patient). Can be revoked anytime.
           </li>
           <li>
-            <strong>Camera / Photos</strong> · used only when you upload a
-            KYC document.
+            <strong>Camera / Photos</strong> · not currently requested. Document
+            photo upload is planned for a future release.
           </li>
           <li>
             <strong>Phone calls (driver app)</strong> · used so you can call

@@ -505,7 +505,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
         testID="confirm-booking"
       />
       <Text variant="tiny" tone="muted" align="center">
-        Average response: 8 to 12 min · Cashless during launch offer
+        We dispatch the nearest available ambulance · Cashless during launch offer
       </Text>
 
       {/* v1.0.13 revised: one picker handles both pickup + drop. The mode

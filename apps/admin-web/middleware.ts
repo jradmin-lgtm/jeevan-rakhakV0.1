@@ -21,6 +21,7 @@ const PUBLIC_PATHS = [
   "/admin-login",
   "/api/admin-login",
   "/privacy",
+  "/delete-account",
   "/_next",
   "/favicon",
   "/icon",

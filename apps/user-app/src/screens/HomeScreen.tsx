@@ -4,6 +4,7 @@ import {
   AppHeader,
   Button,
   Card,
+  IconBadge,
   ContactSupport,
   LaunchBanner,
   Pill,
@@ -157,6 +158,15 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
             <Text variant="small" tone="secondary" align="center" style={{ marginTop: 4 }}>
               {t("home.need_ambulance.sub")}
             </Text>
+            <Pressable
+              onPress={() => dialog.alert(t("emergency.disclaimer.title"), t("emergency.disclaimer.body"))}
+              accessibilityRole="button"
+              accessibilityLabel={t("emergency.disclaimer.title")}
+              hitSlop={8}
+              style={{ marginTop: 8, alignSelf: "center" }}
+            >
+              <IconBadge glyph="i" size={26} bg={colors.primaryFaint} color={colors.primary} />
+            </Pressable>
 
             <View style={sosStyles.ringWrap}>
               <PulseDot size={120} color={colors.danger} rings={3} />

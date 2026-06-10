@@ -14,3 +14,9 @@ coverage/
 *.log
 yarn.lock
 package-lock.json
+
+# Play Store upload signing — keystore.properties is machine-local; the upload
+# keystore itself lives gitignored in "12. Jeevan App/release/". See CONTEXT.md 0-OPS #8.
+keystore.properties
+jr-upload.keystore
+*.jks

@@ -213,6 +213,14 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
                   This sends a high-priority cardiac dispatch. Misuse may suspend your account.
                 </Text>
               </View>
+              <Pressable
+                onPress={() => dialog.alert("About emergency help", "In a life-threatening emergency you can also call 108. Jeevan Rakshak helps dispatch an ambulance, but it does not replace official emergency services.")}
+                accessibilityRole="button"
+                accessibilityLabel="About emergency help"
+                hitSlop={8}
+              >
+                <IconBadge glyph="i" size={26} bg={colors.primaryFaint} color={colors.primary} />
+              </Pressable>
             </View>
             <Button label="Cancel and go back" variant="outline" onPress={onBack} fullWidth />
             {busy ? (
