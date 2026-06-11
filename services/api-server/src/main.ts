@@ -12,6 +12,7 @@ import { registerDriverRoutes } from "./routes/drivers";
 import { registerAdminRoutes } from "./routes/admin";
 import { registerHospitalRoutes } from "./routes/hospital";
 import { registerSafetyRoutes } from "./routes/safety";
+import { registerDownloadRoutes } from "./routes/download";
 import { emitEvent } from "./events";
 
 declare module "@fastify/jwt" {
@@ -126,6 +127,7 @@ async function bootstrap() {
   await registerAdminRoutes(app);
   await registerHospitalRoutes(app);
   await registerSafetyRoutes(app);
+  await registerDownloadRoutes(app);
 
   // Idempotent auto-migration so observability + per-ride OTP work on a
   // fresh Neon DB without an out-of-band step. Uses the raw postgres
@@ -146,6 +148,23 @@ async function bootstrap() {
     `;
     await pgClient`CREATE INDEX IF NOT EXISTS system_events_ts_idx ON system_events(ts DESC)`;
     await pgClient`CREATE INDEX IF NOT EXISTS system_events_level_idx ON system_events(level)`;
+    // Public download portal (the /get page): visit + gated-download analytics.
+    await pgClient`
+      CREATE TABLE IF NOT EXISTS app_events (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        type text NOT NULL,
+        app text,
+        contact text,
+        token text,
+        status text,
+        ip text,
+        user_agent text,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        completed_at timestamptz
+      )
+    `;
+    await pgClient`CREATE INDEX IF NOT EXISTS app_events_type_created_idx ON app_events(type, created_at DESC)`;
+    await pgClient`CREATE INDEX IF NOT EXISTS app_events_token_idx ON app_events(token)`;
     // Per-ride OTP (4 digits) for the driver's PICKUP verification step.
     await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS ride_otp_code text`;
     // Admin-set disable flag for users and drivers — gates /auth/verify-otp.

@@ -24,6 +24,7 @@ export default function AdminLayout({ children }: any) {
           <a href="/bookings">Bookings</a>
           <a href="/drivers">Drivers</a>
           <a href="/users">Users</a>
+          <a href="/app-installs">App installs</a>
           <a href="/feedback">Feedback</a>
           <a href="/hospitals">Hospitals</a>
           <AlertsNavBadge />
