@@ -1,6 +1,13 @@
 import React from "react";
 import { LoginForm } from "./LoginForm";
+import { LoginAmbience, GetAppPanel } from "../login-extras";
 
 export default function AdminLoginPage() {
-  return <LoginForm />;
+  return (
+    <>
+      <LoginAmbience />
+      <LoginForm />
+      <GetAppPanel />
+    </>
+  );
 }

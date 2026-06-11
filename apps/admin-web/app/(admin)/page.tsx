@@ -1,5 +1,6 @@
 import React from "react";
 import { LiveDashboard } from "./LiveDashboard";
+import { InstallsFunnel } from "./InstallsFunnel";
 import { adminFetch } from "../../lib/adminFetch";
 
 // API_BASE stays in props for client components — they compute proxy
@@ -38,11 +39,28 @@ async function getDrivers() {
   }
 }
 
+async function getAppEvents() {
+  try {
+    const res = await adminFetch(`${API_BASE}/api/v1/admin/app-events`);
+    if (!res.ok) throw new Error("app-events");
+    const d = await res.json();
+    return { visits: d.visits ?? 0, downloads: d.downloads ?? [], requested: d.requested ?? [], funnel: d.funnel ?? [] };
+  } catch {
+    return { visits: 0, downloads: [], requested: [], funnel: [] };
+  }
+}
+
 export default async function DashboardPage() {
-  const [stats, bookings, drivers] = await Promise.all([
+  const [stats, bookings, drivers, installs] = await Promise.all([
     getDashboard(),
     getRecentBookings(),
-    getDrivers()
+    getDrivers(),
+    getAppEvents()
   ]);
-  return <LiveDashboard initialStats={stats} initialBookings={bookings} initialDrivers={drivers} apiBase={API_BASE} />;
+  return (
+    <>
+      <LiveDashboard initialStats={stats} initialBookings={bookings} initialDrivers={drivers} apiBase={API_BASE} />
+      <InstallsFunnel initial={installs} />
+    </>
+  );
 }

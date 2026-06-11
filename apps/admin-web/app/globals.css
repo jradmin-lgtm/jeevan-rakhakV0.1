@@ -124,6 +124,21 @@ body.nav-collapsed .sidebar .brand { justify-content: center; padding: 2px 0; }
 
 .sidebar nav { display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
 
+/* Segment labels (Operations / People / Growth). Hidden on the icon rail. */
+.nav-sec {
+  margin: 12px 12px 4px;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: rgba(236,240,250,0.34);
+  white-space: nowrap;
+  overflow: hidden;
+  transition: opacity 0.18s ease, margin 0.2s ease, height 0.2s ease;
+}
+.nav-sec:first-child { margin-top: 2px; }
+body.nav-collapsed .nav-sec { opacity: 0; height: 6px; margin: 2px 0; }
+
 /* v2 nav item: icon rail + label + optional live badge. */
 .sidebar nav a.nav-item {
   display: flex;
@@ -181,28 +196,25 @@ body.nav-collapsed .nav-badge {
   padding: 0 4px;
 }
 
+/* Icon-only collapse toggle (v2.1: no label). */
 .nav-collapse {
   margin-top: auto;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
+  justify-content: center;
+  padding: 10px 0;
   border: 1px solid rgba(255,255,255,0.10);
   border-radius: 11px;
   background: rgba(255,255,255,0.04);
   color: rgba(236,240,250,0.66);
-  font-size: 12.5px;
-  font-weight: 600;
   cursor: pointer;
-  white-space: nowrap;
   transition: background-color 0.18s ease, color 0.18s ease;
 }
 .nav-collapse:hover { background: rgba(255,255,255,0.09); color: #fff; }
 .nav-collapse svg { flex: 0 0 16px; width: 16px; height: 16px; }
-body.nav-collapsed .nav-collapse { justify-content: center; padding: 10px 0; }
 
-.sidebar .footer { opacity: 0.38; font-size: 10.5px; padding: 6px 6px 0; white-space: nowrap; overflow: hidden; }
-body.nav-collapsed .sidebar .footer { opacity: 0; }
+.sidebar .footer { opacity: 0.38; font-size: 10.5px; padding: 8px 6px 0; white-space: nowrap; overflow: hidden; text-align: center; }
+body.nav-collapsed .sidebar .footer { opacity: 0; height: 0; padding: 0; }
 
 /* ─── Content ─── */
 main.content {
@@ -403,6 +415,7 @@ button:focus-visible { outline: 3px solid rgba(37,99,235,0.25); outline-offset: 
   .sidebar { position: static; height: auto; flex-direction: column; padding: 14px; overflow: visible; }
   .sidebar .footer, .nav-collapse { display: none; }
   .sidebar nav { flex-direction: row; flex-wrap: wrap; gap: 6px; }
+  .nav-sec { display: none; }
   .sidebar nav a.nav-item { padding: 8px 12px; }
   .sidebar nav a.nav-item.active::before { display: none; }
   body.nav-collapsed .nav-label { opacity: 1; width: auto; }

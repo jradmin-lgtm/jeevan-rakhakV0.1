@@ -26,6 +26,7 @@ const PUBLIC_PATHS = [
   "/api/dl",
   "/user-app-icon.png",
   "/driver-app-icon.png",
+  "/qr-download-apk.png",
   "/_next",
   "/favicon",
   "/icon",

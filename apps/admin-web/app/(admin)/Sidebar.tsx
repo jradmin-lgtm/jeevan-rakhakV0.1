@@ -65,16 +65,33 @@ export function Sidebar() {
     return () => { document.body.classList.remove("nav-collapsed"); };
   }, [collapsed]);
 
-  const items: Item[] = [
-    { href: "/", label: "Live dashboard", icon: I.pulse },
-    { href: "/bookings", label: "Bookings", icon: I.clipboard },
-    { href: "/drivers", label: "Drivers", icon: I.truck },
-    { href: "/users", label: "Users", icon: I.users },
-    { href: "/app-installs", label: "App installs", icon: I.download },
-    { href: "/feedback", label: "Feedback", icon: I.star },
-    { href: "/hospitals", label: "Hospitals", icon: I.hospital },
-    { href: "/alerts", label: "Alerts", icon: I.bell, badge: alerts },
-    { href: "/support", label: "Help & Support", icon: I.help, badge: tickets },
+  // Segmented by day-to-day usage: time-critical operations first, then the
+  // people/entities being managed, then growth/acquisition surfaces.
+  const groups: { title: string; items: Item[] }[] = [
+    {
+      title: "Operations",
+      items: [
+        { href: "/", label: "Live dashboard", icon: I.pulse },
+        { href: "/bookings", label: "Bookings", icon: I.clipboard },
+        { href: "/alerts", label: "Alerts", icon: I.bell, badge: alerts },
+        { href: "/support", label: "Help & Support", icon: I.help, badge: tickets },
+      ],
+    },
+    {
+      title: "People",
+      items: [
+        { href: "/drivers", label: "Drivers", icon: I.truck },
+        { href: "/users", label: "Users", icon: I.users },
+        { href: "/hospitals", label: "Hospitals", icon: I.hospital },
+      ],
+    },
+    {
+      title: "Growth",
+      items: [
+        { href: "/app-installs", label: "App installs", icon: I.download },
+        { href: "/feedback", label: "Feedback", icon: I.star },
+      ],
+    },
   ];
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`));
 
@@ -88,24 +105,28 @@ export function Sidebar() {
         </div>
       </div>
       <nav>
-        {items.map((it) => (
-          <a key={it.href} href={it.href} className={isActive(it.href) ? "nav-item active" : "nav-item"} title={it.label}>
-            <svg className="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              {it.icon}
-            </svg>
-            <span className="nav-label">{it.label}</span>
-            {it.badge && it.badge > 0 ? <span className="nav-badge">{it.badge > 99 ? "99+" : it.badge}</span> : null}
-          </a>
+        {groups.map((g) => (
+          <React.Fragment key={g.title}>
+            <div className="nav-sec">{g.title}</div>
+            {g.items.map((it) => (
+              <a key={it.href} href={it.href} className={isActive(it.href) ? "nav-item active" : "nav-item"} title={it.label}>
+                <svg className="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  {it.icon}
+                </svg>
+                <span className="nav-label">{it.label}</span>
+                {it.badge && it.badge > 0 ? <span className="nav-badge">{it.badge > 99 ? "99+" : it.badge}</span> : null}
+              </a>
+            ))}
+          </React.Fragment>
         ))}
       </nav>
-      <button className="nav-collapse" onClick={() => setCollapsed((c) => !c)} title={collapsed ? "Expand menu" : "Collapse menu"}>
+      <button className="nav-collapse" onClick={() => setCollapsed((c) => !c)} title={collapsed ? "Expand menu" : "Collapse menu"} aria-label={collapsed ? "Expand menu" : "Collapse menu"}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden
           style={{ transform: collapsed ? "rotate(180deg)" : "none", transition: "transform .25s ease" }}>
           <path d="M15 5l-7 7 7 7" />
         </svg>
-        <span className="nav-label">Collapse</span>
       </button>
-      <div className="footer">Jeevan Rakshak Operations · v2.0</div>
+      <div className="footer">© JR DEV TEAM · Operations v2.1</div>
     </aside>
   );
 }
