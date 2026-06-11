@@ -94,29 +94,80 @@ export async function registerDownloadRoutes(app: FastifyInstance) {
     return reply.send(stream.body);
   });
 
-  // Admin analytics for the "App Installs" tab
-  app.get("/api/v1/admin/app-events", { preHandler: (app as any).requireAdminKey }, async () => {
-    const [visits] = await sql`SELECT count(*)::int AS n FROM app_events WHERE type = 'visit'`;
+  // Admin analytics for the "App Installs" tab.
+  // ?since=YYYY-MM-DD&until=YYYY-MM-DD (bare dates parsed as IST, same
+  // semantics as routes/admin.ts pickDateRange). Unbounded when omitted.
+  app.get("/api/v1/admin/app-events", { preHandler: (app as any).requireAdminKey }, async (req: any) => {
+    const parse = (s: string | undefined, endOfDay: boolean): Date | null => {
+      if (!s) return null;
+      let raw = String(s).trim();
+      if (!raw) return null;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+        raw = endOfDay ? `${raw}T23:59:59.999+05:30` : `${raw}T00:00:00.000+05:30`;
+      }
+      const d = new Date(raw);
+      return isNaN(d.getTime()) ? null : d;
+    };
+    const since = parse(req.query?.since, false);
+    const until = parse(req.query?.until, true);
+
+    const [visits] = await sql`
+      SELECT count(*)::int AS n FROM app_events WHERE type = 'visit'
+        AND (${since}::timestamptz IS NULL OR created_at >= ${since})
+        AND (${until}::timestamptz IS NULL OR created_at <= ${until})`;
     const downloads = await sql`
       SELECT app, count(*)::int AS n FROM app_events
-      WHERE type = 'download' AND status = 'downloaded' GROUP BY app`;
+      WHERE type = 'download' AND status = 'downloaded'
+        AND (${since}::timestamptz IS NULL OR created_at >= ${since})
+        AND (${until}::timestamptz IS NULL OR created_at <= ${until})
+      GROUP BY app`;
     const requested = await sql`
-      SELECT app, count(*)::int AS n FROM app_events WHERE type = 'download' GROUP BY app`;
+      SELECT app, count(*)::int AS n FROM app_events WHERE type = 'download'
+        AND (${since}::timestamptz IS NULL OR created_at >= ${since})
+        AND (${until}::timestamptz IS NULL OR created_at <= ${until})
+      GROUP BY app`;
     const recent = await sql`
       SELECT app, contact, status, created_at, completed_at FROM app_events
-      WHERE type = 'download' ORDER BY created_at DESC LIMIT 100`;
+      WHERE type = 'download'
+        AND (${since}::timestamptz IS NULL OR created_at >= ${since})
+        AND (${until}::timestamptz IS NULL OR created_at <= ${until})
+      ORDER BY created_at DESC LIMIT 100`;
     // Funnel: did the captured contact later sign up? Match phone/email in users + drivers.
     const funnel = await sql`
       SELECT e.app,
              count(*)::int AS downloads,
              count(*) FILTER (WHERE u.id IS NOT NULL OR d.id IS NOT NULL)::int AS matched_signups
-      FROM (SELECT DISTINCT app, contact FROM app_events WHERE type = 'download' AND contact IS NOT NULL) e
+      FROM (SELECT DISTINCT app, contact FROM app_events WHERE type = 'download' AND contact IS NOT NULL
+              AND (${since}::timestamptz IS NULL OR created_at >= ${since})
+              AND (${until}::timestamptz IS NULL OR created_at <= ${until})) e
       LEFT JOIN users   u ON lower(u.email) = lower(e.contact) OR u.phone = e.contact
       LEFT JOIN drivers d ON lower(d.email) = lower(e.contact) OR d.phone = e.contact
       GROUP BY e.app`;
     const messages = await sql`
       SELECT contact, message, created_at FROM app_events
-      WHERE type = 'feedback' ORDER BY created_at DESC LIMIT 50`;
-    return { visits: visits?.n ?? 0, downloads, requested, recent, funnel, messages };
+      WHERE type = 'feedback'
+        AND (${since}::timestamptz IS NULL OR created_at >= ${since})
+        AND (${until}::timestamptz IS NULL OR created_at <= ${until})
+      ORDER BY created_at DESC LIMIT 100`;
+    // Daily series (IST buckets) for the chart; unbounded range defaults to the last 31 days.
+    const daily = await sql`
+      SELECT (created_at AT TIME ZONE 'Asia/Kolkata')::date::text AS day,
+             count(*) FILTER (WHERE type = 'visit')::int AS visits,
+             count(*) FILTER (WHERE type = 'download')::int AS requested,
+             count(*) FILTER (WHERE type = 'download' AND status = 'downloaded')::int AS downloads,
+             count(*) FILTER (WHERE type = 'feedback')::int AS messages
+      FROM app_events
+      WHERE (${since}::timestamptz IS NOT NULL OR created_at >= now() - interval '31 days')
+        AND (${since}::timestamptz IS NULL OR created_at >= ${since})
+        AND (${until}::timestamptz IS NULL OR created_at <= ${until})
+      GROUP BY 1 ORDER BY 1`;
+    // Full filtered event rows for the CSV dump (capped).
+    const rows = await sql`
+      SELECT type, app, contact, message, status, created_at, completed_at
+      FROM app_events
+      WHERE (${since}::timestamptz IS NULL OR created_at >= ${since})
+        AND (${until}::timestamptz IS NULL OR created_at <= ${until})
+      ORDER BY created_at DESC LIMIT 5000`;
+    return { visits: visits?.n ?? 0, downloads, requested, recent, funnel, messages, daily, rows };
   });
 }
