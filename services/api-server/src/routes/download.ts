@@ -110,27 +110,31 @@ export async function registerDownloadRoutes(app: FastifyInstance) {
     };
     const since = parse(req.query?.since, false);
     const until = parse(req.query?.until, true);
+    // postgres.js cannot serialize a JS Date in this casted-null-check shape
+    // (Buffer.byteLength(Date) TypeError -> HTTP 500). Pass ISO strings instead.
+    const sinceIso = since ? since.toISOString() : null;
+    const untilIso = until ? until.toISOString() : null;
 
     const [visits] = await sql`
       SELECT count(*)::int AS n FROM app_events WHERE type = 'visit'
-        AND (${since}::timestamptz IS NULL OR created_at >= ${since})
-        AND (${until}::timestamptz IS NULL OR created_at <= ${until})`;
+        AND (${sinceIso}::timestamptz IS NULL OR created_at >= ${sinceIso})
+        AND (${untilIso}::timestamptz IS NULL OR created_at <= ${untilIso})`;
     const downloads = await sql`
       SELECT app, count(*)::int AS n FROM app_events
       WHERE type = 'download' AND status = 'downloaded'
-        AND (${since}::timestamptz IS NULL OR created_at >= ${since})
-        AND (${until}::timestamptz IS NULL OR created_at <= ${until})
+        AND (${sinceIso}::timestamptz IS NULL OR created_at >= ${sinceIso})
+        AND (${untilIso}::timestamptz IS NULL OR created_at <= ${untilIso})
       GROUP BY app`;
     const requested = await sql`
       SELECT app, count(*)::int AS n FROM app_events WHERE type = 'download'
-        AND (${since}::timestamptz IS NULL OR created_at >= ${since})
-        AND (${until}::timestamptz IS NULL OR created_at <= ${until})
+        AND (${sinceIso}::timestamptz IS NULL OR created_at >= ${sinceIso})
+        AND (${untilIso}::timestamptz IS NULL OR created_at <= ${untilIso})
       GROUP BY app`;
     const recent = await sql`
       SELECT app, contact, status, created_at, completed_at FROM app_events
       WHERE type = 'download'
-        AND (${since}::timestamptz IS NULL OR created_at >= ${since})
-        AND (${until}::timestamptz IS NULL OR created_at <= ${until})
+        AND (${sinceIso}::timestamptz IS NULL OR created_at >= ${sinceIso})
+        AND (${untilIso}::timestamptz IS NULL OR created_at <= ${untilIso})
       ORDER BY created_at DESC LIMIT 100`;
     // Funnel: did the captured contact later sign up? Match phone/email in users + drivers.
     const funnel = await sql`
@@ -138,16 +142,16 @@ export async function registerDownloadRoutes(app: FastifyInstance) {
              count(*)::int AS downloads,
              count(*) FILTER (WHERE u.id IS NOT NULL OR d.id IS NOT NULL)::int AS matched_signups
       FROM (SELECT DISTINCT app, contact FROM app_events WHERE type = 'download' AND contact IS NOT NULL
-              AND (${since}::timestamptz IS NULL OR created_at >= ${since})
-              AND (${until}::timestamptz IS NULL OR created_at <= ${until})) e
+              AND (${sinceIso}::timestamptz IS NULL OR created_at >= ${sinceIso})
+              AND (${untilIso}::timestamptz IS NULL OR created_at <= ${untilIso})) e
       LEFT JOIN users   u ON lower(u.email) = lower(e.contact) OR u.phone = e.contact
       LEFT JOIN drivers d ON lower(d.email) = lower(e.contact) OR d.phone = e.contact
       GROUP BY e.app`;
     const messages = await sql`
       SELECT contact, message, created_at FROM app_events
       WHERE type = 'feedback'
-        AND (${since}::timestamptz IS NULL OR created_at >= ${since})
-        AND (${until}::timestamptz IS NULL OR created_at <= ${until})
+        AND (${sinceIso}::timestamptz IS NULL OR created_at >= ${sinceIso})
+        AND (${untilIso}::timestamptz IS NULL OR created_at <= ${untilIso})
       ORDER BY created_at DESC LIMIT 100`;
     // Daily series (IST buckets) for the chart; unbounded range defaults to the last 31 days.
     const daily = await sql`
@@ -157,16 +161,16 @@ export async function registerDownloadRoutes(app: FastifyInstance) {
              count(*) FILTER (WHERE type = 'download' AND status = 'downloaded')::int AS downloads,
              count(*) FILTER (WHERE type = 'feedback')::int AS messages
       FROM app_events
-      WHERE (${since}::timestamptz IS NOT NULL OR created_at >= now() - interval '31 days')
-        AND (${since}::timestamptz IS NULL OR created_at >= ${since})
-        AND (${until}::timestamptz IS NULL OR created_at <= ${until})
+      WHERE (${sinceIso}::timestamptz IS NOT NULL OR created_at >= now() - interval '31 days')
+        AND (${sinceIso}::timestamptz IS NULL OR created_at >= ${sinceIso})
+        AND (${untilIso}::timestamptz IS NULL OR created_at <= ${untilIso})
       GROUP BY 1 ORDER BY 1`;
     // Full filtered event rows for the CSV dump (capped).
     const rows = await sql`
       SELECT type, app, contact, message, status, created_at, completed_at
       FROM app_events
-      WHERE (${since}::timestamptz IS NULL OR created_at >= ${since})
-        AND (${until}::timestamptz IS NULL OR created_at <= ${until})
+      WHERE (${sinceIso}::timestamptz IS NULL OR created_at >= ${sinceIso})
+        AND (${untilIso}::timestamptz IS NULL OR created_at <= ${untilIso})
       ORDER BY created_at DESC LIMIT 5000`;
     return { visits: visits?.n ?? 0, downloads, requested, recent, funnel, messages, daily, rows };
   });
