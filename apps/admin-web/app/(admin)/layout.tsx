@@ -3,35 +3,18 @@
 // in @types/react 19.0.x makes a strict `{ children: ReactNode }` annotation
 // fail under Next's typed-routes validator even though runtime is identical.
 // Cast at the destructure site instead.
-import { SupportNavBadge } from "./SupportNavBadge";
-import { AlertsNavBadge } from "./AlertsNavBadge";
+//
+// v2.0: nav moved into the client <Sidebar /> (route-aware active state,
+// collapsible icon rail, live Alerts/Support badges). The shell + SafetyBanner
+// wiring is unchanged.
+import { Sidebar } from "./Sidebar";
 import { SafetyBanner } from "./SafetyBanner";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default function AdminLayout({ children }: any) {
   return (
     <div className="shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark">JR</div>
-          <div>
-            <h2>Jeevan Rakshak</h2>
-            <small>OPERATIONS</small>
-          </div>
-        </div>
-        <nav>
-          <a className="active" href="/">Live dashboard</a>
-          <a href="/bookings">Bookings</a>
-          <a href="/drivers">Drivers</a>
-          <a href="/users">Users</a>
-          <a href="/app-installs">App installs</a>
-          <a href="/feedback">Feedback</a>
-          <a href="/hospitals">Hospitals</a>
-          <AlertsNavBadge />
-          <SupportNavBadge />
-        </nav>
-        <div className="footer">Jeevan Rakshak Operations · v1.3.0</div>
-      </aside>
+      <Sidebar />
       <main className="content">
         <SafetyBanner />
         {children}
