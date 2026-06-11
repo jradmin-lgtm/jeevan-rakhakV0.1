@@ -32,6 +32,8 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
   if (ct) headers["content-type"] = ct;
   const xff = req.headers.get("x-forwarded-for");
   if (xff) headers["x-forwarded-for"] = xff; // so the api-server logs the real client IP
+  const ua = req.headers.get("user-agent");
+  if (ua) headers["user-agent"] = ua; // and the real device/browser, not this proxy's fetch UA
 
   try {
     const res = await fetch(`${API_BASE}/api/v1/dl/${seg}`, {
