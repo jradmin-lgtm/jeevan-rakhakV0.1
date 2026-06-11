@@ -201,6 +201,14 @@ export default function GetPage() {
         })}
       </section>
 
+      <section className="contact">
+        <h3>Questions or feedback?</h3>
+        <p>Write to us — a real person from the Jeevan Rakshak team reads every message.</p>
+        <a className="mail" href="mailto:contact.jeevanrakshak@gmail.com?subject=Jeevan%20Rakshak%20app">
+          ✉ contact.jeevanrakshak@gmail.com
+        </a>
+      </section>
+
       <footer className="foot">
         <p>
           Android only · installs by sideload (allow “install from unknown sources”). In a life-threatening
@@ -308,6 +316,22 @@ export default function GetPage() {
         .hint { color: var(--muted); font-size: 13px; }
         .link { align-self: flex-start; background: none; border: 0; color: var(--muted); text-decoration: underline; cursor: pointer; font-size: 13px; padding: 2px 0; }
 
+        .contact {
+          margin-top: 34px; text-align: center; padding: 26px 22px;
+          background: rgba(255,255,255,0.035); border: 1px solid var(--line); border-radius: 20px;
+          backdrop-filter: blur(8px); opacity: 0; animation: rise .8s .55s both;
+        }
+        .contact h3 { font-family: var(--display); font-weight: 700; font-size: 21px; margin: 0; letter-spacing: -0.01em; }
+        .contact p { color: var(--muted); font-size: 14px; margin: 8px 0 16px; }
+        .contact .mail {
+          display: inline-flex; align-items: center; gap: 8px; text-decoration: none;
+          color: var(--ink); font-weight: 700; font-size: 15.5px; padding: 12px 22px; border-radius: 999px;
+          border: 1px solid color-mix(in srgb, var(--red) 55%, var(--line));
+          background: color-mix(in srgb, var(--red) 14%, transparent);
+          transition: background .2s, transform .1s;
+        }
+        .contact .mail:hover { background: color-mix(in srgb, var(--red) 26%, transparent); }
+        .contact .mail:active { transform: translateY(1px); }
         .foot { text-align: center; margin-top: 40px; color: var(--muted); font-size: 12.5px; line-height: 1.7; max-width: 620px; opacity: 0; animation: rise .8s .6s both; }
         .foot a { color: #b9c4dc; }
         .foot strong { color: var(--ink); }
