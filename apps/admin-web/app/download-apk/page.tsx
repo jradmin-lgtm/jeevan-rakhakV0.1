@@ -107,7 +107,7 @@ export default function GetPage() {
       </header>
 
       <section className="hero">
-        <p className="kicker">EMERGENCY AMBULANCE · BAREILLY</p>
+        <p className="kicker">CURRENTLY LIVE IN BAREILLY · MORE CITIES COMING SOON</p>
         <h1>
           An ambulance,<br />
           <em>when every second counts.</em>
@@ -151,13 +151,25 @@ export default function GetPage() {
                 </button>
               ) : status === "started" ? (
                 <div className="done">
-                  <strong>Starting download…</strong>
-                  <span>
-                    When it finishes, open the file and allow <em>install from unknown sources</em> to set it up.
+                  <div className="dlbar" aria-hidden>
+                    <span />
+                  </div>
+                  <strong>✓ Download started — check your notifications</strong>
+                  <ol className="next">
+                    <li>Open the downloaded <em>.apk</em> file</li>
+                    <li>If asked, allow <em>install from unknown sources</em>, then tap Install</li>
+                    <li>Open the app and sign in with Google</li>
+                  </ol>
+                  <span className="hint">
+                    Didn&rsquo;t start?{" "}
+                    <button className="link" onClick={() => submit(app)}>
+                      Try again
+                    </button>{" "}
+                    ·{" "}
+                    <button className="link" onClick={() => open(app)}>
+                      Start over
+                    </button>
                   </span>
-                  <button className="link" onClick={() => open(app)}>
-                    Download again
-                  </button>
                 </div>
               ) : (
                 <form
@@ -281,9 +293,19 @@ export default function GetPage() {
         .gate .err { color: #ff9a8a; font-size: 13px; margin: 0; }
         .gate .fineprint { color: var(--muted); font-size: 11.5px; margin: 4px 0 0; line-height: 1.4; }
 
-        .done { display: flex; flex-direction: column; gap: 8px; animation: rise .35s both; }
+        .done { display: flex; flex-direction: column; gap: 10px; animation: rise .35s both; }
         .done strong { font-family: var(--display); font-size: 17px; color: var(--accent); }
         .done span { color: #c2cce0; font-size: 14px; line-height: 1.5; }
+        .dlbar { height: 4px; border-radius: 99px; background: rgba(255,255,255,0.08); overflow: hidden; }
+        .dlbar span { display: block; height: 100%; width: 40%; border-radius: 99px; padding: 0;
+          background: linear-gradient(90deg, transparent, var(--accent), transparent);
+          animation: dlslide 1.4s ease-in-out infinite; }
+        @keyframes dlslide { from { transform: translateX(-110%); } to { transform: translateX(360%); } }
+        .next { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 7px; }
+        .next li { color: #c2cce0; font-size: 14px; line-height: 1.5; opacity: 0; animation: rise .4s both; }
+        .next li:nth-child(1) { animation-delay: .05s; } .next li:nth-child(2) { animation-delay: .18s; } .next li:nth-child(3) { animation-delay: .3s; }
+        .next em { color: var(--ink); font-style: normal; font-weight: 700; }
+        .hint { color: var(--muted); font-size: 13px; }
         .link { align-self: flex-start; background: none; border: 0; color: var(--muted); text-decoration: underline; cursor: pointer; font-size: 13px; padding: 2px 0; }
 
         .foot { text-align: center; margin-top: 40px; color: var(--muted); font-size: 12.5px; line-height: 1.7; max-width: 620px; opacity: 0; animation: rise .8s .6s both; }
