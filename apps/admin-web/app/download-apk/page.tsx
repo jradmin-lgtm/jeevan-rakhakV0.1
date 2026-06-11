@@ -3,35 +3,112 @@
 import { useEffect, useRef, useState } from "react";
 
 /**
- * Public download portal — jr-admin.vercel.app/download-apk
+ * Public download portal · jr-admin.vercel.app/download-apk
  * Dark "lifeline" landing: animated ECG heartbeat, brand-red pulse, two cards
  * (Patients / Drivers). Pick one -> enter mobile or email (no anonymous
  * downloads) -> the latest APK streams from the Drive folder via the api-server.
- * Calls go through /api/dl (same-origin, no CORS); the 60 MB file is fetched by
- * navigating straight to the api-server download URL.
+ * One-tap English/Hindi toggle (persisted in localStorage). On-page feedback
+ * form posts to /api/dl/feedback and lands in admin "App installs".
+ * No em-dashes anywhere in user-facing text (project rule).
  */
 
 type App = "user" | "driver";
 type Status = "idle" | "submitting" | "started" | "error";
+type Lang = "en" | "hi";
 
-const APPS: Record<App, { title: string; tag: string; line: string; icon: string; accent: string }> = {
-  user: {
-    title: "For Patients",
-    tag: "Jeevan Rakshak",
-    line: "Book an ambulance and track it live to your location in an emergency.",
-    icon: "/user-app-icon.png",
-    accent: "var(--red)",
-  },
-  driver: {
-    title: "For Drivers",
-    tag: "Jeevan Rakshak Driver",
-    line: "For verified ambulance drivers · receive trip requests and navigate to patients.",
-    icon: "/driver-app-icon.png",
-    accent: "var(--teal)",
-  },
-};
+const LANG_KEY = "jr.dl.lang";
 
-export default function GetPage() {
+const STR = {
+  en: {
+    kicker: "CURRENTLY LIVE IN BAREILLY · MORE CITIES COMING SOON",
+    h1a: "An ambulance,",
+    h1b: "when every second counts.",
+    sub: "Download the app, book in seconds, and track it live to your door. Choose your app below.",
+    userTitle: "For Patients",
+    userLine: "Book an ambulance and track it live to your location in an emergency.",
+    driverTitle: "For Drivers",
+    driverLine: "For verified ambulance drivers · receive trip requests and navigate to patients.",
+    download: "Download",
+    gateLabel: "Mobile number or email to download",
+    gatePh: "e.g. 98XXXXXXXX or you@email.com",
+    gateBtn: "Get the app",
+    gateBusy: "Preparing…",
+    gateFine: "We use this only to share the app and important updates.",
+    gateErr: "Enter your mobile number or email.",
+    netErr: "Network error. Please check your connection and try again.",
+    dlFail: "Could not start the download. Please try again.",
+    started: "✓ Download started. Check your notifications",
+    step1a: "Open the downloaded ", step1b: ".apk", step1c: " file",
+    step2a: "If asked, allow ", step2b: "install from unknown sources", step2c: ", then tap Install",
+    step3a: "Open the app and sign in with Google", step3b: "", step3c: "",
+    didnt: "Didn’t start?",
+    tryAgain: "Try again",
+    startOver: "Start over",
+    fbTitle: "Questions or feedback?",
+    fbIntro: "Type your message and hit send. It reaches our team directly.",
+    fbMsgPh: "Write your message here…",
+    fbContactPh: "Mobile or email for a reply (optional)",
+    fbSend: "Send message",
+    fbSending: "Sending…",
+    fbShort: "Please write a short message first.",
+    fbFail: "Could not send. Please try again.",
+    fbDone: "✓ Message sent. Thank you!",
+    fbDoneP: "A real person from the Jeevan Rakshak team reads every message.",
+    fbDoneReply: " We will get back to you on the contact you shared.",
+    fbOr: "Prefer email? Write to",
+    foot1a: "Android only · installs by sideload (allow “install from unknown sources”). In a life-threatening emergency you can also call ",
+    foot1b: ". This app does not replace official emergency services.",
+    privacy: "Privacy",
+    delAcc: "Delete account",
+    made: "Made with care for Bareilly",
+  },
+  hi: {
+    kicker: "अभी बरेली में उपलब्ध · और शहर जल्द आ रहे हैं",
+    h1a: "एम्बुलेंस,",
+    h1b: "जब हर सेकंड कीमती है।",
+    sub: "ऐप डाउनलोड करें, सेकंडों में बुक करें और एम्बुलेंस को लाइव ट्रैक करें। नीचे अपना ऐप चुनें।",
+    userTitle: "मरीज़ों के लिए",
+    userLine: "आपात स्थिति में एम्बुलेंस बुक करें और उसे अपने पते तक लाइव ट्रैक करें।",
+    driverTitle: "ड्राइवरों के लिए",
+    driverLine: "सत्यापित एम्बुलेंस ड्राइवरों के लिए · ट्रिप अनुरोध पाएँ और मरीज़ तक पहुँचें।",
+    download: "डाउनलोड करें",
+    gateLabel: "डाउनलोड के लिए मोबाइल नंबर या ईमेल",
+    gatePh: "जैसे 98XXXXXXXX या you@email.com",
+    gateBtn: "ऐप पाएँ",
+    gateBusy: "तैयार हो रहा है…",
+    gateFine: "इसका उपयोग केवल ऐप और ज़रूरी अपडेट भेजने के लिए होगा।",
+    gateErr: "अपना मोबाइल नंबर या ईमेल लिखें।",
+    netErr: "नेटवर्क समस्या। कृपया कनेक्शन देखकर फिर कोशिश करें।",
+    dlFail: "डाउनलोड शुरू नहीं हो सका। कृपया फिर कोशिश करें।",
+    started: "✓ डाउनलोड शुरू हो गया। अपनी नोटिफिकेशन देखें",
+    step1a: "डाउनलोड की गई ", step1b: ".apk", step1c: " फ़ाइल खोलें",
+    step2a: "पूछे जाने पर ", step2b: "अनजान स्रोत से इंस्टॉल", step2c: " की अनुमति दें, फिर Install दबाएँ",
+    step3a: "ऐप खोलें और Google से साइन इन करें", step3b: "", step3c: "",
+    didnt: "शुरू नहीं हुआ?",
+    tryAgain: "फिर कोशिश करें",
+    startOver: "दोबारा शुरू करें",
+    fbTitle: "कोई सवाल या सुझाव?",
+    fbIntro: "अपना संदेश लिखें और भेजें। यह सीधे हमारी टीम तक पहुँचेगा।",
+    fbMsgPh: "अपना संदेश यहाँ लिखें…",
+    fbContactPh: "जवाब के लिए मोबाइल या ईमेल (वैकल्पिक)",
+    fbSend: "संदेश भेजें",
+    fbSending: "भेजा जा रहा है…",
+    fbShort: "कृपया पहले एक छोटा संदेश लिखें।",
+    fbFail: "भेजा नहीं जा सका। कृपया फिर कोशिश करें।",
+    fbDone: "✓ संदेश भेज दिया गया। धन्यवाद!",
+    fbDoneP: "जीवन रक्षक टीम का एक सदस्य हर संदेश पढ़ता है।",
+    fbDoneReply: " आपके दिए संपर्क पर हम जवाब देंगे।",
+    fbOr: "ईमेल करना चाहें? लिखें",
+    foot1a: "केवल Android · साइडलोड से इंस्टॉल होता है (“अनजान स्रोत से इंस्टॉल” की अनुमति दें)। जानलेवा आपात स्थिति में आप ",
+    foot1b: " पर भी कॉल कर सकते हैं। यह ऐप आधिकारिक आपातकालीन सेवाओं का विकल्प नहीं है।",
+    privacy: "गोपनीयता",
+    delAcc: "खाता हटाएँ",
+    made: "बरेली के लिए प्यार से बनाया गया",
+  },
+} as const;
+
+export default function DownloadApkPage() {
+  const [lang, setLang] = useState<Lang>("en");
   const [active, setActive] = useState<App | null>(null);
   const [contact, setContact] = useState("");
   const [status, setStatus] = useState<Status>("idle");
@@ -43,8 +120,17 @@ export default function GetPage() {
   const [fbStatus, setFbStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [fbErr, setFbErr] = useState("");
 
-  // log the visit (best-effort)
+  const t = STR[lang];
+  const APPS: Record<App, { title: string; tag: string; line: string; icon: string; accent: string }> = {
+    user: { title: t.userTitle, tag: "Jeevan Rakshak", line: t.userLine, icon: "/user-app-icon.png", accent: "var(--red)" },
+    driver: { title: t.driverTitle, tag: "Jeevan Rakshak Driver", line: t.driverLine, icon: "/driver-app-icon.png", accent: "var(--teal)" },
+  };
+
   useEffect(() => {
+    try {
+      const saved = localStorage.getItem(LANG_KEY);
+      if (saved === "hi" || saved === "en") setLang(saved);
+    } catch { /* ignored */ }
     fetch("/api/dl/visit", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -52,6 +138,11 @@ export default function GetPage() {
       keepalive: true,
     }).catch(() => {});
   }, []);
+
+  function switchLang(next: Lang) {
+    setLang(next);
+    try { localStorage.setItem(LANG_KEY, next); } catch { /* ignored */ }
+  }
 
   useEffect(() => {
     if (active) setTimeout(() => inputRef.current?.focus(), 120);
@@ -67,7 +158,7 @@ export default function GetPage() {
   async function submit(app: App) {
     const c = contact.trim();
     if (!c) {
-      setErr("Enter your mobile number or email.");
+      setErr(t.gateErr);
       return;
     }
     setStatus("submitting");
@@ -81,21 +172,21 @@ export default function GetPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.fileUrl) {
         setStatus("error");
-        setErr(data.message || "Could not start the download. Please try again.");
+        setErr(data.message || t.dlFail);
         return;
       }
       setStatus("started");
       window.location.href = data.fileUrl; // streams the APK (Content-Disposition: attachment)
     } catch {
       setStatus("error");
-      setErr("Network error. Please check your connection and try again.");
+      setErr(t.netErr);
     }
   }
 
   async function sendFeedback() {
     const m = fbMsg.trim();
     if (m.length < 5) {
-      setFbErr("Please write a short message first.");
+      setFbErr(t.fbShort);
       return;
     }
     setFbStatus("sending");
@@ -109,13 +200,13 @@ export default function GetPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setFbStatus("error");
-        setFbErr(data.message || "Could not send. Please try again.");
+        setFbErr(data.message || t.fbFail);
         return;
       }
       setFbStatus("sent");
     } catch {
       setFbStatus("error");
-      setFbErr("Network error. Please try again.");
+      setFbErr(t.netErr);
     }
   }
 
@@ -126,28 +217,32 @@ export default function GetPage() {
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
       <link
-        href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Manrope:wght@400;500;600;700&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Manrope:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap"
         rel="stylesheet"
       />
 
       <div className="bg-glow" aria-hidden />
       <div className="bg-grid" aria-hidden />
 
-      <header className="brand">
-        <span className="brand-pulse" aria-hidden />
-        <span>Jeevan Rakshak</span>
+      <header className="topbar">
+        <div className="brand">
+          <span className="brand-pulse" aria-hidden />
+          <span>Jeevan Rakshak</span>
+        </div>
+        <div className="lang" role="group" aria-label="Language">
+          <button className={lang === "en" ? "on" : ""} onClick={() => switchLang("en")}>English</button>
+          <button className={lang === "hi" ? "on" : ""} onClick={() => switchLang("hi")}>हिंदी</button>
+        </div>
       </header>
 
       <section className="hero">
-        <p className="kicker">CURRENTLY LIVE IN BAREILLY · MORE CITIES COMING SOON</p>
+        <p className="kicker">{t.kicker}</p>
         <h1>
-          An ambulance,<br />
-          <em>when every second counts.</em>
+          {t.h1a}
+          <br />
+          <em>{t.h1b}</em>
         </h1>
-        <p className="sub">
-          Download the app, book in seconds, and track it live to your door.
-          Choose your app below.
-        </p>
+        <p className="sub">{t.sub}</p>
 
         {/* signature: animated ECG heartbeat */}
         <svg className="ecg" viewBox="0 0 1200 120" preserveAspectRatio="none" aria-hidden>
@@ -179,27 +274,27 @@ export default function GetPage() {
 
               {!isActive ? (
                 <button className="cta" onClick={() => open(app)}>
-                  Download <span aria-hidden>→</span>
+                  {t.download} <span aria-hidden>→</span>
                 </button>
               ) : status === "started" ? (
                 <div className="done">
                   <div className="dlbar" aria-hidden>
                     <span />
                   </div>
-                  <strong>✓ Download started. Check your notifications</strong>
+                  <strong>{t.started}</strong>
                   <ol className="next">
-                    <li>Open the downloaded <em>.apk</em> file</li>
-                    <li>If asked, allow <em>install from unknown sources</em>, then tap Install</li>
-                    <li>Open the app and sign in with Google</li>
+                    <li>{t.step1a}<em>{t.step1b}</em>{t.step1c}</li>
+                    <li>{t.step2a}<em>{t.step2b}</em>{t.step2c}</li>
+                    <li>{t.step3a}</li>
                   </ol>
                   <span className="hint">
-                    Didn&rsquo;t start?{" "}
+                    {t.didnt}{" "}
                     <button className="link" onClick={() => submit(app)}>
-                      Try again
+                      {t.tryAgain}
                     </button>{" "}
                     ·{" "}
                     <button className="link" onClick={() => open(app)}>
-                      Start over
+                      {t.startOver}
                     </button>
                   </span>
                 </div>
@@ -211,21 +306,21 @@ export default function GetPage() {
                     submit(app);
                   }}
                 >
-                  <label htmlFor={`c-${app}`}>Mobile number or email to download</label>
+                  <label htmlFor={`c-${app}`}>{t.gateLabel}</label>
                   <input
                     id={`c-${app}`}
                     ref={inputRef}
                     value={contact}
                     onChange={(e) => setContact(e.target.value)}
-                    placeholder="e.g. 98XXXXXXXX or you@email.com"
+                    placeholder={t.gatePh}
                     autoComplete="off"
                     inputMode="text"
                   />
                   {err ? <p className="err">{err}</p> : null}
                   <button className="cta" type="submit" disabled={status === "submitting"}>
-                    {status === "submitting" ? "Preparing…" : "Get the app"}
+                    {status === "submitting" ? t.gateBusy : t.gateBtn}
                   </button>
-                  <p className="fineprint">We use this only to share the app and important updates.</p>
+                  <p className="fineprint">{t.gateFine}</p>
                 </form>
               )}
             </article>
@@ -234,13 +329,13 @@ export default function GetPage() {
       </section>
 
       <section className="contact" style={{ ["--accent" as any]: "var(--red)" }}>
-        <h3>Questions or feedback?</h3>
+        <h3>{t.fbTitle}</h3>
         {fbStatus === "sent" ? (
           <div className="fb-done">
-            <strong>✓ Message sent. Thank you!</strong>
+            <strong>{t.fbDone}</strong>
             <p>
-              A real person from the Jeevan Rakshak team reads every message.
-              {fbContact.trim() ? " We will get back to you on the contact you shared." : ""}
+              {t.fbDoneP}
+              {fbContact.trim() ? t.fbDoneReply : ""}
             </p>
           </div>
         ) : (
@@ -251,26 +346,26 @@ export default function GetPage() {
               sendFeedback();
             }}
           >
-            <p>Type your message and hit send. It reaches our team directly.</p>
+            <p>{t.fbIntro}</p>
             <textarea
               value={fbMsg}
               onChange={(e) => setFbMsg(e.target.value)}
-              placeholder="Write your message here…"
+              placeholder={t.fbMsgPh}
               rows={3}
               maxLength={2000}
             />
             <input
               value={fbContact}
               onChange={(e) => setFbContact(e.target.value)}
-              placeholder="Mobile or email for a reply (optional)"
+              placeholder={t.fbContactPh}
               autoComplete="off"
             />
             {fbErr ? <p className="err">{fbErr}</p> : null}
             <button className="cta" type="submit" disabled={fbStatus === "sending"}>
-              {fbStatus === "sending" ? "Sending…" : "Send message"}
+              {fbStatus === "sending" ? t.fbSending : t.fbSend}
             </button>
             <p className="fineprint">
-              Prefer email? Write to{" "}
+              {t.fbOr}{" "}
               <a href="mailto:contact.jeevanrakshak@gmail.com?subject=Jeevan%20Rakshak%20app">
                 contact.jeevanrakshak@gmail.com
               </a>
@@ -281,11 +376,12 @@ export default function GetPage() {
 
       <footer className="foot">
         <p>
-          Android only · installs by sideload (allow “install from unknown sources”). In a life-threatening
-          emergency you can also call <strong>108</strong>. This app does not replace official emergency services.
+          {t.foot1a}
+          <strong>108</strong>
+          {t.foot1b}
         </p>
         <p>
-          <a href="/privacy">Privacy</a> · <a href="/delete-account">Delete account</a> · Made with care for Bareilly
+          <a href="/privacy">{t.privacy}</a> · <a href="/delete-account">{t.delAcc}</a> · {t.made}
         </p>
       </footer>
 
@@ -295,8 +391,8 @@ export default function GetPage() {
           --ink: #EAF0FB; --muted: #8C99B4;
           --red: #FF4744; --red-deep: #E5322B; --teal: #2FD3BE;
           --line: rgba(255,255,255,0.10);
-          --display: "Bricolage Grotesque", "Manrope", sans-serif;
-          --body: "Manrope", -apple-system, BlinkMacSystemFont, sans-serif;
+          --display: "Bricolage Grotesque", "Noto Sans Devanagari", "Manrope", sans-serif;
+          --body: "Manrope", "Noto Sans Devanagari", -apple-system, BlinkMacSystemFont, sans-serif;
         }
         .jr-get {
           position: fixed; inset: 0; overflow-y: auto;
@@ -321,17 +417,21 @@ export default function GetPage() {
         }
         .jr-get > *:not(.bg-glow):not(.bg-grid) { position: relative; z-index: 1; width: 100%; max-width: 860px; }
 
-        .brand { display: flex; align-items: center; gap: 10px; font-family: var(--display); font-weight: 700; letter-spacing: -0.01em; font-size: 18px; opacity: 0; animation: rise .7s .05s both; }
+        .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; opacity: 0; animation: rise .7s .05s both; }
+        .brand { display: flex; align-items: center; gap: 10px; font-family: var(--display); font-weight: 700; letter-spacing: -0.01em; font-size: 18px; }
         .brand-pulse { width: 11px; height: 11px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 0 rgba(255,71,68,0.6); animation: beat 1.6s infinite; }
         @keyframes beat { 0% { box-shadow: 0 0 0 0 rgba(255,71,68,0.55);} 70% { box-shadow: 0 0 0 12px rgba(255,71,68,0);} 100% { box-shadow: 0 0 0 0 rgba(255,71,68,0);} }
+        .lang { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; background: rgba(255,255,255,0.04); }
+        .lang button { border: 0; background: transparent; color: var(--muted); font-family: var(--body); font-weight: 700; font-size: 13.5px; padding: 8px 14px; cursor: pointer; transition: background .2s, color .2s; }
+        .lang button.on { background: var(--red); color: #fff; }
 
         .hero { text-align: center; margin: 46px 0 14px; }
-        .kicker { font-size: 12px; letter-spacing: 0.22em; color: var(--muted); margin: 0 0 14px; opacity: 0; animation: rise .7s .12s both; }
-        .hero h1 { font-family: var(--display); font-weight: 800; font-size: clamp(34px, 7vw, 62px); line-height: 1.02; letter-spacing: -0.03em; margin: 0; opacity: 0; animation: rise .8s .18s both; }
+        .kicker { font-size: 12px; letter-spacing: 0.18em; color: var(--muted); margin: 0 0 14px; opacity: 0; animation: rise .7s .12s both; }
+        .hero h1 { font-family: var(--display); font-weight: 800; font-size: clamp(34px, 7vw, 62px); line-height: 1.08; letter-spacing: -0.03em; margin: 0; opacity: 0; animation: rise .8s .18s both; }
         .hero h1 em { font-style: normal; background: linear-gradient(100deg, var(--red), #ff8a6b 60%, var(--teal)); -webkit-background-clip: text; background-clip: text; color: transparent; }
         .hero .sub { color: var(--muted); font-size: clamp(15px, 2.4vw, 18px); max-width: 540px; margin: 18px auto 0; opacity: 0; animation: rise .8s .26s both; }
         .ecg { display: block; width: 100%; height: 84px; margin: 26px auto 0; opacity: 0; animation: rise .8s .34s both; }
-        .ecg path { stroke: url(#x); stroke: var(--red); stroke-width: 2.4; filter: drop-shadow(0 0 6px rgba(255,71,68,0.7)); stroke-dasharray: 2600; stroke-dashoffset: 2600; animation: draw 3.4s linear infinite; }
+        .ecg path { stroke: var(--red); stroke-width: 2.4; filter: drop-shadow(0 0 6px rgba(255,71,68,0.7)); stroke-dasharray: 2600; stroke-dashoffset: 2600; animation: draw 3.4s linear infinite; }
         @keyframes draw { to { stroke-dashoffset: 0; } }
 
         .cards { display: grid; gap: 18px; grid-template-columns: 1fr; margin-top: 30px; }
@@ -384,7 +484,7 @@ export default function GetPage() {
         .next li:nth-child(1) { animation-delay: .05s; } .next li:nth-child(2) { animation-delay: .18s; } .next li:nth-child(3) { animation-delay: .3s; }
         .next em { color: var(--ink); font-style: normal; font-weight: 700; }
         .hint { color: var(--muted); font-size: 13px; }
-        .link { align-self: flex-start; background: none; border: 0; color: var(--muted); text-decoration: underline; cursor: pointer; font-size: 13px; padding: 2px 0; }
+        .link { background: none; border: 0; color: var(--muted); text-decoration: underline; cursor: pointer; font-size: 13px; padding: 2px 0; }
 
         .contact {
           margin-top: 34px; text-align: center; padding: 26px 22px;
@@ -406,6 +506,7 @@ export default function GetPage() {
         .fb .fineprint a { color: #b9c4dc; }
         .fb-done { display: flex; flex-direction: column; gap: 6px; animation: rise .35s both; }
         .fb-done strong { font-family: var(--display); font-size: 18px; color: var(--teal); }
+
         .foot { text-align: center; margin-top: 40px; color: var(--muted); font-size: 12.5px; line-height: 1.7; max-width: 620px; opacity: 0; animation: rise .8s .6s both; }
         .foot a { color: #b9c4dc; }
         .foot strong { color: var(--ink); }
