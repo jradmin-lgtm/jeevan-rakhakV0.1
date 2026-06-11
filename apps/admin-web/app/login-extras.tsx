@@ -62,23 +62,27 @@ export function GetAppPanel() {
         <a href="/download-apk">Open download page →</a>
       </div>
       <style>{`
+        /* Compact corner card (bottom-right): always anchored, never floats in
+           dead space between the form and the viewport edge. */
         .lg-getapp {
-          position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
-          z-index: 2; display: flex; align-items: center; gap: 14px;
-          max-width: min(480px, calc(100vw - 32px));
-          background: rgba(255,255,255,0.82); backdrop-filter: blur(10px);
-          border: 1px solid var(--border, #E6E9F2); border-radius: 16px;
-          padding: 12px 16px; box-shadow: 0 10px 30px rgba(16,22,38,0.10);
+          position: fixed; right: 22px; bottom: 22px;
+          z-index: 2; display: flex; align-items: center; gap: 12px;
+          max-width: 330px;
+          background: rgba(255,255,255,0.86); backdrop-filter: blur(10px);
+          border: 1px solid var(--border, #E6E9F2); border-radius: 15px;
+          padding: 12px 14px; box-shadow: 0 10px 30px rgba(16,22,38,0.12);
           animation: lgUp .6s .25s ease-out both;
+          transition: transform .2s ease, box-shadow .2s ease;
         }
-        @keyframes lgUp { from { opacity: 0; transform: translate(-50%, 14px); } to { opacity: 1; transform: translate(-50%, 0); } }
-        .lg-getapp img { border-radius: 10px; border: 1px solid var(--border, #E6E9F2); flex: 0 0 86px; }
-        .lg-getapp-txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-        .lg-getapp-txt strong { font-size: 13.5px; color: var(--ink, #101626); }
-        .lg-getapp-txt span { font-size: 11.5px; color: var(--muted, #6B7590); line-height: 1.45; }
-        .lg-getapp-txt a { font-size: 12.5px; font-weight: 700; color: var(--accent, #2563EB); margin-top: 2px; }
-        /* Never crowd the form: hide when the viewport is short or very narrow. */
-        @media (max-height: 640px), (max-width: 420px) { .lg-getapp { display: none; } }
+        .lg-getapp:hover { transform: translateY(-2px); box-shadow: 0 14px 36px rgba(16,22,38,0.16); }
+        @keyframes lgUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+        .lg-getapp img { border-radius: 9px; border: 1px solid var(--border, #E6E9F2); flex: 0 0 70px; width: 70px; height: 70px; }
+        .lg-getapp-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .lg-getapp-txt strong { font-size: 13px; color: var(--ink, #101626); }
+        .lg-getapp-txt span { font-size: 11px; color: var(--muted, #6B7590); line-height: 1.4; }
+        .lg-getapp-txt a { font-size: 12px; font-weight: 700; color: var(--accent, #2563EB); margin-top: 2px; }
+        /* Never crowd the form: hide on narrow or short viewports. */
+        @media (max-height: 600px), (max-width: 720px) { .lg-getapp { display: none; } }
       `}</style>
     </div>
   );
