@@ -22,7 +22,7 @@ const PUBLIC_PATHS = [
   "/api/admin-login",
   "/privacy",
   "/delete-account",
-  "/get",
+  "/download-apk",
   "/api/dl",
   "/user-app-icon.png",
   "/driver-app-icon.png",

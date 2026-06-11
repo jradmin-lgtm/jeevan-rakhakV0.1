@@ -57,7 +57,7 @@ export default async function AppInstallsPage() {
         <div>
           <h1 style={{ margin: 0, fontSize: 24, color: "var(--ink)" }}>App installs</h1>
           <p style={{ margin: "4px 0 0", color: "var(--muted)", fontSize: 14 }}>
-            Traffic + downloads from the public portal <code style={{ background: "var(--bg-deep)", padding: "1px 6px", borderRadius: 6 }}>/get</code>
+            Traffic + downloads from the public portal <code style={{ background: "var(--bg-deep)", padding: "1px 6px", borderRadius: 6 }}>/download-apk</code>
           </p>
         </div>
       </div>

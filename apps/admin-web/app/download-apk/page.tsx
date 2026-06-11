@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 /**
- * Public download portal — jr-admin.vercel.app/get
+ * Public download portal — jr-admin.vercel.app/download-apk
  * Dark "lifeline" landing: animated ECG heartbeat, brand-red pulse, two cards
  * (Patients / Drivers). Pick one -> enter mobile or email (no anonymous
  * downloads) -> the latest APK streams from the Drive folder via the api-server.
