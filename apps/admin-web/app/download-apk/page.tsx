@@ -25,7 +25,7 @@ const APPS: Record<App, { title: string; tag: string; line: string; icon: string
   driver: {
     title: "For Drivers",
     tag: "Jeevan Rakshak Driver",
-    line: "For verified ambulance drivers — receive trip requests and navigate to patients.",
+    line: "For verified ambulance drivers · receive trip requests and navigate to patients.",
     icon: "/driver-app-icon.png",
     accent: "var(--teal)",
   },
@@ -37,6 +37,11 @@ export default function GetPage() {
   const [status, setStatus] = useState<Status>("idle");
   const [err, setErr] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  // feedback form (low-friction: written + sent on the page, no mail app needed)
+  const [fbMsg, setFbMsg] = useState("");
+  const [fbContact, setFbContact] = useState("");
+  const [fbStatus, setFbStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [fbErr, setFbErr] = useState("");
 
   // log the visit (best-effort)
   useEffect(() => {
@@ -84,6 +89,33 @@ export default function GetPage() {
     } catch {
       setStatus("error");
       setErr("Network error. Please check your connection and try again.");
+    }
+  }
+
+  async function sendFeedback() {
+    const m = fbMsg.trim();
+    if (m.length < 5) {
+      setFbErr("Please write a short message first.");
+      return;
+    }
+    setFbStatus("sending");
+    setFbErr("");
+    try {
+      const res = await fetch("/api/dl/feedback", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: m, contact: fbContact.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setFbStatus("error");
+        setFbErr(data.message || "Could not send. Please try again.");
+        return;
+      }
+      setFbStatus("sent");
+    } catch {
+      setFbStatus("error");
+      setFbErr("Network error. Please try again.");
     }
   }
 
@@ -154,7 +186,7 @@ export default function GetPage() {
                   <div className="dlbar" aria-hidden>
                     <span />
                   </div>
-                  <strong>✓ Download started — check your notifications</strong>
+                  <strong>✓ Download started. Check your notifications</strong>
                   <ol className="next">
                     <li>Open the downloaded <em>.apk</em> file</li>
                     <li>If asked, allow <em>install from unknown sources</em>, then tap Install</li>
@@ -201,18 +233,56 @@ export default function GetPage() {
         })}
       </section>
 
-      <section className="contact">
+      <section className="contact" style={{ ["--accent" as any]: "var(--red)" }}>
         <h3>Questions or feedback?</h3>
-        <p>Write to us — a real person from the Jeevan Rakshak team reads every message.</p>
-        <a className="mail" href="mailto:contact.jeevanrakshak@gmail.com?subject=Jeevan%20Rakshak%20app">
-          ✉ contact.jeevanrakshak@gmail.com
-        </a>
+        {fbStatus === "sent" ? (
+          <div className="fb-done">
+            <strong>✓ Message sent. Thank you!</strong>
+            <p>
+              A real person from the Jeevan Rakshak team reads every message.
+              {fbContact.trim() ? " We will get back to you on the contact you shared." : ""}
+            </p>
+          </div>
+        ) : (
+          <form
+            className="fb"
+            onSubmit={(e) => {
+              e.preventDefault();
+              sendFeedback();
+            }}
+          >
+            <p>Type your message and hit send. It reaches our team directly.</p>
+            <textarea
+              value={fbMsg}
+              onChange={(e) => setFbMsg(e.target.value)}
+              placeholder="Write your message here…"
+              rows={3}
+              maxLength={2000}
+            />
+            <input
+              value={fbContact}
+              onChange={(e) => setFbContact(e.target.value)}
+              placeholder="Mobile or email for a reply (optional)"
+              autoComplete="off"
+            />
+            {fbErr ? <p className="err">{fbErr}</p> : null}
+            <button className="cta" type="submit" disabled={fbStatus === "sending"}>
+              {fbStatus === "sending" ? "Sending…" : "Send message"}
+            </button>
+            <p className="fineprint">
+              Prefer email? Write to{" "}
+              <a href="mailto:contact.jeevanrakshak@gmail.com?subject=Jeevan%20Rakshak%20app">
+                contact.jeevanrakshak@gmail.com
+              </a>
+            </p>
+          </form>
+        )}
       </section>
 
       <footer className="foot">
         <p>
           Android only · installs by sideload (allow “install from unknown sources”). In a life-threatening
-          emergency you can also call <strong>108</strong> — this app does not replace official emergency services.
+          emergency you can also call <strong>108</strong>. This app does not replace official emergency services.
         </p>
         <p>
           <a href="/privacy">Privacy</a> · <a href="/delete-account">Delete account</a> · Made with care for Bareilly
@@ -321,17 +391,21 @@ export default function GetPage() {
           background: rgba(255,255,255,0.035); border: 1px solid var(--line); border-radius: 20px;
           backdrop-filter: blur(8px); opacity: 0; animation: rise .8s .55s both;
         }
-        .contact h3 { font-family: var(--display); font-weight: 700; font-size: 21px; margin: 0; letter-spacing: -0.01em; }
-        .contact p { color: var(--muted); font-size: 14px; margin: 8px 0 16px; }
-        .contact .mail {
-          display: inline-flex; align-items: center; gap: 8px; text-decoration: none;
-          color: var(--ink); font-weight: 700; font-size: 15.5px; padding: 12px 22px; border-radius: 999px;
-          border: 1px solid color-mix(in srgb, var(--red) 55%, var(--line));
-          background: color-mix(in srgb, var(--red) 14%, transparent);
-          transition: background .2s, transform .1s;
+        .contact h3 { font-family: var(--display); font-weight: 700; font-size: 21px; margin: 0 0 4px; letter-spacing: -0.01em; }
+        .contact p { color: var(--muted); font-size: 14px; margin: 6px 0 4px; }
+        .fb { display: flex; flex-direction: column; gap: 10px; max-width: 520px; margin: 0 auto; text-align: left; }
+        .fb p { text-align: center; }
+        .fb textarea, .fb input {
+          width: 100%; border-radius: 12px; border: 1px solid var(--line); background: rgba(0,0,0,0.25);
+          color: var(--ink); padding: 13px 14px; font-size: 16px; font-family: var(--body); outline: none;
+          transition: border-color .2s, box-shadow .2s; resize: vertical;
         }
-        .contact .mail:hover { background: color-mix(in srgb, var(--red) 26%, transparent); }
-        .contact .mail:active { transform: translateY(1px); }
+        .fb textarea:focus, .fb input:focus { border-color: var(--red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 22%, transparent); }
+        .fb .err { color: #ff9a8a; font-size: 13px; margin: 0; text-align: left; }
+        .fb .fineprint { color: var(--muted); font-size: 12px; margin: 4px 0 0; }
+        .fb .fineprint a { color: #b9c4dc; }
+        .fb-done { display: flex; flex-direction: column; gap: 6px; animation: rise .35s both; }
+        .fb-done strong { font-family: var(--display); font-size: 18px; color: var(--teal); }
         .foot { text-align: center; margin-top: 40px; color: var(--muted); font-size: 12.5px; line-height: 1.7; max-width: 620px; opacity: 0; animation: rise .8s .6s both; }
         .foot a { color: #b9c4dc; }
         .foot strong { color: var(--ink); }

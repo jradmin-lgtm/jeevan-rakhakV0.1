@@ -44,8 +44,8 @@ export default function DeleteAccountPage() {
           <li>Confirm in the dialog.</li>
         </ol>
         <p>
-          You cannot delete your account while a ride is in progress &mdash; finish
-          or cancel the active trip first, then delete.
+          You cannot delete your account while a ride is in progress. Finish or
+          cancel the active trip first, then delete.
         </p>
       </section>
 

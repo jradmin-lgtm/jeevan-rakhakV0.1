@@ -41,6 +41,21 @@ export async function registerDownloadRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
+  // Portal feedback: visitor writes a message on the page, lands in admin App Installs.
+  app.post("/api/v1/dl/feedback", async (req: any, reply) => {
+    const message = (req.body?.message ?? "").toString().trim();
+    const contact = (req.body?.contact ?? "").toString().trim();
+    if (message.length < 5 || message.length > 2000) {
+      return reply.code(400).send({ error: "invalid_message", message: "Please write a short message (at least a few words)." });
+    }
+    if (contact && !validContact(contact)) {
+      return reply.code(400).send({ error: "invalid_contact", message: "Enter a valid mobile number or email, or leave it empty." });
+    }
+    await sql`INSERT INTO app_events (type, contact, message, ip, user_agent)
+              VALUES ('feedback', ${contact || null}, ${message}, ${clientIp(req)}, ${(req.headers["user-agent"] ?? "").toString().slice(0, 400)})`;
+    return { ok: true };
+  });
+
   // Gate: capture contact, return a one-time download token
   app.post("/api/v1/dl/:app", async (req: any, reply) => {
     const appName = req.params.app;
@@ -99,6 +114,9 @@ export async function registerDownloadRoutes(app: FastifyInstance) {
       LEFT JOIN users   u ON lower(u.email) = lower(e.contact) OR u.phone = e.contact
       LEFT JOIN drivers d ON lower(d.email) = lower(e.contact) OR d.phone = e.contact
       GROUP BY e.app`;
-    return { visits: visits?.n ?? 0, downloads, requested, recent, funnel };
+    const messages = await sql`
+      SELECT contact, message, created_at FROM app_events
+      WHERE type = 'feedback' ORDER BY created_at DESC LIMIT 50`;
+    return { visits: visits?.n ?? 0, downloads, requested, recent, funnel, messages };
   });
 }

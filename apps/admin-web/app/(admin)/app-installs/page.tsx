@@ -6,6 +6,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000"
 type Row = { app: string | null; n: number };
 type FunnelRow = { app: string; downloads: number; matched_signups: number };
 type Recent = { app: string; contact: string | null; status: string | null; created_at: string };
+type Message = { contact: string | null; message: string; created_at: string };
 
 async function getData() {
   try {
@@ -13,12 +14,12 @@ async function getData() {
     if (!res.ok) throw new Error("app-events");
     return await res.json();
   } catch {
-    return { visits: 0, downloads: [], requested: [], recent: [], funnel: [] };
+    return { visits: 0, downloads: [], requested: [], recent: [], funnel: [], messages: [] };
   }
 }
 
 function byApp(rows: Row[]): Record<string, number> {
-  return Object.fromEntries((rows || []).map((r) => [r.app ?? "—", r.n]));
+  return Object.fromEntries((rows || []).map((r) => [r.app ?? "·", r.n]));
 }
 function fmt(ts: string): string {
   try {
@@ -40,6 +41,7 @@ export default async function AppInstallsPage() {
   const req = byApp(d.requested);
   const funnel: FunnelRow[] = d.funnel ?? [];
   const recent: Recent[] = d.recent ?? [];
+  const messages: Message[] = d.messages ?? [];
   const totalDl = (d.downloads || []).reduce((s: number, r: Row) => s + r.n, 0);
   const totalReq = (d.requested || []).reduce((s: number, r: Row) => s + r.n, 0);
 
@@ -93,6 +95,25 @@ export default async function AppInstallsPage() {
         )}
       </div>
 
+      {/* portal messages */}
+      <div style={{ ...card, marginBottom: 18 }}>
+        <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 10 }}>Messages from the portal (latest 50)</div>
+        {messages.length === 0 ? (
+          <div style={{ color: "var(--muted)", fontSize: 14 }}>No messages yet.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {messages.map((m, i) => (
+              <div key={i} style={{ borderBottom: "1px solid var(--border-soft)", paddingBottom: 10 }}>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 4 }}>
+                  {fmt(m.created_at)} · {m.contact ?? "no contact left"}
+                </div>
+                <div style={{ fontSize: 14, color: "var(--ink)", whiteSpace: "pre-wrap" }}>{m.message}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* recent log */}
       <div style={card}>
         <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 10 }}>Recent downloads (latest 100)</div>
@@ -114,7 +135,7 @@ export default async function AppInstallsPage() {
                   <tr key={i}>
                     <td style={{ padding: "8px 10px", borderBottom: "1px solid var(--border-soft)", color: "var(--muted)", whiteSpace: "nowrap" }}>{fmt(r.created_at)}</td>
                     <td style={{ padding: "8px 10px", borderBottom: "1px solid var(--border-soft)", textTransform: "capitalize" }}>{r.app}</td>
-                    <td style={{ padding: "8px 10px", borderBottom: "1px solid var(--border-soft)" }}>{r.contact ?? "—"}</td>
+                    <td style={{ padding: "8px 10px", borderBottom: "1px solid var(--border-soft)" }}>{r.contact ?? "·"}</td>
                     <td style={{ padding: "8px 10px", borderBottom: "1px solid var(--border-soft)" }}>
                       <span style={{
                         fontSize: 12, padding: "2px 8px", borderRadius: 999,

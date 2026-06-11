@@ -165,6 +165,8 @@ async function bootstrap() {
     `;
     await pgClient`CREATE INDEX IF NOT EXISTS app_events_type_created_idx ON app_events(type, created_at DESC)`;
     await pgClient`CREATE INDEX IF NOT EXISTS app_events_token_idx ON app_events(token)`;
+    // Portal feedback messages (type='feedback') carry free text.
+    await pgClient`ALTER TABLE app_events ADD COLUMN IF NOT EXISTS message text`;
     // Per-ride OTP (4 digits) for the driver's PICKUP verification step.
     await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS ride_otp_code text`;
     // Admin-set disable flag for users and drivers — gates /auth/verify-otp.
