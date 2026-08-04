@@ -17,6 +17,7 @@ import {
 import { Booking, bookings as bookingsApi } from "../api";
 import { formatDateTime } from "../format";
 import { prettyEmergency } from "./HomeScreen";
+import { useT } from "../i18n";
 
 type Decoration = { glyph: string; tint: string; tintBg: string };
 
@@ -29,6 +30,7 @@ const EMERGENCY_DECOR: Record<string, Decoration> = {
 };
 
 export function HistoryScreen({ onBack, onOpen }: { onBack: () => void; onOpen: (b: Booking) => void }) {
+  const { t } = useT();
   const [items, setItems] = useState<Booking[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -51,7 +53,11 @@ export function HistoryScreen({ onBack, onOpen }: { onBack: () => void; onOpen: 
   return (
     <Screen scroll={false} padding={0}>
       <View style={{ paddingHorizontal: space.lg, paddingTop: space.lg, paddingBottom: space.sm }}>
-        <AppHeader title="Trip history" subtitle={items.length ? `${items.length} trips so far` : undefined} onBack={onBack} />
+        <AppHeader
+          title={t("home.trip_history")}
+          subtitle={items.length ? t("history.trips_count").replace("{count}", String(items.length)) : undefined}
+          onBack={onBack}
+        />
       </View>
 
       {!loaded ? (
@@ -74,8 +80,8 @@ export function HistoryScreen({ onBack, onOpen }: { onBack: () => void; onOpen: 
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
           ListEmptyComponent={
             <EmptyState
-              title="No bookings yet"
-              description="Your trips will appear here. Pull down to refresh."
+              title={t("history.empty_title")}
+              description={t("history.empty_description")}
             />
           }
           renderItem={({ item, index }) => <HistoryRow item={item} index={index} onOpen={onOpen} />}
@@ -86,6 +92,7 @@ export function HistoryScreen({ onBack, onOpen }: { onBack: () => void; onOpen: 
 }
 
 function HistoryRow({ item, index, onOpen }: { item: Booking; index: number; onOpen: (b: Booking) => void }) {
+  const { t } = useT();
   const fade = useFadeIn(Math.min(index * 60, 240));
   const decor = EMERGENCY_DECOR[item.emergencyType] ?? { glyph: "•", tint: colors.primary, tintBg: colors.primaryFaint };
   // v1.0.15: ride history shows what the patient actually PAID (₹0 in pilot
@@ -95,8 +102,8 @@ function HistoryRow({ item, index, onOpen }: { item: Booking; index: number; onO
   const paidLabel =
     item.status === "COMPLETED" && item.paidInr != null
       ? item.paidInr === 0
-        ? "Paid: ₹0"
-        : `Paid: ₹${item.paidInr}`
+        ? t("history.paid_zero")
+        : t("history.paid_amount").replace("{amount}", String(item.paidInr))
       : null;
   return (
     <Animated.View style={fade}>
@@ -105,13 +112,13 @@ function HistoryRow({ item, index, onOpen }: { item: Booking; index: number; onO
           <IconBadge glyph={decor.glyph} bg={decor.tintBg} color={decor.tint} size={42} />
           <View style={{ flex: 1, gap: space.sm }}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <Pill label={prettyEmergency(item.emergencyType)} color={decor.tint} bg={decor.tintBg} />
+              <Pill label={prettyEmergency(item.emergencyType, t)} color={decor.tint} bg={decor.tintBg} />
               <StatusBadge status={item.status} />
             </View>
             {item.displayId ? (
               <Text variant="tiny" tone="muted">#{item.displayId}</Text>
             ) : null}
-            <Text variant="body" weight="semi">{item.pickupAddress ?? "Pickup location"}</Text>
+            <Text variant="body" weight="semi">{item.pickupAddress ?? t("history.pickup_location_fallback")}</Text>
             {item.dropAddress ? (
               <Text variant="small" tone="secondary">→ {item.dropAddress}</Text>
             ) : null}

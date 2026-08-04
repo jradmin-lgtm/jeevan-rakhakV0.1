@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { AppHeader, Button, Card, IconBadge, Input, Screen, Text, colors, space, dialog } from "@jr/ui";
 import { me } from "../api";
+import { useT } from "../i18n";
 
 export function MedicalProfileScreen({
   initial,
@@ -12,6 +13,7 @@ export function MedicalProfileScreen({
   onBack: () => void;
   onUpdated?: (profile: any) => void;
 }) {
+  const { t } = useT();
   const [profile, setProfile] = useState<any>(initial);
   const [name, setName] = useState<string>(initial?.name ?? "");
   const [bloodGroup, setBloodGroup] = useState<string>(initial?.bloodGroup ?? "");
@@ -37,10 +39,10 @@ export function MedicalProfileScreen({
       const r = await me.update({ name, bloodGroup, allergies, emergencyContact });
       setProfile(r.profile);
       onUpdated?.(r.profile);
-      void dialog.alert("Saved", "Your medical profile has been updated.");
+      void dialog.alert(t("common.saved_title"), t("medical.saved_body"));
       onBack();
     } catch (e: any) {
-      void dialog.alert("Could not save", e?.message ?? "Try again.");
+      void dialog.alert(t("medical.save_error_title"), e?.message ?? t("common.try_again_short"));
     } finally {
       setBusy(false);
     }
@@ -48,13 +50,13 @@ export function MedicalProfileScreen({
 
   return (
     <Screen>
-      <AppHeader title="Medical profile" subtitle="Shared with the ambulance crew during dispatch" onBack={onBack} />
+      <AppHeader title={t("home.medical_profile")} subtitle={t("medical.subtitle")} onBack={onBack} />
 
       <Card flat>
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
           <IconBadge glyph="◉" bg="rgba(30,94,255,0.10)" color={colors.accent} size={44} />
           <View style={{ flex: 1 }}>
-            <Text variant="label" tone="secondary">ACCOUNT</Text>
+            <Text variant="label" tone="secondary">{t("medical.account_label")}</Text>
             <Text variant="body" weight="semi">{profile?.phone ?? "-"}</Text>
           </View>
         </View>
@@ -64,25 +66,25 @@ export function MedicalProfileScreen({
         <View style={{ gap: space.md }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
             <IconBadge glyph="✚" bg={colors.primaryFaint} color={colors.primary} size={36} />
-            <Text variant="label" tone="secondary">EDIT MEDICAL DETAILS</Text>
+            <Text variant="label" tone="secondary">{t("medical.edit_details_label")}</Text>
           </View>
-          <Input label="Full name" value={name} onChangeText={setName} placeholder="As on hospital records" />
-          <Input label="Blood group" value={bloodGroup} onChangeText={setBloodGroup} placeholder="e.g. O+" autoCapitalize="characters" />
+          <Input label={t("profile_setup.name_label")} value={name} onChangeText={setName} placeholder={t("medical.name_placeholder")} />
+          <Input label={t("medical.blood_group_label")} value={bloodGroup} onChangeText={setBloodGroup} placeholder={t("medical.blood_group_placeholder")} autoCapitalize="characters" />
           <Input
-            label="Allergies / chronic conditions"
+            label={t("medical.allergies_label")}
             value={allergies}
             onChangeText={setAllergies}
-            placeholder="Penicillin, asthma, etc."
+            placeholder={t("medical.allergies_placeholder")}
             multiline
           />
           <Input
-            label="Emergency contact"
+            label={t("medical.emergency_contact_label")}
             value={emergencyContact}
             onChangeText={setEmergencyContact}
             keyboardType="phone-pad"
-            placeholder="Family or guardian phone"
+            placeholder={t("medical.emergency_contact_placeholder")}
           />
-          <Button label="Save" onPress={save} loading={busy} fullWidth size="lg" testID="save-profile" />
+          <Button label={t("common.save")} onPress={save} loading={busy} fullWidth size="lg" testID="save-profile" />
         </View>
       </Card>
 
@@ -90,7 +92,7 @@ export function MedicalProfileScreen({
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
           <IconBadge glyph="◆" bg="rgba(16,185,129,0.10)" color={colors.success} size={36} />
           <Text variant="small" tone="secondary" style={{ flex: 1 }}>
-            This information is only shared with the responding ambulance team.
+            {t("medical.privacy_note")}
           </Text>
         </View>
       </Card>

@@ -1,8 +1,10 @@
 import React, { useEffect } from "react";
 import { Animated, StyleSheet, View } from "react-native";
 import { Screen, Text, colors, useFadeIn } from "@jr/ui";
+import { useT } from "../i18n";
 
 export function SplashScreen({ onDone }: { onDone: () => void }) {
+  const { t } = useT();
   const fade = useFadeIn();
   useEffect(() => {
     const t = setTimeout(onDone, 900);
@@ -18,7 +20,7 @@ export function SplashScreen({ onDone }: { onDone: () => void }) {
         <Animated.View style={[fade, { gap: 4, alignItems: "center" }]}>
           <Text variant="title" tone="inverse">Jeevan Rakshak</Text>
           <Text variant="body" tone="inverse" align="center" style={{ opacity: 0.85 }}>
-            Emergency ambulance, on demand.
+            {t("splash.tagline")}
           </Text>
         </Animated.View>
       </View>

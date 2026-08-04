@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, count, desc, eq, gte, inArray, lte, sql as drizzleSql } from "drizzle-orm";
-import { bookingEvents, bookings, drivers, db, driverHospitals, hospitals, supportTickets, users, systemEvents, sql as pgClient } from "@jr/db";
+import { bookingEvents, bookings, drivers, driverDocuments, db, driverHospitals, hospitals, supportTickets, users, systemEvents, sql as pgClient } from "@jr/db";
 import { config } from "@jr/config";
 import { hashPassword } from "../password";
 
@@ -367,7 +367,12 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     rcNumber: z.string().min(4).max(40).optional(),
     insuranceNumber: z.string().min(4).max(60).optional(),
     hospitalId: z.string().max(60).optional(),
-    hospitalName: z.string().max(200).optional()
+    hospitalName: z.string().max(200).optional(),
+    // CR6 (2026-08): KYC redesign fields, admin-editable like the rest.
+    pucNumber: z.string().min(1).max(60).optional(),
+    fitnessNumber: z.string().min(1).max(60).optional(),
+    employmentType: z.enum(["hospital_employee", "private_driver"]).optional(),
+    employeeNumber: z.string().min(1).max(60).optional()
   }).refine((d) => Object.values(d).some((v) => v !== undefined), {
     message: "at_least_one_field_required"
   });
@@ -432,6 +437,16 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const [{ accepts = 0 } = {}] = await pgClient`SELECT COUNT(*)::int AS accepts FROM bookings WHERE driver_id = ${id} AND accepted_at IS NOT NULL`;
     const cancellationRate = accepts > 0 ? cancels / accepts : 0;
 
+    // CR6 (2026-08): KYC document upload status — metadata only (no bytes;
+    // the actual image streams from the /documents/:docType/raw route below,
+    // on demand, so this detail fetch stays fast).
+    const docRows = await db
+      .select({ docType: driverDocuments.docType, uploadedAt: driverDocuments.uploadedAt })
+      .from(driverDocuments)
+      .where(eq(driverDocuments.driverId, id));
+    const documents: Record<string, string> = {};
+    for (const r of docRows) documents[r.docType] = r.uploadedAt.toISOString();
+
     return reply.send({
       driver: d,
       bookings: history,
@@ -440,8 +455,25 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       allHospitals,
       cancellationCount: cancels,
       cancellationRate,
-      cancellationFlagged: cancellationRate >= config.driverCancelFlagRate
+      cancellationFlagged: cancellationRate >= config.driverCancelFlagRate,
+      documents
     });
+  });
+
+  // CR6 (2026-08): stream the raw bytes of one uploaded KYC document so an
+  // admin reviewer can open/verify it against the physical original. Same
+  // x-admin-key boundary (adminGuard) as every other admin route.
+  app.get("/api/v1/admin/drivers/:id/documents/:docType/raw", adminGuard, async (req, reply) => {
+    const { id, docType } = req.params as { id: string; docType: string };
+    const [row] = await db
+      .select({ contentType: driverDocuments.contentType, data: driverDocuments.data })
+      .from(driverDocuments)
+      .where(and(eq(driverDocuments.driverId, id), eq(driverDocuments.docType, docType)))
+      .limit(1);
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    reply.header("Content-Type", row.contentType);
+    reply.header("Cache-Control", "private, max-age=0, no-store");
+    return reply.send(row.data);
   });
 
   // v1.2.0 CR#2: paginated driver-cancellation audit log, joined to the

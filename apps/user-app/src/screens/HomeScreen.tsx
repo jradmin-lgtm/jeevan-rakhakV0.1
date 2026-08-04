@@ -115,7 +115,7 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
         right={
           <Pressable
             onPress={() => void setLang(lang === "en" ? "hi" : "en")}
-            accessibilityLabel="Switch language"
+            accessibilityLabel={t("common.switch_language")}
             style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "rgba(30,94,255,0.10)", borderRadius: 999 }}
           >
             <Text variant="small" weight="bold" style={{ color: lang === "en" ? colors.accent : "#94A3B8" }}>EN</Text>
@@ -130,7 +130,7 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
         * emergency action. */}
       <LaunchBanner
         cityName={banner.cityName}
-        subtitle={"Serving " + banner.cityName + " within " + banner.radiusKm + " km of " + banner.hospitalName}
+        subtitle={t("home.banner_serving").replace("{city}", banner.cityName).replace("{radius}", String(banner.radiusKm)).replace("{hospital}", banner.hospitalName)}
       />
 
       {active ? (
@@ -140,9 +140,9 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
               <Text variant="label" tone="secondary">{t("home.active_trip")}</Text>
               <StatusBadge status={active.status} />
             </View>
-            <Text variant="heading">{prettyEmergency(active.emergencyType)}</Text>
+            <Text variant="heading">{prettyEmergency(active.emergencyType, t)}</Text>
             <Text variant="small" tone="secondary">
-              Pickup: {active.pickupAddress ?? `${active.pickupLat.toFixed(4)}, ${active.pickupLng.toFixed(4)}`}
+              {t("home.pickup_prefix").replace("{address}", String(active.pickupAddress ?? `${active.pickupLat.toFixed(4)}, ${active.pickupLng.toFixed(4)}`))}
             </Text>
             <Button label={t("home.open_tracking")} onPress={() => onTrack(active)} fullWidth />
           </View>
@@ -177,7 +177,7 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
                   style={sosStyles.bigButtonInner}
                   testID="sos-cta"
                   accessibilityRole="button"
-                  accessibilityLabel="Emergency SOS · dispatch ambulance now"
+                  accessibilityLabel={t("home.sos_a11y")}
                 >
                   {/* v1.0.14: dropped letterSpacing 3 → 1 to fix the "O
                     * off-centre" artifact. Earlier draft also set
@@ -191,7 +191,7 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
                     weight="bold"
                     style={{ fontSize: 52, lineHeight: 60, letterSpacing: 1, textAlign: "center" }}
                   >
-                    SOS
+                    {t("home.sos_short")}
                   </Text>
                   <Text variant="small" tone="inverse" style={{ opacity: 0.95, marginTop: 2 }}>{t("home.sos.tap")}</Text>
                 </Pressable>
@@ -333,13 +333,16 @@ const sosStyles = StyleSheet.create({
   }
 });
 
-export function prettyEmergency(t: string): string {
-  switch (t) {
-    case "ACCIDENT_TRAUMA": return "Accident / Trauma";
-    case "CARDIAC": return "Cardiac";
-    case "BREATHING_DISTRESS": return "Breathing distress";
-    case "PREGNANCY_NEONATAL": return "Pregnancy / Neonatal";
-    case "GENERAL_CRITICAL_TRANSFER": return "Critical transfer";
-    default: return t;
+// CR3 (2026-08): now takes the caller's translate fn so this pill label
+// localizes instead of always rendering English. Param renamed
+// emergencyType (was shadowing the usual `t()` translate-fn name).
+export function prettyEmergency(emergencyType: string, translate: (key: string) => string): string {
+  switch (emergencyType) {
+    case "ACCIDENT_TRAUMA": return translate("emergency.accident.label");
+    case "CARDIAC": return translate("emergency.cardiac.label");
+    case "BREATHING_DISTRESS": return translate("emergency.breathing.label");
+    case "PREGNANCY_NEONATAL": return translate("emergency.pregnancy_neonatal.pill_label");
+    case "GENERAL_CRITICAL_TRANSFER": return translate("emergency.critical_transfer.label");
+    default: return emergencyType;
   }
 }

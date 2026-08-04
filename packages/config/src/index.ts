@@ -82,8 +82,12 @@ export const config = {
   launchCityName: optional("LAUNCH_CITY_NAME", "Bareilly"),
   launchHospitalName: optional("LAUNCH_HOSPITAL_NAME", "SRMS IMS Hospital, Bareilly"),
   launchRadiusKm: optionalNum("LAUNCH_RADIUS_KM", 100),
-  geofenceCenterLat: optionalNum("GEOFENCE_CENTER_LAT", 28.4875),
-  geofenceCenterLng: optionalNum("GEOFENCE_CENTER_LNG", 79.4452),
+  // CR1 (2026-08): corrected — the previous default (28.4875, 79.4452) was
+  // actually CHC Bhojipura's coordinates, not SRMS's. This value is the
+  // on-ground-verified SRMS IMS pin (Ram Murti Puram, Nainital Rd, Bhoji
+  // Pura, Bareilly 243202), superseding an earlier OSM-derived estimate.
+  geofenceCenterLat: optionalNum("GEOFENCE_CENTER_LAT", 28.481270),
+  geofenceCenterLng: optionalNum("GEOFENCE_CENTER_LNG", 79.443282),
   // Top-level mirror of flags.geofence_enabled so the booking hot path and the
   // public /service-area endpoint can read config.geofenceEnabled directly.
   // Same env var (FLAG_GEOFENCE_ENABLED) as the flag below — single source.

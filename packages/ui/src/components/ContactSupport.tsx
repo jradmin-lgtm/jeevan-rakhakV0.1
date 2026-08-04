@@ -30,10 +30,12 @@ export const SUPPORT_PHONE_DISPLAY = "+91 581 258 2000";
 
 // v1.0.15: labels swapped — "OPS DESK" → "MOBILE" (user-facing relabel),
 // the existing mobile becomes "ALT MOBILE" to avoid duplicate "MOBILE" rows.
+// CR5 (2026-08): "ALT MOBILE" relabelled "TRANSPORT OFFICE" + number
+// corrected (+91 9458701070 was wrong; correct is +91 9458701707).
 export const SUPPORT_NUMBERS = [
-  { label: "MOBILE",          phone: "+915812582000",  display: "+91 581 258 2000", primary: true },
-  { label: "ALT MOBILE",      phone: "+919458701070",  display: "+91 94587 01070" },
-  { label: "GYNAE EMERGENCY", phone: "+919045954724",  display: "+91 90459 54724", urgent: true }
+  { label: "MOBILE",           phone: "+915812582000",  display: "+91 581 258 2000", primary: true },
+  { label: "TRANSPORT OFFICE", phone: "+919458701707",  display: "+91 94587 01707" },
+  { label: "GYNAE EMERGENCY",  phone: "+919045954724",  display: "+91 90459 54724", urgent: true }
 ];
 
 type Props = {
@@ -53,7 +55,7 @@ type Props = {
 function ContactSupportInner({ bookingId, compact, variant = "user" }: Props) {
   const subject = bookingId
     ? `Help with booking ${bookingId.slice(0, 8)}`
-    : "Help — Jeevan Rakshak";
+    : "Help · Jeevan Rakshak";
 
   const callDefault = () => {
     Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {});

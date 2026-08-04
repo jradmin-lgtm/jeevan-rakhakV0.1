@@ -52,11 +52,11 @@ const THREAD_POLL_MS = 10_000;
 // Inline EN|हि toggle — the user app puts the language switch in the header
 // (HomeScreen does the same), so we don't pull in a shared LangToggle here.
 function LangToggle() {
-  const { lang, setLang } = useT();
+  const { t, lang, setLang } = useT();
   return (
     <Pressable
       onPress={() => void setLang(lang === "en" ? "hi" : "en")}
-      accessibilityLabel="Switch language"
+      accessibilityLabel={t("common.switch_language")}
       style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "rgba(30,94,255,0.10)", borderRadius: 999 }}
     >
       <Text variant="small" weight="bold" style={{ color: lang === "en" ? colors.accent : colors.textMuted }}>EN</Text>

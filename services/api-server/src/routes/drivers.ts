@@ -6,6 +6,7 @@ import {
   bookings,
   bookingCancellations,
   drivers,
+  driverDocuments,
   driverHeartbeats,
   driverHospitals,
   sosDispatchAttempts,
@@ -40,7 +41,28 @@ const kycSchema = z.object({
   rcNumber: z.string().min(4).max(40).optional(),
   insuranceNumber: z.string().min(4).max(60).optional(),
   hospitalId: z.string().max(60).optional(),
-  hospitalName: z.string().max(200).optional()
+  hospitalName: z.string().max(200).optional(),
+  // CR6 (2026-08): KYC redesign — Ambulance Details + Driver Details.
+  pucNumber: z.string().min(1).max(60).optional(),
+  fitnessNumber: z.string().min(1).max(60).optional(),
+  employmentType: z.enum(["hospital_employee", "private_driver"]).optional(),
+  employeeNumber: z.string().min(1).max(60).optional()
+});
+
+// CR6 (2026-08): the 6 document slots the KYC screen can upload. "employee_id"
+// only applies when employmentType === "hospital_employee" (enforced client-side
+// via conditional rendering; the server accepts it regardless of employmentType
+// since KYC fields can be submitted/updated out of order during onboarding).
+const DOC_TYPES = ["rc", "puc", "fitness", "insurance", "licence", "employee_id"] as const;
+type DocType = (typeof DOC_TYPES)[number];
+
+const kycDocumentSchema = z.object({
+  docType: z.enum(DOC_TYPES),
+  contentType: z.enum(["image/jpeg", "image/png", "application/pdf"]),
+  // Raw base64 (no "data:...;base64," prefix — the client strips it). Capped
+  // ~6MB decoded (~8MB base64) — client compresses photos before upload, this
+  // is just the server-side backstop against an oversized payload.
+  base64: z.string().min(1).max(8 * 1024 * 1024)
 });
 
 export async function registerDriverRoutes(app: FastifyInstance) {
@@ -297,7 +319,14 @@ export async function registerDriverRoutes(app: FastifyInstance) {
             : "Your booking was closed because we couldn't reach you. Please create a new request if assistance is still required.";
         // Patient push + socket toast — mirrors the /complete handler's
         // fire-and-forget pushToUser + the SOS-assign emit-to-user fan-out.
-        void pushToUser(b.userId, "Booking closed", msg, { bookingId, status: "CANCELLED" });
+        // Push is localized (push-i18n.ts); the socket toast `msg` below
+        // stays English — see push-i18n.ts's scope note.
+        void pushToUser(
+          b.userId,
+          reasonCode === "PATIENT_NOT_AVAILABLE" ? "booking_closed_patient_not_available" : "booking_closed_generic",
+          {},
+          { bookingId, status: "CANCELLED" }
+        );
         await fetch(`${config.socketBaseUrl}/internal/emit-to-user`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-internal": config.internalApiSecret },
@@ -315,7 +344,7 @@ export async function registerDriverRoutes(app: FastifyInstance) {
           .where(eq(drivers.id, sub));
         const msg =
           "The assigned ambulance is unable to continue due to a vehicle issue. We are searching for another available ambulance.";
-        void pushToUser(b.userId, "Reassigning ambulance", msg, { bookingId, status: "REQUESTED" });
+        void pushToUser(b.userId, "booking_reassigning", {}, { bookingId, status: "REQUESTED" });
         await fetch(`${config.socketBaseUrl}/internal/emit-to-user`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-internal": config.internalApiSecret },
@@ -405,6 +434,63 @@ export async function registerDriverRoutes(app: FastifyInstance) {
         }
       }
       return reply.send({ driver: d });
+    }
+  );
+
+  // CR6 (2026-08): KYC document upload — one row per (driver, docType) in
+  // driver_documents, upserted on re-upload (never accumulates history).
+  // Bytes stored in Postgres (no new blob-storage resource) — kept off the
+  // `drivers` table itself so this never bloats the hot-path driver queries.
+  app.post(
+    "/api/v1/driver/kyc/document",
+    { preHandler: [(app as any).authenticate], bodyLimit: 9 * 1024 * 1024 },
+    async (req: any, reply) => {
+      const { sub, role } = req.user;
+      if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
+      const parsed = kycDocumentSchema.safeParse(req.body);
+      if (!parsed.success)
+        return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+      let buf: Buffer;
+      try {
+        buf = Buffer.from(parsed.data.base64, "base64");
+      } catch {
+        return reply.code(400).send({ error: "invalid_base64" });
+      }
+      if (buf.length === 0 || buf.length > 6 * 1024 * 1024) {
+        return reply.code(400).send({ error: "document_too_large_or_empty" });
+      }
+      await db
+        .insert(driverDocuments)
+        .values({
+          driverId: sub,
+          docType: parsed.data.docType,
+          contentType: parsed.data.contentType,
+          data: buf
+        })
+        .onConflictDoUpdate({
+          target: [driverDocuments.driverId, driverDocuments.docType],
+          set: { contentType: parsed.data.contentType, data: buf, uploadedAt: new Date() }
+        });
+      return reply.send({ ok: true, docType: parsed.data.docType, uploadedAt: new Date().toISOString() });
+    }
+  );
+
+  // Which documents this driver already has on file (no bytes — just
+  // existence + timestamp) so the KYC screen can restore "uploaded" chips on
+  // reload without re-fetching multi-MB payloads.
+  app.get(
+    "/api/v1/driver/kyc/documents",
+    { preHandler: [(app as any).authenticate] },
+    async (req: any, reply) => {
+      const { sub, role } = req.user;
+      if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
+      const rows = await db
+        .select({ docType: driverDocuments.docType, uploadedAt: driverDocuments.uploadedAt })
+        .from(driverDocuments)
+        .where(eq(driverDocuments.driverId, sub));
+      const byType: Record<string, string> = {};
+      for (const r of rows) byType[r.docType] = r.uploadedAt.toISOString();
+      return reply.send({ documents: byType });
     }
   );
 

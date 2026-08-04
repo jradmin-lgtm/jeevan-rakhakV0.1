@@ -25,6 +25,7 @@ import {
 import { Booking, bookings as bookingsApi, safety as safetyApi } from "../api";
 import { getSocket } from "../socket";
 import { prettyEmergency } from "./HomeScreen";
+import { useT } from "../i18n";
 
 type DriverProfile = {
   id: string;
@@ -78,6 +79,13 @@ type Props = {
 };
 
 export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Props) {
+  const { t } = useT();
+  // CR3 (2026-08): the socket-handler effect below only depends on
+  // [initial.id] (handlers are wired once per booking), so a plain closure
+  // over `t` would go stale if the user switches language mid-ride. This ref
+  // always holds the latest translate fn for those long-lived callbacks.
+  const tRef = useRef(t);
+  tRef.current = t;
   const [booking, setBooking] = useState<Booking>(initial);
   const [driverPos, setDriverPos] = useState<{ lat: number; lng: number; ts: number } | null>(null);
   const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
@@ -114,13 +122,13 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
     const prev = lastStatusRef.current;
     if (prev !== booking.status) {
       if (prev === "REQUESTED" && booking.status === "ACCEPTED") {
-        setToast("Driver assigned · on the way");
+        setToast(t("live.driver_assigned"));
       } else if (booking.status === "ARRIVED") {
-        setToast("Driver has arrived");
+        setToast(t("live.toast_driver_arrived"));
       } else if (booking.status === "PICKED_UP") {
-        setToast("Pickup confirmed");
+        setToast(t("live.toast_pickup_confirmed"));
       } else if (booking.status === "COMPLETED") {
-        setToast("Trip completed");
+        setToast(t("live.toast_trip_completed"));
       }
       lastStatusRef.current = booking.status;
     }
@@ -213,24 +221,26 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
       // v1.0.15: SOS-specific events from the cascade engine.
       sock.on("sos:assigned", (p: any) => {
         if (p?.bookingId !== initial.id) return;
-        setToast("Driver assigned · on the way");
+        setToast(t("live.driver_assigned"));
         void refreshFromApi();
       });
       sock.on("sos:cascade_exhausted", (p: any) => {
         if (p?.bookingId !== initial.id) return;
-        setToast("No driver yet · please call the support mobile.");
+        setToast(t("live.toast_cascade_exhausted"));
       });
       // v1.2.0 (CR#2): driver-initiated cancellation outcomes. CLOSED → the
       // ride is cancelled (patient must re-request); RE_DISPATCHED → we're
       // finding another ambulance (booking goes back to REQUESTED, no re-book).
+      // p?.message is the server's (English-only, see push-i18n.ts scope note)
+      // socket toast text — only used if our own localized fallback can't apply.
       sock.on("booking:cancelled", (p: any) => {
         if (p?.bookingId !== initial.id) return;
-        setToast(p?.message ?? "Your booking was closed.");
+        setToast(p?.message ?? t("live.toast_booking_closed"));
         void refreshFromApi();
       });
       sock.on("booking:reassigning", (p: any) => {
         if (p?.bookingId !== initial.id) return;
-        setToast(p?.message ?? "Reassigning to another ambulance…");
+        setToast(p?.message ?? t("live.toast_reassigning"));
         void refreshFromApi();
       });
       // v1.3.0 (safety): admin resolved (or someone stood down) our safety
@@ -241,7 +251,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
         safetyAlertIdRef.current = null;
         if (!mounted) return;
         setSafetyActive(false);
-        setToast("Safety alert closed. Help has been notified.");
+        setToast(t("live.toast_safety_closed"));
       });
 
       void refreshFromApi();
@@ -258,13 +268,13 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
   const onCancel = async () => {
     if (
       !(await dialog.confirm({
-        title: "Cancel this booking?",
+        title: t("live.cancel_dialog_title"),
         message:
           booking.status === "REQUESTED"
-            ? "No driver has been assigned yet · you can cancel freely."
-            : "A driver is on the way. They'll be notified that the trip was cancelled.",
-        confirmText: "Cancel booking",
-        cancelText: "Keep booking",
+            ? t("live.cancel_dialog_no_driver")
+            : t("live.cancel_dialog_driver_assigned"),
+        confirmText: t("live.cancel_booking"),
+        cancelText: t("live.keep_booking"),
         destructive: true
       }))
     ) {
@@ -279,12 +289,9 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
       // human-readable message instead of the raw error code.
       const msg = String(e?.message ?? "").toLowerCase();
       if (msg.includes("cannot_cancel")) {
-        void dialog.alert(
-          "Trip already in progress",
-          "You're already in the ambulance. Cancellation isn't possible once the trip has started · please coordinate with the driver if anything has changed."
-        );
+        void dialog.alert(t("live.already_in_progress_title"), t("live.already_in_progress_body"));
       } else {
-        void dialog.alert("Could not cancel", e?.message ?? "Please try again.");
+        void dialog.alert(t("live.cancel_error_title"), e?.message ?? t("common.please_try_again"));
       }
     }
   };
@@ -359,33 +366,33 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
     // v1.0.15: SOS bookings cascade through drivers one wave at a time (60s
     // each). Label reflects the expanding search so the patient doesn't
     // think the app is just spinning.
-    timerLabel = booking.isSos ? "Searching for nearest ambulance" : "Looking for driver";
+    timerLabel = booking.isSos ? t("live.searching_title") : t("live.looking_for_driver");
     timerValue = formatElapsed(elapsedSec);
   } else if (booking.status === "ACCEPTED" && driverPos) {
     const km = haversineKm(driverPos.lat, driverPos.lng, booking.pickupLat, booking.pickupLng);
-    timerLabel = "Driver arrives in";
+    timerLabel = t("live.timer_driver_arrives_in");
     timerValue = `~${estimateEtaMin(km)} min`;
   } else if (booking.status === "ARRIVED") {
-    timerLabel = "Driver waiting";
-    timerValue = "at pickup";
+    timerLabel = t("live.timer_driver_waiting");
+    timerValue = t("live.timer_at_pickup");
   } else if (booking.status === "PICKED_UP" && navEta) {
     // Prefer the OSRM road-based ETA when we have it (CR#3).
-    timerLabel = "Hospital ETA";
+    timerLabel = t("live.timer_hospital_eta");
     timerValue = `~${navEta.min} min`;
   } else if (booking.status === "PICKED_UP" && driverPos && booking.dropLat != null && booking.dropLng != null) {
     const km = haversineKm(driverPos.lat, driverPos.lng, booking.dropLat, booking.dropLng);
-    timerLabel = "Hospital ETA";
+    timerLabel = t("live.timer_hospital_eta");
     timerValue = `~${estimateEtaMin(km)} min`;
   } else if (booking.status === "PICKED_UP") {
-    timerLabel = "En route to hospital";
+    timerLabel = t("live.timer_enroute");
     timerValue = formatElapsed(elapsedSec);
   }
 
   return (
     <Screen>
       <AppHeader
-        title="Live tracking"
-        subtitle={`Booking #${booking.displayId ?? booking.id.slice(0, 8)}`}
+        title={t("live.screen_title")}
+        subtitle={t("payment.booking_number").replace("{id}", String(booking.displayId ?? booking.id.slice(0, 8)))}
         onBack={onClose}
         right={
           safetyAvailable ? (
@@ -402,11 +409,11 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
       <Card>
         <View style={{ gap: space.sm }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-            <Pill label={prettyEmergency(booking.emergencyType)} />
+            <Pill label={prettyEmergency(booking.emergencyType, t)} />
             <StatusBadge status={booking.status} />
           </View>
-          <Text variant="heading">{statusHeadline(booking.status)}</Text>
-          <Text variant="small" tone="secondary">{statusSubline(booking.status)}</Text>
+          <Text variant="heading">{statusHeadline(booking.status, t)}</Text>
+          <Text variant="small" tone="secondary">{statusSubline(booking.status, t)}</Text>
           {timerLabel ? (
             <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", marginTop: space.sm, paddingTop: space.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
               <Text variant="small" tone="secondary">{timerLabel}</Text>
@@ -418,12 +425,12 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
 
       <Card>
         <View style={{ gap: space.md }}>
-          <Text variant="label" tone="secondary">PICKUP</Text>
+          <Text variant="label" tone="secondary">{t("live.pickup_label")}</Text>
           <Text variant="body">{booking.pickupAddress ?? `${booking.pickupLat.toFixed(4)}, ${booking.pickupLng.toFixed(4)}`}</Text>
           {booking.dropAddress ? (
             <>
               <Text variant="label" tone="secondary">
-                {booking.destHospitalId || booking.status === "PICKED_UP" ? "DESTINATION HOSPITAL" : "DROP"}
+                {booking.destHospitalId || booking.status === "PICKED_UP" ? t("live.destination_hospital_label") : t("live.drop_label")}
               </Text>
               <Text variant="body">{booking.dropAddress}</Text>
             </>
@@ -438,10 +445,10 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
             const discounted = payable < estimate;
             return (
               <>
-                <Text variant="label" tone="secondary">YOU PAY</Text>
+                <Text variant="label" tone="secondary">{t("live.you_pay")}</Text>
                 <View style={{ flexDirection: "row", alignItems: "baseline", gap: space.sm }}>
                   <Text variant="heading" weight="bold" tone={payable === 0 ? "success" : undefined}>
-                    {payable === 0 ? "FREE" : `₹${payable}`}
+                    {payable === 0 ? t("live.free_label") : `₹${payable}`}
                   </Text>
                   {discounted ? (
                     <Text variant="small" tone="muted" style={{ textDecorationLine: "line-through" }}>
@@ -451,10 +458,10 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
                 </View>
                 {booking.couponCode ? (
                   <Text variant="tiny" tone="success">
-                    Coupon {booking.couponCode} applied · saved ₹{Math.max(0, estimate - payable)}
+                    {t("live.coupon_applied_saved").replace("{code}", booking.couponCode).replace("{amount}", String(Math.max(0, estimate - payable)))}
                   </Text>
                 ) : (
-                  <Text variant="tiny" tone="muted">Cashless · billed in-app on completion</Text>
+                  <Text variant="tiny" tone="muted">{t("live.cashless_hint")}</Text>
                 )}
               </>
             );
@@ -482,7 +489,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
           }>
             <View style={{ gap: space.sm, alignItems: "center" }}>
               <Text variant="label" tone={booking.status === "ARRIVED" ? "danger" : "secondary"}>
-                {booking.status === "ARRIVED" ? "TELL THIS OTP TO THE DRIVER" : "RIDE OTP"}
+                {booking.status === "ARRIVED" ? t("live.otp_tell_driver_label") : t("live.otp_label")}
               </Text>
               <Text style={{
                 fontSize: 44,
@@ -497,7 +504,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
                 {booking.rideOtpCode}
               </Text>
               <Text variant="tiny" tone="muted" align="center">
-                The driver will ask you for this 4-digit code before starting the trip.
+                {t("live.otp_explainer")}
               </Text>
             </View>
           </Card>
@@ -508,22 +515,22 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
         <View style={{ gap: space.sm }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <Text variant="label" tone="secondary">
-              {driverPos ? "DRIVER LIVE" : "PICKUP"}
+              {driverPos ? t("live.driver_live_label") : t("live.pickup_label")}
             </Text>
             {driverPos ? (
               <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
                 <PulseDot size={8} color={colors.success} rings={1} />
                 <Text variant="tiny" tone="success" weight="bold">
-                  LIVE · {Math.max(0, Math.round((Date.now() - driverPos.ts) / 1000))}s
+                  {t("live.live_seconds_ago").replace("{seconds}", String(Math.max(0, Math.round((Date.now() - driverPos.ts) / 1000))))}
                 </Text>
               </View>
             ) : null}
           </View>
           <MapEmbed
-            pickup={{ lat: booking.pickupLat, lng: booking.pickupLng, label: "Pickup" }}
-            driver={driverPos ? { lat: driverPos.lat, lng: driverPos.lng, label: "Driver" } : null}
+            pickup={{ lat: booking.pickupLat, lng: booking.pickupLng, label: t("live.pin_pickup") }}
+            driver={driverPos ? { lat: driverPos.lat, lng: driverPos.lng, label: t("live.pin_driver") } : null}
             drop={booking.dropLat != null && booking.dropLng != null
-              ? { lat: booking.dropLat, lng: booking.dropLng, label: booking.dropAddress ?? "Hospital" }
+              ? { lat: booking.dropLat, lng: booking.dropLng, label: booking.dropAddress ?? t("live.pin_hospital_fallback") }
               : null}
             routePath={navRoute}
             height={280}
@@ -531,13 +538,13 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
           {driverPos ? (
             <View style={{ flexDirection: "row", justifyContent: "space-around", paddingVertical: space.xs }}>
               <View style={{ alignItems: "center" }}>
-                <Text variant="tiny" tone="secondary">DISTANCE</Text>
+                <Text variant="tiny" tone="secondary">{t("live.distance_label")}</Text>
                 <Text variant="heading" weight="bold">
                   {haversineKm(driverPos.lat, driverPos.lng, booking.pickupLat, booking.pickupLng).toFixed(1)} km
                 </Text>
               </View>
               <View style={{ alignItems: "center" }}>
-                <Text variant="tiny" tone="secondary">ETA</Text>
+                <Text variant="tiny" tone="secondary">{t("live.eta_label")}</Text>
                 <Text variant="heading" weight="bold" tone="primary">
                   ~{estimateEtaMin(haversineKm(driverPos.lat, driverPos.lng, booking.pickupLat, booking.pickupLng))} min
                 </Text>
@@ -545,11 +552,11 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
             </View>
           ) : (
             <Text variant="tiny" tone="muted" align="center" style={{ paddingVertical: space.xs }}>
-              Live driver position appears on this map once the trip starts.
+              {t("live.map_waiting_hint")}
             </Text>
           )}
           <Button
-            label="Open in Google Maps"
+            label={t("live.open_google_maps")}
             variant="ghost"
             onPress={() =>
               driverPos
@@ -590,20 +597,20 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
             </View>
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
-                <Text variant="body" weight="semi">{driverProfile.name ?? "Driver"}</Text>
+                <Text variant="body" weight="semi">{driverProfile.name ?? t("live.driver_fallback_name")}</Text>
                 {driverProfile.rating != null ? (
                   <Pill label={`⭐ ${driverProfile.rating.toFixed(1)}`} color={colors.success} bg="#E8F8F1" />
                 ) : null}
               </View>
               <Text variant="small" tone="secondary">
-                {driverProfile.vehicleNumber ?? "Vehicle pending"}
+                {driverProfile.vehicleNumber ?? t("live.vehicle_pending")}
                 {driverProfile.vehicleType ? ` · ${driverProfile.vehicleType}` : ""}
               </Text>
             </View>
             <Pressable
               onPress={() => Linking.openURL(`tel:${driverProfile.phone}`).catch(() => {})}
               style={driverCardStyles.callBtn}
-              accessibilityLabel={`Call ${driverProfile.name ?? "driver"}`}
+              accessibilityLabel={t("live.call_driver_a11y").replace("{name}", driverProfile.name ?? t("live.driver_fallback_name"))}
             >
               <Text style={driverCardStyles.callIcon}>📞</Text>
             </Pressable>
@@ -616,18 +623,18 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
         * re-poll. Reuses the shared RatingPrompt with driver-facing copy. */}
       {booking.status === "COMPLETED" ? (
         <RatingPrompt
-          title="How was your driver?"
-          subtitle="Your rating helps the next patient get the best ambulance team."
-          feedbackLabel="Anything our team should know? (optional)"
-          feedbackPlaceholder="What went well, what could improve"
-          submitLabel="Submit rating"
+          title={t("live.rating_title")}
+          subtitle={t("live.rating_subtitle")}
+          feedbackLabel={t("live.rating_feedback_label")}
+          feedbackPlaceholder={t("live.rating_feedback_placeholder")}
+          submitLabel={t("live.rating_submit")}
           hidden={!!booking.rating}
           onSubmit={async ({ rating, feedback }) => {
             try {
               const r = await bookingsApi.rate(initial.id, rating, feedback);
               setBooking(r.booking);
             } catch (e: any) {
-              void dialog.alert("Could not submit", e?.message ?? "Try again.");
+              void dialog.alert(t("live.rating_error_title"), e?.message ?? t("common.try_again_short"));
             }
           }}
         />
@@ -637,10 +644,9 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
       {!finished ? (
         <Card>
           <View style={{ gap: space.sm }}>
-            <Text variant="label" tone="danger">NEED HELP?</Text>
+            <Text variant="label" tone="danger">{t("live.need_help_label")}</Text>
             <Text variant="small" tone="secondary">
-              Contact our support team any time · we&apos;ll reach the driver
-              and coordinate.
+              {t("live.need_help_body")}
             </Text>
             <ContactSupport bookingId={booking.id} compact />
           </View>
@@ -649,14 +655,14 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
 
       {!finished ? (
         cancellable ? (
-          <Button label="Cancel booking" variant="outline" onPress={onCancel} fullWidth />
+          <Button label={t("live.cancel_booking")} variant="outline" onPress={onCancel} fullWidth />
         ) : (
           <Text variant="tiny" tone="muted" align="center">
-            Trip is in progress · coordinate with the driver by call if you need to change anything.
+            {t("live.trip_in_progress_note")}
           </Text>
         )
       ) : (
-        <Button label="Done" onPress={onClose} fullWidth />
+        <Button label={t("common.done")} onPress={onClose} fullWidth />
       )}
 
       <OtpToast message={toast} onHide={() => setToast(null)} />
@@ -686,6 +692,7 @@ const EMERGENCY_CONDITIONS = [
 ];
 
 function PatientInfoCard({ bookingId, onSaved }: { bookingId: string; onSaved: (b: any) => void }) {
+  const { t } = useT();
   const [name, setName] = useState("");
   const [age, setAge] = useState("");
   const [gender, setGender] = useState<"M" | "F" | "O" | null>(null);
@@ -696,7 +703,7 @@ function PatientInfoCard({ bookingId, onSaved }: { bookingId: string; onSaved: (
 
   const submit = async () => {
     if (!condition) {
-      setErr("Please select the emergency condition.");
+      setErr(t("live.patient_condition_required"));
       return;
     }
     setBusy(true);
@@ -712,7 +719,7 @@ function PatientInfoCard({ bookingId, onSaved }: { bookingId: string; onSaved: (
       });
       onSaved(r.booking);
     } catch (e: any) {
-      setErr(e?.message ?? "Could not save. Please try again.");
+      setErr(e?.message ?? t("live.patient_save_error"));
     } finally {
       setBusy(false);
     }
@@ -722,9 +729,9 @@ function PatientInfoCard({ bookingId, onSaved }: { bookingId: string; onSaved: (
     <Card style={{ borderColor: colors.primary, borderWidth: 1 }}>
       <View style={{ gap: space.md }}>
         <View>
-          <Text variant="label" tone="primary">PATIENT DETAILS</Text>
+          <Text variant="label" tone="primary">{t("live.patient_details_label")}</Text>
           <Text variant="tiny" tone="secondary">
-            Helps our team prepare medical response. Only condition and notes go to the hospital · driver sees name only.
+            {t("live.patient_details_note")}
           </Text>
         </View>
 
@@ -746,17 +753,17 @@ function PatientInfoCard({ bookingId, onSaved }: { bookingId: string; onSaved: (
         </View>
 
         <Input
-          label="Patient name"
+          label={t("live.patient_name_label")}
           value={name}
           onChangeText={setName}
-          placeholder="Optional · helps the driver"
+          placeholder={t("live.patient_name_placeholder")}
         />
         <View style={{ flexDirection: "row", gap: space.md }}>
           <View style={{ flex: 1 }}>
-            <Input label="Age" value={age} onChangeText={setAge} keyboardType="number-pad" placeholder="Optional" />
+            <Input label={t("live.patient_age_label")} value={age} onChangeText={setAge} keyboardType="number-pad" placeholder={t("live.optional_placeholder")} />
           </View>
           <View style={{ flex: 1.4, gap: 4 }}>
-            <Text variant="label" tone="secondary">Gender</Text>
+            <Text variant="label" tone="secondary">{t("live.patient_gender_label")}</Text>
             <View style={{ flexDirection: "row", gap: space.xs }}>
               {(["M", "F", "O"] as const).map((g) => {
                 const selected = gender === g;
@@ -767,7 +774,7 @@ function PatientInfoCard({ bookingId, onSaved }: { bookingId: string; onSaved: (
                     style={[patientStyles.genderChip, selected ? patientStyles.chipActive : null]}
                   >
                     <Text variant="small" weight="semi" style={{ color: selected ? colors.textInverse : colors.textPrimary }}>
-                      {g === "M" ? "Male" : g === "F" ? "Female" : "Other"}
+                      {g === "M" ? t("live.gender_male") : g === "F" ? t("live.gender_female") : t("live.gender_other")}
                     </Text>
                   </Pressable>
                 );
@@ -776,15 +783,15 @@ function PatientInfoCard({ bookingId, onSaved }: { bookingId: string; onSaved: (
           </View>
         </View>
         <Input
-          label="Notes for medical team (optional)"
+          label={t("live.patient_notes_label")}
           value={notes}
           onChangeText={setNotes}
-          placeholder="e.g., diabetic, on blood thinners"
+          placeholder={t("live.patient_notes_placeholder")}
           multiline
         />
         {err ? <Text variant="tiny" tone="danger">{err}</Text> : null}
         <Button
-          label={busy ? "Sending…" : "Send to medical team"}
+          label={busy ? t("live.sending") : t("live.send_to_medical_team")}
           onPress={submit}
           loading={busy}
           disabled={!condition}
@@ -841,28 +848,28 @@ const driverCardStyles = StyleSheet.create({
   callIcon: { fontSize: 22 }
 });
 
-function statusHeadline(status: string): string {
+function statusHeadline(status: string, t: (key: string) => string): string {
   switch (status) {
-    case "REQUESTED": return "Finding the nearest ambulance…";
-    case "ACCEPTED": return "Driver is on the way to you";
-    case "ARRIVED": return "Driver has arrived";
-    case "PICKED_UP": return "On the way to hospital";
-    case "COMPLETED": return "Trip completed";
-    case "CANCELLED": return "Booking cancelled";
-    case "TIMED_OUT": return "No driver available right now";
+    case "REQUESTED": return t("live.status_headline.requested");
+    case "ACCEPTED": return t("live.status_headline.accepted");
+    case "ARRIVED": return t("live.toast_driver_arrived");
+    case "PICKED_UP": return t("live.status_headline.picked_up");
+    case "COMPLETED": return t("live.toast_trip_completed");
+    case "CANCELLED": return t("live.status_headline.cancelled");
+    case "TIMED_OUT": return t("live.cascade_exhausted_title");
     default: return status;
   }
 }
 
-function statusSubline(status: string): string {
+function statusSubline(status: string, t: (key: string) => string): string {
   switch (status) {
-    case "REQUESTED": return "We are notifying available ambulances. This usually takes under 60 seconds.";
-    case "ACCEPTED": return "Track the live position of your ambulance below.";
-    case "ARRIVED": return "Please reach the pickup spot. Your safety is our priority.";
-    case "PICKED_UP": return "We're heading to the destination hospital.";
-    case "COMPLETED": return "Thank you. Please rate your experience.";
-    case "CANCELLED": return "You can book another ambulance from the home screen.";
-    case "TIMED_OUT": return "Try booking again in a moment, or use the SOS button for fastest dispatch.";
+    case "REQUESTED": return t("live.status_subline.requested");
+    case "ACCEPTED": return t("live.status_subline.accepted");
+    case "ARRIVED": return t("live.status_subline.arrived");
+    case "PICKED_UP": return t("live.status_subline.picked_up");
+    case "COMPLETED": return t("live.status_subline.completed");
+    case "CANCELLED": return t("live.status_subline.cancelled");
+    case "TIMED_OUT": return t("live.status_subline.timed_out");
     default: return "";
   }
 }

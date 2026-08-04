@@ -8,6 +8,7 @@ import {
   SosPending
 } from "../api";
 import { IncomingRequestList } from "./IncomingRequestList";
+import { useT } from "../i18n";
 
 type LatLng = { lat: number; lng: number };
 
@@ -59,6 +60,7 @@ function fromSosPending(s: SosPending): IncomingRequest {
  * list re-enables Accept for whatever is still open.
  */
 export function WaitingRequestsPeek({ myPos }: Props) {
+  const { t } = useT();
   // Keyed by booking id, the same source-of-truth pattern as the dashboard's
   // `requests` map so the two reconcile identically.
   const [requests, setRequests] = useState<Record<string, IncomingRequest>>({});
@@ -118,12 +120,12 @@ export function WaitingRequestsPeek({ myPos }: Props) {
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
             <PulseDot size={6} color={colors.primary} rings={1} />
-            <Text variant="label" tone="secondary">WAITING REQUESTS</Text>
+            <Text variant="label" tone="secondary">{t("waiting_peek.title")}</Text>
             <Pill label={`${count}`} color={colors.primary} bg={colors.primaryFaint} />
           </View>
         </View>
         <Text variant="tiny" tone="muted">
-          Rides are waiting. You can accept once your current ride is complete.
+          {t("waiting_peek.body")}
         </Text>
         <IncomingRequestList requests={requests} myPos={myPos} deferred />
       </View>

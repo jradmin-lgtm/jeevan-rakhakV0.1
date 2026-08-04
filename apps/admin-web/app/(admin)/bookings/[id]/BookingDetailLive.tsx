@@ -291,7 +291,15 @@ export function BookingDetailLive({
               ) : null}
               {Object.entries(booking.paramedicAssessment).map(([k, v]) => {
                 if (["recordedAt", "recordedBy", "immediateRisk"].includes(k) || v == null || v === "") return null;
-                return <Field key={k} label={prettyAssessmentKey(k)} value={String(v)} />;
+                // Free-text fields render verbatim; enum-ish fields get their
+                // underscores turned into spaces for readability.
+                const freeText = ["notes", "pregnancyComplaintOther", "pregnancyAdditionalComplaint"].includes(k);
+                const display = Array.isArray(v)
+                  ? v.map((x) => String(x).replace(/_/g, " ")).join(", ")
+                  : freeText
+                    ? String(v)
+                    : String(v).replace(/_/g, " ");
+                return <Field key={k} label={prettyAssessmentKey(k)} value={display} />;
               })}
             </div>
           ) : null}

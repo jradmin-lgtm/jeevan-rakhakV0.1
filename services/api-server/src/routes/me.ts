@@ -7,7 +7,10 @@ const profileUpdate = z.object({
   name: z.string().min(1).max(120).optional(),
   bloodGroup: z.string().max(8).optional(),
   allergies: z.string().max(2000).optional(),
-  emergencyContact: z.string().max(40).optional()
+  emergencyContact: z.string().max(40).optional(),
+  // CR3/CR4 (2026-08): synced from the app's language toggle so server-
+  // composed push notifications can localize.
+  preferredLang: z.enum(["en", "hi"]).optional()
 });
 
 export async function registerMeRoutes(app: FastifyInstance) {
@@ -80,9 +83,16 @@ export async function registerMeRoutes(app: FastifyInstance) {
         return reply.send({ role, profile: u });
       }
       if (role === "driver") {
+        // Driver profile only exposes name + preferredLang here (vehicle/KYC
+        // fields go through /driver/kyc). Conditional spread — a lang-only
+        // toggle call must not overwrite name with undefined.
         const [d] = await db
           .update(drivers)
-          .set({ name: data.name, updatedAt: new Date() })
+          .set({
+            ...(data.name !== undefined ? { name: data.name } : {}),
+            ...(data.preferredLang !== undefined ? { preferredLang: data.preferredLang } : {}),
+            updatedAt: new Date()
+          })
           .where(eq(drivers.id, sub))
           .returning();
         return reply.send({ role, profile: d });

@@ -73,7 +73,7 @@ export function IncomingRequestList({ requests, myPos, onAccept, onReject, defer
   if (sorted.length === 0) {
     return (
       <Card flat>
-        <EmptyState title="No active requests" description="New SOS and booking requests will appear here instantly." />
+        <EmptyState title={t("incoming.empty_title")} description={t("incoming.empty_body")} />
       </Card>
     );
   }
@@ -161,7 +161,7 @@ function IncomingRow({
           </View>
         </View>
 
-        <Text variant="body" weight="semi">{prettyEmergency(req.emergency_type)}</Text>
+        <Text variant="body" weight="semi">{prettyEmergency(req.emergency_type, t)}</Text>
         <Text variant="small" tone="secondary">
           {req.pickup_address ?? `${req.pickup_lat.toFixed(4)}, ${req.pickup_lng.toFixed(4)}`}
         </Text>
@@ -175,7 +175,7 @@ function IncomingRow({
           // dashboard.
           <View style={{ marginTop: space.xs }}>
             <Button
-              label="Finish your current ride to accept"
+              label={t("incoming.finish_first")}
               onPress={() => {}}
               variant="outline"
               fullWidth

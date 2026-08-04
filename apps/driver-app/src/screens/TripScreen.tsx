@@ -12,7 +12,6 @@ import {
   OtpInput,
   Pill,
   PulseDot,
-  RatingPrompt,
   Screen,
   StatusBadge,
   Stepper,
@@ -257,6 +256,18 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
     // Not keyed on myPos — one fetch + one auto-launch per PICKED_UP entry.
   }, [booking.status, booking.dropLat, booking.dropLng]);
 
+  // CR8 (2026-08): drop the intermediate feedback step. The moment the
+  // server confirms COMPLETED (via `advance`'s setBooking, already backend-
+  // saved), return the driver straight to the dashboard so they're
+  // immediately available for the next request — no manual tap required.
+  const completedNavFiredRef = useRef(false);
+  useEffect(() => {
+    if (booking.status === "COMPLETED" && !completedNavFiredRef.current) {
+      completedNavFiredRef.current = true;
+      onClose();
+    }
+  }, [booking.status]);
+
   const advance = async (
     fn: () => Promise<{ booking: Booking }>,
     confirm?: { title: string; body: string }
@@ -267,13 +278,13 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
         const r = await fn();
         setBooking(r.booking);
       } catch (e: any) {
-        void dialog.alert("Could not update", e?.message ?? "Try again.");
+        void dialog.alert(t("trip.update_error_title"), e?.message ?? t("common.please_try_again"));
       } finally {
         setBusy(false);
       }
     };
     if (confirm) {
-      if (await dialog.confirm({ title: confirm.title, message: confirm.body, confirmText: "Confirm", cancelText: "Cancel" })) {
+      if (await dialog.confirm({ title: confirm.title, message: confirm.body, confirmText: t("common.confirm"), cancelText: t("common.cancel") })) {
         void run();
       }
     } else {
@@ -342,7 +353,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
   return (
     <Screen>
       <AppHeader
-        title="Active trip"
+        title={t("trip.header_title")}
         subtitle={`#${booking.displayId ?? booking.id.slice(0, 8)}`}
         onBack={onClose}
         right={
@@ -376,13 +387,13 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
       <Card>
         <View style={{ gap: space.md }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-            <Pill label={prettyEmergency(booking.emergencyType)} />
+            <Pill label={prettyEmergency(booking.emergencyType, t)} />
             <StatusBadge status={booking.status} perspective="driver" />
           </View>
           <Stepper steps={STEPS} currentIndex={failed ? -1 : stepIndex} failed={failed} />
           <View style={{ gap: 4 }}>
-            <Text variant="heading">{stepHeadline(booking.status)}</Text>
-            <Text variant="small" tone="secondary">{stepSubline(booking.status)}</Text>
+            <Text variant="heading">{stepHeadline(booking.status, t)}</Text>
+            <Text variant="small" tone="secondary">{stepSubline(booking.status, t)}</Text>
           </View>
           {(() => {
             // ETA card shown only when we have a GPS fix + a destination ahead.
@@ -391,15 +402,15 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
             let value: string | null = null;
             if (booking.status === "ACCEPTED") {
               const km = haversineKm(myPos.lat, myPos.lng, booking.pickupLat, booking.pickupLng);
-              label = "ETA to pickup";
+              label = t("trip.eta_to_pickup");
               value = `~${estimateEtaMin(km)} min · ${km.toFixed(1)} km`;
             } else if (booking.status === "PICKED_UP" && navEta) {
               // Prefer the OSRM road-based ETA when available (CR#6).
-              label = "ETA to hospital";
+              label = t("trip.eta_to_hospital");
               value = `~${navEta.min} min · ${navEta.km.toFixed(1)} km`;
             } else if (booking.status === "PICKED_UP" && booking.dropLat != null && booking.dropLng != null) {
               const km = haversineKm(myPos.lat, myPos.lng, booking.dropLat, booking.dropLng);
-              label = "ETA to hospital";
+              label = t("trip.eta_to_hospital");
               value = `~${estimateEtaMin(km)} min · ${km.toFixed(1)} km`;
             }
             if (!label || !value) return null;
@@ -415,19 +426,19 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
 
       <Card padding="md">
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: space.sm }}>
-          <Text variant="label" tone="secondary">PATIENT &amp; YOU</Text>
+          <Text variant="label" tone="secondary">{t("trip.patient_and_you")}</Text>
           {sharing ? (
             <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
               <PulseDot size={8} color={colors.success} rings={1} />
-              <Text variant="tiny" tone="success" weight="bold">SHARING LIVE</Text>
+              <Text variant="tiny" tone="success" weight="bold">{t("trip.sharing_live")}</Text>
             </View>
           ) : null}
         </View>
         <MapEmbed
-          pickup={{ lat: booking.pickupLat, lng: booking.pickupLng, label: "Patient" }}
-          driver={myPos ? { lat: myPos.lat, lng: myPos.lng, label: "You" } : null}
+          pickup={{ lat: booking.pickupLat, lng: booking.pickupLng, label: t("trip.pin_patient") }}
+          driver={myPos ? { lat: myPos.lat, lng: myPos.lng, label: t("trip.pin_you") } : null}
           drop={booking.dropLat != null && booking.dropLng != null
-            ? { lat: booking.dropLat, lng: booking.dropLng, label: booking.dropAddress ?? "Hospital" }
+            ? { lat: booking.dropLat, lng: booking.dropLng, label: booking.dropAddress ?? t("trip.pin_hospital_fallback") }
             : null}
           routePath={navRoute}
           height={280}
@@ -435,13 +446,13 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
         {myPos && booking.status === "ACCEPTED" ? (
           <View style={{ flexDirection: "row", justifyContent: "space-around", paddingVertical: space.sm }}>
             <View style={{ alignItems: "center" }}>
-              <Text variant="tiny" tone="secondary">DISTANCE</Text>
+              <Text variant="tiny" tone="secondary">{t("trip.distance_label")}</Text>
               <Text variant="heading" weight="bold">
                 {haversineKm(myPos.lat, myPos.lng, booking.pickupLat, booking.pickupLng).toFixed(1)} km
               </Text>
             </View>
             <View style={{ alignItems: "center" }}>
-              <Text variant="tiny" tone="secondary">ETA</Text>
+              <Text variant="tiny" tone="secondary">{t("trip.eta_label")}</Text>
               <Text variant="heading" weight="bold" tone="primary">
                 ~{estimateEtaMin(haversineKm(myPos.lat, myPos.lng, booking.pickupLat, booking.pickupLng))} min
               </Text>
@@ -452,7 +463,9 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm, marginTop: space.md }}>
             <PulseDot size={10} color={colors.success} />
             <Text variant="small" tone="secondary">
-              Sharing location with patient · last sent {pushedAt ? `${Math.max(0, Math.round((Date.now() - pushedAt) / 1000))}s ago` : "starting…"}
+              {pushedAt
+                ? t("trip.sharing_location_note").replace("{n}", String(Math.max(0, Math.round((Date.now() - pushedAt) / 1000))))
+                : t("trip.sharing_location_note_starting")}
             </Text>
           </View>
         ) : null}
@@ -460,14 +473,14 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
 
       <Card>
         <View style={{ gap: space.md }}>
-          <Text variant="label" tone="secondary">PICKUP</Text>
-          <Text variant="body">{booking.pickupAddress ?? "Patient location"}</Text>
+          <Text variant="label" tone="secondary">{t("trip.pickup_section_label")}</Text>
+          <Text variant="body">{booking.pickupAddress ?? t("trip.patient_location")}</Text>
           <Text variant="tiny" tone="muted">
             {booking.pickupLat.toFixed(5)}, {booking.pickupLng.toFixed(5)}
           </Text>
           {!finished ? (
             <Button
-              label="Open in Google Maps"
+              label={t("trip.open_maps")}
               variant="outline"
               onPress={() => openTurnByTurn(booking.pickupLat, booking.pickupLng)}
               fullWidth
@@ -475,11 +488,11 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
           ) : null}
           {booking.dropAddress ? (
             <>
-              <Text variant="label" tone="secondary">DROP HOSPITAL</Text>
+              <Text variant="label" tone="secondary">{t("trip.drop_hospital_label")}</Text>
               <Text variant="body">{booking.dropAddress}</Text>
               {booking.dropLat != null && booking.dropLng != null && !finished ? (
                 <Button
-                  label="Navigate to drop"
+                  label={t("trip.navigate_to_drop")}
                   variant="ghost"
                   onPress={() => openTurnByTurn(booking.dropLat!, booking.dropLng!)}
                   fullWidth
@@ -493,9 +506,9 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
            * see ₹250 but collect ₹0, causing confusion. Once paid bookings
            * land and the coupon flow is server-side, revisit this card.
            */}
-          <Text variant="label" tone="secondary">PAYMENT</Text>
+          <Text variant="label" tone="secondary">{t("trip.payment_label")}</Text>
           <Text variant="body" tone="secondary">
-            Paid in-app · Nothing to collect from patient
+            {t("trip.paid_in_app_note")}
           </Text>
         </View>
       </Card>
@@ -507,10 +520,9 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
       {!finished ? (
         <Card>
           <View style={{ gap: space.sm }}>
-            <Text variant="label" tone="danger">NEED HELP?</Text>
+            <Text variant="label" tone="danger">{t("trip.need_help_label")}</Text>
             <Text variant="small" tone="secondary">
-              Contact support any time during the trip · vehicle issue,
-              patient change, can&apos;t reach drop, anything.
+              {t("trip.need_help_body")}
             </Text>
             <ContactSupport bookingId={booking.id} compact />
           </View>
@@ -531,18 +543,18 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
               </Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text variant="label" tone="secondary">PATIENT</Text>
+              <Text variant="label" tone="secondary">{t("trip.patient_label")}</Text>
               <Text variant="body" weight="semi">
-                {booking.patientName ?? userProfile.name ?? "Patient"}
+                {booking.patientName ?? userProfile.name ?? t("trip.patient_fallback")}
                 {booking.patientAge ? `, ${booking.patientAge}y` : ""}
-                {booking.patientGender ? ` · ${booking.patientGender === "M" ? "Male" : booking.patientGender === "F" ? "Female" : "Other"}` : ""}
+                {booking.patientGender ? ` · ${booking.patientGender === "M" ? t("trip.gender_male") : booking.patientGender === "F" ? t("trip.gender_female") : t("trip.gender_other")}` : ""}
               </Text>
               <Text variant="tiny" tone="muted">{userProfile.phone}</Text>
             </View>
             <Pressable
               onPress={() => Linking.openURL(`tel:${userProfile.phone}`).catch(() => {})}
               style={patientCardStyles.callBtn}
-              accessibilityLabel={`Call ${booking.patientName ?? userProfile.name ?? "patient"}`}
+              accessibilityLabel={`Call ${booking.patientName ?? userProfile.name ?? t("trip.patient_fallback")}`}
             >
               <Text style={patientCardStyles.callIcon}>📞</Text>
             </Pressable>
@@ -568,9 +580,9 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
       {!finished && booking.status === "ARRIVED" && !booking.dropAddress ? (
         <Card>
           <View style={{ gap: space.sm }}>
-            <Text variant="label" tone="secondary">DROP HOSPITAL (SOS)</Text>
+            <Text variant="label" tone="secondary">{t("trip.drop_hospital_sos_label")}</Text>
             <Text variant="tiny" tone="muted">
-              Capture where the patient needs to go. Saved instantly to the patient app.
+              {t("trip.drop_sos_capture_note")}
             </Text>
             <DropPicker
               bookingId={booking.id}
@@ -589,9 +601,9 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
       {!finished && booking.status === "ARRIVED" ? (
         <Card>
           <View style={{ gap: space.sm }}>
-            <Text variant="label" tone="secondary">VERIFY RIDE OTP</Text>
+            <Text variant="label" tone="secondary">{t("trip.verify_otp_label")}</Text>
             <Text variant="tiny" tone="muted">
-              Ask the patient for their 4-digit ride OTP and enter it below.
+              {t("trip.verify_otp_body")}
             </Text>
             <OtpVerify
               onSubmit={async (code) => {
@@ -606,32 +618,10 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
         </Card>
       ) : null}
 
-      {/* Driver rates the patient after trip completes. Hides once the
-        * ratingByDriver column is set. Reuses the shared RatingPrompt card
-        * with patient-side copy. */}
-      {booking.status === "COMPLETED" ? (
-        <RatingPrompt
-          title="How was the patient?"
-          subtitle="Your rating helps other drivers know what to expect."
-          feedbackLabel="Notes for ops (optional)"
-          feedbackPlaceholder="e.g., very cooperative, or arrived late"
-          submitLabel="Submit rating"
-          hidden={!!booking.ratingByDriver}
-          onSubmit={async ({ rating, feedback }) => {
-            try {
-              const r = await bookingsApi.rateByDriver(booking.id, rating, feedback);
-              setBooking(r.booking);
-            } catch (e: any) {
-              void dialog.alert("Could not submit", e?.message ?? "Try again.");
-            }
-          }}
-        />
-      ) : null}
-
       {!finished ? (
         <View style={{ gap: space.sm }}>
           {booking.status === "ACCEPTED" ? (
-            <Button label="I have arrived" loading={busy} onPress={() => advance(() => bookingsApi.arrived(booking.id))} fullWidth size="lg" testID="arrived-cta" />
+            <Button label={t("trip.arrived_button")} loading={busy} onPress={() => advance(() => bookingsApi.arrived(booking.id))} fullWidth size="lg" testID="arrived-cta" />
           ) : null}
           {booking.status === "PICKED_UP" ? (
             (() => {
@@ -644,12 +634,12 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
                 <>
                   <Card>
                     <View style={{ gap: space.sm }}>
-                      <Text variant="label" tone="danger" weight="bold">DROP HOSPITAL REQUIRED</Text>
+                      <Text variant="label" tone="danger" weight="bold">{t("trip.drop_required_title")}</Text>
                       <Text variant="small" tone="secondary">
-                        Search a hospital or pin it on the map. The patient app updates the moment you save.
+                        {t("trip.drop_required_body")}
                       </Text>
                       <Button
-                        label="Choose drop on map"
+                        label={t("trip.choose_drop_on_map")}
                         onPress={() => setDropPickerOpen(true)}
                         fullWidth
                         variant="primary"
@@ -658,7 +648,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
                     </View>
                   </Card>
                   <Button
-                    label="Drop completed"
+                    label={t("trip.drop_completed")}
                     disabled
                     fullWidth
                     variant="primary"
@@ -666,17 +656,17 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
                     testID="complete-cta"
                   />
                   <Text variant="tiny" tone="muted" align="center">
-                    Set the drop hospital above to enable this button.
+                    {t("trip.drop_required_hint")}
                   </Text>
                 </>
               ) : (
                 <Button
-                  label="Drop completed"
+                  label={t("trip.drop_completed")}
                   loading={busy}
                   onPress={() =>
                     advance(() => bookingsApi.complete(booking.id), {
-                      title: "Mark trip complete?",
-                      body: "Confirm patient has been handed over to hospital staff."
+                      title: t("trip.mark_complete_title"),
+                      body: t("trip.mark_complete_body")
                     })
                   }
                   fullWidth
@@ -688,7 +678,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
             })()
           ) : null}
           <Text variant="tiny" tone="muted" align="center">
-            Tap the button as you complete each stage.
+            {t("trip.stage_hint")}
           </Text>
           {/* v1.2.0 (CR#2): driver can cancel only before pickup (ACCEPTED /
             * ARRIVED). PICKED_UP+ is admin-only. Patient-reason cancels are
@@ -704,7 +694,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
           ) : null}
         </View>
       ) : (
-        <Button label="Back to dashboard" onPress={onClose} fullWidth />
+        <Button label={t("trip.back_to_dashboard")} onPress={onClose} fullWidth />
       )}
 
       {/* v1.3.0 (D2): passive "waiting requests" peek (Ola / Uber style). While
@@ -750,7 +740,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
             setBooking(r.booking);
             setDropPickerOpen(false);
           } catch (e: any) {
-            void dialog.alert("Could not save drop", e?.message ?? "Try again.");
+            void dialog.alert(t("trip.save_drop_error_title"), e?.message ?? t("common.please_try_again"));
           }
         }}
       />
@@ -771,12 +761,13 @@ function OtpVerify({
   onSubmit: (code: string) => void | Promise<void>;
   busy: boolean;
 }) {
+  const { t } = useT();
   const [code, setCode] = useState("");
   return (
     <View style={{ gap: space.md }}>
       <OtpInput value={code} onChangeText={setCode} length={4} autoFocus />
       <Button
-        label="Start ride"
+        label={t("trip.start_ride_button")}
         loading={busy}
         disabled={code.length !== 4}
         onPress={() => onSubmit(code)}
@@ -785,7 +776,7 @@ function OtpVerify({
         testID="pickup-cta"
       />
       <Text variant="tiny" tone="muted" align="center">
-        The patient can see this code on their app. Ask them to read it out.
+        {t("trip.otp_read_note")}
       </Text>
     </View>
   );
@@ -811,6 +802,7 @@ function DropPicker({
   onSaved: (b: Booking) => void;
   onMaps: (lat: number, lng: number) => void;
 }) {
+  const { t } = useT();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -824,7 +816,7 @@ function DropPicker({
       onSaved(r.booking);
       setSavedAt(Date.now());
     } catch (e: any) {
-      void dialog.alert("Could not save drop", e?.message ?? "Try again.");
+      void dialog.alert(t("trip.save_drop_error_title"), e?.message ?? t("common.please_try_again"));
     } finally {
       setBusy(false);
     }
@@ -833,14 +825,14 @@ function DropPicker({
   return (
     <View style={{ gap: space.sm }}>
       <Input
-        label="Hospital name"
+        label={t("trip.hospital_name_label")}
         value={name}
         onChangeText={setName}
-        placeholder="e.g., Apollo Indraprastha"
+        placeholder={t("trip.hospital_name_placeholder")}
         autoCapitalize="words"
       />
       <Button
-        label={savedAt ? "Drop saved · update" : "Save drop hospital"}
+        label={savedAt ? t("trip.drop_saved_update") : t("trip.save_drop_hospital")}
         onPress={save}
         loading={busy}
         disabled={!name.trim()}
@@ -849,14 +841,14 @@ function DropPicker({
       />
       {savedAt ? (
         <Button
-          label="Open in Google Maps"
+          label={t("trip.open_maps")}
           variant="ghost"
           onPress={() => onMaps(defaultLat, defaultLng)}
           fullWidth
         />
       ) : null}
       <Text variant="tiny" tone="muted">
-        Tip: the patient app updates the moment you save this.
+        {t("trip.save_tip")}
       </Text>
     </View>
   );
@@ -870,6 +862,7 @@ function DropPicker({
  * team feedback 1.7).
  */
 function ParamedicAssessmentCard({ bookingId, alreadySubmitted }: { bookingId: string; alreadySubmitted: boolean }) {
+  const { t } = useT();
   const [open, setOpen] = useState(!alreadySubmitted);
   const [submitted, setSubmitted] = useState(alreadySubmitted);
   const [busy, setBusy] = useState(false);
@@ -881,17 +874,24 @@ function ParamedicAssessmentCard({ bookingId, alreadySubmitted }: { bookingId: s
   const [bleeding, setBleeding] = useState<string | null>(null);
   const [immediateRisk, setImmediateRisk] = useState(false);
   const [notes, setNotes] = useState("");
+  // CR7 (2026-08): Pregnancy Assessment sub-section — only sent to the
+  // server when pregnancyStatus is set; sub-fields only collected when Yes.
+  const [pregnancyStatus, setPregnancyStatus] = useState<string | null>(null);
+  const [pregnancyParity, setPregnancyParity] = useState<string | null>(null);
+  const [pregnancyComplaints, setPregnancyComplaints] = useState<string[]>([]);
+  const [pregnancyComplaintOther, setPregnancyComplaintOther] = useState("");
+  const [pregnancyAdditionalComplaint, setPregnancyAdditionalComplaint] = useState("");
 
   if (submitted && !open) {
     return (
       <Card flat>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <View style={{ flex: 1 }}>
-            <Text variant="label" tone="secondary">PARAMEDIC ASSESSMENT</Text>
-            <Text variant="small" tone="success">Submitted · sent to medical team</Text>
+            <Text variant="label" tone="secondary">{t("paramedic.title")}</Text>
+            <Text variant="small" tone="success">{t("paramedic.submitted")}</Text>
           </View>
           <Pressable onPress={() => setOpen(true)}>
-            <Text variant="small" tone="primary" weight="semi">Update</Text>
+            <Text variant="small" tone="primary" weight="semi">{t("paramedic.update")}</Text>
           </Pressable>
         </View>
       </Card>
@@ -902,18 +902,25 @@ function ParamedicAssessmentCard({ bookingId, alreadySubmitted }: { bookingId: s
     setBusy(true);
     setErr(null);
     try {
+      const isPregnant = pregnancyStatus === "yes";
       await bookingsApi.paramedicAssessment(bookingId, {
         consciousness: consciousness ?? undefined,
         breathing: breathing ?? undefined,
         pulse: pulse ?? undefined,
         bleedingSeverity: bleeding ?? undefined,
         immediateRisk,
-        notes: notes || undefined
+        notes: notes || undefined,
+        pregnancyStatus: pregnancyStatus ?? undefined,
+        pregnancyParity: isPregnant ? pregnancyParity ?? undefined : undefined,
+        pregnancyComplaints: isPregnant && pregnancyComplaints.length ? pregnancyComplaints : undefined,
+        pregnancyComplaintOther:
+          isPregnant && pregnancyComplaints.includes("other") ? pregnancyComplaintOther || undefined : undefined,
+        pregnancyAdditionalComplaint: isPregnant ? pregnancyAdditionalComplaint || undefined : undefined
       });
       setSubmitted(true);
       setOpen(false);
     } catch (e: any) {
-      setErr(e?.message ?? "Could not save. Please try again.");
+      setErr(e?.message ?? t("paramedic.error_generic"));
     } finally {
       setBusy(false);
     }
@@ -923,9 +930,9 @@ function ParamedicAssessmentCard({ bookingId, alreadySubmitted }: { bookingId: s
     <Card style={{ borderColor: colors.primary, borderWidth: 1 }}>
       <View style={{ gap: space.md }}>
         <View>
-          <Text variant="label" tone="primary">PARAMEDIC ASSESSMENT</Text>
+          <Text variant="label" tone="primary">{t("paramedic.title")}</Text>
           <Text variant="tiny" tone="secondary">
-            Quick patient vitals. Goes to the medical team + receiving hospital. Not visible back here once submitted.
+            {t("paramedic.subtitle")}
           </Text>
         </View>
 
@@ -934,29 +941,85 @@ function ParamedicAssessmentCard({ bookingId, alreadySubmitted }: { bookingId: s
         <ChipRow label="Pulse" options={["normal", "weak", "rapid", "absent"]} value={pulse} onChange={setPulse} />
         <ChipRow label="Bleeding" options={["none", "minor", "moderate", "severe"]} value={bleeding} onChange={setBleeding} />
 
+        {/* CR7 (2026-08): Pregnancy Assessment — quick obstetric triage.
+          * Only the top question always shows; sub-fields expand on Yes so
+          * this stays fast to fill during a normal (non-obstetric) call. */}
+        <View style={{ gap: space.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: space.sm }}>
+          <Text variant="label" tone="secondary">PREGNANCY ASSESSMENT</Text>
+          <ChipRow
+            label="Is the patient pregnant?"
+            options={["yes", "no", "unknown"]}
+            value={pregnancyStatus}
+            onChange={setPregnancyStatus}
+            pretty={defaultPretty}
+          />
+          {pregnancyStatus === "yes" ? (
+            <>
+              <ChipRow
+                label="Which pregnancy is this?"
+                options={["first", "second", "third", "fourth_or_more"]}
+                value={pregnancyParity}
+                onChange={setPregnancyParity}
+                pretty={prettyParity}
+              />
+              <MultiChipRow
+                label="What is the main problem?"
+                options={[
+                  "leaking_fluid",
+                  "vaginal_bleeding",
+                  "severe_abdominal_pain",
+                  "excessive_vomiting",
+                  "reduced_movements",
+                  "seizures",
+                  "high_fever",
+                  "other"
+                ]}
+                value={pregnancyComplaints}
+                onChange={setPregnancyComplaints}
+                pretty={prettyPregnancyComplaint}
+              />
+              {pregnancyComplaints.includes("other") ? (
+                <Input
+                  label="Specify other complaint"
+                  value={pregnancyComplaintOther}
+                  onChangeText={setPregnancyComplaintOther}
+                  placeholder="Describe the complaint"
+                />
+              ) : null}
+              <Input
+                label="Additional complaint (optional)"
+                value={pregnancyAdditionalComplaint}
+                onChangeText={setPregnancyAdditionalComplaint}
+                placeholder="Any other observation not covered above"
+                multiline
+              />
+            </>
+          ) : null}
+        </View>
+
         <Pressable
           onPress={() => setImmediateRisk((v) => !v)}
           style={[paramedicStyles.riskRow, immediateRisk ? paramedicStyles.riskOn : null]}
         >
           <Text variant="body" weight="semi" style={{ color: immediateRisk ? colors.textInverse : colors.textPrimary }}>
-            🚨 Immediate risk to life
+            {t("paramedic.risk_flag")}
           </Text>
           <Text variant="tiny" style={{ color: immediateRisk ? colors.textInverse : colors.textMuted }}>
-            {immediateRisk ? "FLAGGED" : "Tap to flag"}
+            {immediateRisk ? t("paramedic.risk_flagged") : t("paramedic.risk_tap_to_flag")}
           </Text>
         </Pressable>
 
         <Input
-          label="Notes (optional)"
+          label={t("paramedic.notes_label")}
           value={notes}
           onChangeText={setNotes}
-          placeholder="Anything the hospital should know on arrival"
+          placeholder={t("paramedic.notes_placeholder")}
           multiline
         />
 
         {err ? <Text variant="tiny" tone="danger">{err}</Text> : null}
         <Button
-          label={busy ? "Sending…" : alreadySubmitted ? "Update assessment" : "Send to medical team"}
+          label={busy ? t("paramedic.sending") : alreadySubmitted ? t("paramedic.update_assessment") : t("paramedic.send")}
           onPress={submit}
           loading={busy}
           fullWidth
@@ -1002,13 +1065,77 @@ function ChipRow({
   );
 }
 
-function defaultPretty(v: string) { return v.charAt(0).toUpperCase() + v.slice(1); }
+// CR7 (2026-08): multi-select chip row (Pregnancy complaint checklist).
+// Same visuals as ChipRow, but toggles membership in an array instead of
+// replacing a single value.
+function MultiChipRow({
+  label,
+  options,
+  value,
+  onChange,
+  pretty
+}: {
+  label: string;
+  options: string[];
+  value: string[];
+  onChange: (v: string[]) => void;
+  pretty?: (v: string) => string;
+}) {
+  const toggle = (o: string) => {
+    onChange(value.includes(o) ? value.filter((v) => v !== o) : [...value, o]);
+  };
+  return (
+    <View style={{ gap: space.xs }}>
+      <Text variant="label" tone="secondary">{label}</Text>
+      <View style={paramedicStyles.chipRow}>
+        {options.map((o) => {
+          const sel = value.includes(o);
+          return (
+            <Pressable
+              key={o}
+              onPress={() => toggle(o)}
+              style={[paramedicStyles.chip, sel ? paramedicStyles.chipOn : null]}
+            >
+              <Text variant="tiny" weight={sel ? "bold" : "regular"} style={{ color: sel ? colors.textInverse : colors.textPrimary }}>
+                {(pretty ?? defaultPretty)(o)}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function defaultPretty(v: string) { return v.charAt(0).toUpperCase() + v.slice(1).replace(/_/g, " "); }
 function prettyConsciousness(v: string) {
   switch (v) {
     case "alert": return "Alert";
     case "responsive_to_voice": return "Responds to voice";
     case "responsive_to_pain": return "Responds to pain";
     case "unconscious": return "Unconscious";
+    default: return v;
+  }
+}
+function prettyParity(v: string) {
+  switch (v) {
+    case "first": return "First baby";
+    case "second": return "Second baby";
+    case "third": return "Third baby";
+    case "fourth_or_more": return "Fourth or more";
+    default: return v;
+  }
+}
+function prettyPregnancyComplaint(v: string) {
+  switch (v) {
+    case "leaking_fluid": return "Leaking of fluid (water broke)";
+    case "vaginal_bleeding": return "Vaginal bleeding";
+    case "severe_abdominal_pain": return "Severe abdominal pain";
+    case "excessive_vomiting": return "Excessive vomiting";
+    case "reduced_movements": return "Reduced baby movements";
+    case "seizures": return "Fits / convulsions";
+    case "high_fever": return "High fever";
+    case "other": return "Other (specify)";
     default: return v;
   }
 }
@@ -1057,24 +1184,24 @@ const patientCardStyles = StyleSheet.create({
   callIcon: { fontSize: 22 }
 });
 
-function stepHeadline(status: string): string {
+function stepHeadline(status: string, t: (key: string) => string): string {
   switch (status) {
-    case "ACCEPTED": return "Drive to pickup";
-    case "ARRIVED": return "Wait for patient";
-    case "PICKED_UP": return "Drive to hospital";
-    case "COMPLETED": return "Trip completed";
-    case "CANCELLED": return "Booking cancelled by patient";
+    case "ACCEPTED": return t("trip.step_headline.drive_to_pickup");
+    case "ARRIVED": return t("trip.step_headline.wait_for_patient");
+    case "PICKED_UP": return t("trip.step_headline.drive_to_hospital");
+    case "COMPLETED": return t("trip.step_headline.completed");
+    case "CANCELLED": return t("trip.step_headline.cancelled_by_patient");
     default: return status;
   }
 }
 
-function stepSubline(status: string): string {
+function stepSubline(status: string, t: (key: string) => string): string {
   switch (status) {
-    case "ACCEPTED": return "Use Maps for navigation. Tap below when you arrive.";
-    case "ARRIVED": return "Locate patient and confirm pickup.";
-    case "PICKED_UP": return "Drive carefully. Tap when handed over to hospital staff.";
-    case "COMPLETED": return "Great job. Payout will be added to your wallet.";
-    case "CANCELLED": return "You're free to accept new requests.";
+    case "ACCEPTED": return t("trip.step_sub.use_maps");
+    case "ARRIVED": return t("trip.step_sub.locate_patient");
+    case "PICKED_UP": return t("trip.step_sub.drive_carefully");
+    case "COMPLETED": return t("trip.step_sub.payout_note");
+    case "CANCELLED": return t("trip.step_sub.free_to_accept");
     default: return "";
   }
 }

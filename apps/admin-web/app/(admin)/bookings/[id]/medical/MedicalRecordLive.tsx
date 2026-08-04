@@ -51,6 +51,7 @@ function prettyKey(k: string): string {
 function prettyVal(v: any): string {
   if (v === true) return "Yes";
   if (v === false) return "No";
+  if (Array.isArray(v)) return v.map((x) => String(x).replace(/_/g, " ")).join(", ");
   if (typeof v === "string") return v.replace(/_/g, " ");
   return String(v);
 }

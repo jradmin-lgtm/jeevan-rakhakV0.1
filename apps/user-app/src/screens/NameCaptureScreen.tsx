@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { View } from "react-native";
 import { AppHeader, Button, Card, IconBadge, Input, Screen, Text, colors, space } from "@jr/ui";
 import { me } from "../api";
+import { useT } from "../i18n";
 
 type Props = {
   initialName?: string | null;
@@ -14,6 +15,7 @@ type Props = {
  * screen until they save — it's the first thing the home banner reads.
  */
 export function NameCaptureScreen({ initialName, onSaved }: Props) {
+  const { t } = useT();
   const [name, setName] = useState(initialName ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -21,7 +23,7 @@ export function NameCaptureScreen({ initialName, onSaved }: Props) {
   const save = async () => {
     const trimmed = name.trim();
     if (trimmed.length < 2) {
-      setErr("Please enter your full name so the driver can identify you.");
+      setErr(t("name_capture.error_too_short"));
       return;
     }
     setBusy(true);
@@ -30,7 +32,7 @@ export function NameCaptureScreen({ initialName, onSaved }: Props) {
       const r = await me.update({ name: trimmed });
       onSaved(r.profile);
     } catch (e: any) {
-      setErr(e?.message ?? "Could not save your name. Please try again.");
+      setErr(e?.message ?? t("name_capture.error_generic"));
     } finally {
       setBusy(false);
     }
@@ -38,7 +40,7 @@ export function NameCaptureScreen({ initialName, onSaved }: Props) {
 
   return (
     <Screen>
-      <AppHeader title="What should we call you?" subtitle="So the driver can address you on arrival" />
+      <AppHeader title={t("name_capture.title")} subtitle={t("name_capture.subtitle")} />
       <View style={{ alignItems: "center", paddingVertical: space.md }}>
         <IconBadge glyph="JR" size={72} bg={colors.primaryFaint} color={colors.primary} />
       </View>
@@ -46,8 +48,8 @@ export function NameCaptureScreen({ initialName, onSaved }: Props) {
       <Card>
         <View style={{ gap: space.md }}>
           <Input
-            label="Your name"
-            placeholder="Ravi Kumar"
+            label={t("name_capture.name_label")}
+            placeholder={t("profile_setup.name_placeholder")}
             value={name}
             onChangeText={setName}
             autoFocus
@@ -56,7 +58,7 @@ export function NameCaptureScreen({ initialName, onSaved }: Props) {
             testID="name-input"
           />
           <Button
-            label="Continue"
+            label={t("common.continue")}
             onPress={save}
             loading={busy}
             disabled={name.trim().length < 2}
@@ -68,7 +70,7 @@ export function NameCaptureScreen({ initialName, onSaved }: Props) {
       </Card>
 
       <Text variant="tiny" tone="muted" align="center">
-        Your name is shared only with the assigned driver and our operations team.
+        {t("name_capture.privacy_note")}
       </Text>
     </Screen>
   );

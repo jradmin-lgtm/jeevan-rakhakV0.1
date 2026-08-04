@@ -142,7 +142,7 @@ export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onCo
           return {
             lat: Number(d.lat),
             lng: Number(d.lon),
-            primary: parts[0] ?? "Unnamed place",
+            primary: parts[0] ?? t("map_picker.unnamed_place"),
             secondary: parts.slice(1, 4).join(", ")
           };
         }).filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lng));

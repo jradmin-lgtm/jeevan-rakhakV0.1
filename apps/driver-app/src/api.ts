@@ -153,7 +153,7 @@ export const me = {
   get: () => api<{ role: string; profile: any }>("/api/v1/me"),
   registerPushToken: (token: string) =>
     api<{ ok: true }>("/api/v1/me/push-token", { method: "POST", body: { token } }),
-  update: (patch: { name?: string }) =>
+  update: (patch: { name?: string; preferredLang?: "en" | "hi" }) =>
     api<{ role: string; profile: any }>("/api/v1/me", { method: "PATCH", body: patch }),
   // v1.0.13: Google Play account-deletion compliance. Refuses if the driver
   // has an active trip (would strand the patient). On success, server soft-
@@ -193,7 +193,19 @@ export const driver = {
     insuranceNumber?: string;
     hospitalId?: string;
     hospitalName?: string;
-  }) => api<{ driver: any }>("/api/v1/driver/kyc", { method: "POST", body: data })
+    pucNumber?: string;
+    fitnessNumber?: string;
+    employmentType?: "hospital_employee" | "private_driver";
+    employeeNumber?: string;
+  }) => api<{ driver: any }>("/api/v1/driver/kyc", { method: "POST", body: data }),
+  // CR6 (2026-08): one call per document. base64 has no "data:...;base64,"
+  // prefix — strip it client-side before calling this.
+  uploadKycDocument: (docType: string, contentType: string, base64: string) =>
+    api<{ ok: true; docType: string; uploadedAt: string }>("/api/v1/driver/kyc/document", {
+      method: "POST",
+      body: { docType, contentType, base64 }
+    }),
+  kycDocuments: () => api<{ documents: Record<string, string> }>("/api/v1/driver/kyc/documents")
 };
 
 export type SosPending = {

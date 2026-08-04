@@ -51,7 +51,15 @@ export const MIN_FARE = 300;
 export const VEHICLE_MULT: Record<string, number> = {
   BLS: 1.0,    // Basic Life Support — entry tier
   ALS: 1.5,    // Advanced Life Support (defibrillator, IV meds)
-  ICU: 2.0     // ICU on Wheels — ventilator + advanced monitoring
+  ICU: 2.0,    // ICU on Wheels — ventilator + advanced monitoring
+  // CR6 (2026-08): KYC's Ambulance Type dropdown was widened to include
+  // these three. No real pricing decision has been made for them yet, so
+  // they're placeholdered at BLS parity (1.0) rather than guessing a
+  // premium — update once ops sets a real rate. (Unknown/"OTHER" free-text
+  // values not listed here already fall back to 1.0 via the `?? 1.0` below.)
+  NEONATAL: 1.0,
+  CARDIAC: 1.0,
+  OTHER: 1.0
 };
 
 /** Priority-dispatch surcharge by emergency type. Keys must match the

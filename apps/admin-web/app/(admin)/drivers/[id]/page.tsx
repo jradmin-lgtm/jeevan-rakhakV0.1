@@ -26,7 +26,7 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
   const { id } = await params;
   const data = await getDriver(id);
   if (!data) notFound();
-  const { driver, bookings, totals, assignedHospitals = [], allHospitals = [] } = data;
+  const { driver, bookings, totals, assignedHospitals = [], allHospitals = [], documents = {} } = data;
 
   return (
     <>
@@ -86,7 +86,23 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
           <EditableField label="Vehicle type" value={driver.vehicleType} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="vehicleType" placeholder="BLS / ALS / ICU" />
           <EditableField label="Licence #" value={driver.licenseNumber} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="licenseNumber" placeholder="DL number" />
           <EditableField label="RC #" value={driver.rcNumber} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="rcNumber" placeholder="RC number" />
+          <EditableField label="PUC #" value={driver.pucNumber} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="pucNumber" placeholder="PUC certificate number" />
+          <EditableField label="Fitness #" value={driver.fitnessNumber} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="fitnessNumber" placeholder="Fitness certificate number" />
           <EditableField label="Insurance #" value={driver.insuranceNumber} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="insuranceNumber" placeholder="Policy number" />
+          {/* Raw enum value (not pretty-printed) — this same string round-trips
+            * back into the PATCH body on save, so it must match the server's
+            * strict enum exactly. */}
+          <EditableField
+            label="Employment type"
+            value={driver.employmentType}
+            apiBase={API_BASE}
+            patchUrl={`/api/v1/admin/drivers/${driver.id}`}
+            fieldKey="employmentType"
+            placeholder="hospital_employee / private_driver"
+          />
+          {driver.employmentType === "hospital_employee" ? (
+            <EditableField label="Employee #" value={driver.employeeNumber} apiBase={API_BASE} patchUrl={`/api/v1/admin/drivers/${driver.id}`} fieldKey="employeeNumber" placeholder="Employee ID number" />
+          ) : null}
           {/* Hospital assignment moved to the dedicated multi-select card
             * (DriverHospitals) — replaces the old free-text fields. */}
           <Field label="Primary hospital" value={driver.hospitalName ?? <span style={{ color: "var(--muted)" }}>- unassigned</span>} />
@@ -112,6 +128,38 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
               initialVerified={!!driver.kycVerified}
               apiBase={API_BASE}
             />
+          </div>
+          {/* CR6 (2026-08): document upload status. "View" opens the raw
+            * image/PDF via the client-side admin proxy (never the api-server
+            * directly — the browser has no admin key). */}
+          <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--muted)", marginBottom: 8 }}>Documents</div>
+            {[
+              { key: "rc", label: "RC" },
+              { key: "puc", label: "PUC certificate" },
+              { key: "fitness", label: "Fitness certificate" },
+              { key: "insurance", label: "Insurance" },
+              { key: "licence", label: "Driving licence" },
+              { key: "employee_id", label: "Employee ID card" }
+            ]
+              .filter((d) => d.key !== "employee_id" || driver.employmentType === "hospital_employee")
+              .map((d) => (
+                <div key={d.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0" }}>
+                  <span style={{ fontSize: 13 }}>{d.label}</span>
+                  {documents[d.key] ? (
+                    <a
+                      href={`/api/proxy/api/v1/admin/drivers/${driver.id}/documents/${d.key}/raw`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ fontSize: 12, color: "var(--accent)", fontWeight: 600 }}
+                    >
+                      ✓ View
+                    </a>
+                  ) : (
+                    <span className="muted" style={{ fontSize: 12 }}>Not uploaded</span>
+                  )}
+                </div>
+              ))}
           </div>
         </div>
         <div className="card">

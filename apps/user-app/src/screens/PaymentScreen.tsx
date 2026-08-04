@@ -121,7 +121,7 @@ export function PaymentScreen({ booking: initial, onPaid }: Props) {
 
   return (
     <Screen>
-      <AppHeader title={t("payment.title") || "Trip complete"} subtitle={`Booking #${booking.displayId ?? booking.id.slice(0, 8)}`} />
+      <AppHeader title={t("payment.title") || "Trip complete"} subtitle={t("payment.booking_number").replace("{id}", String(booking.displayId ?? booking.id.slice(0, 8)))} />
 
       <Card>
         <View style={{ gap: space.sm }}>

@@ -211,9 +211,10 @@ async function runWave(app: FastifyInstance, state: RunnerState): Promise<void> 
       // the socket emit above only reaches a foregrounded app.
       void pushToDriver(
         target.driverId,
-        "🚨 New SOS request",
-        `${state.emergencyType} · ${target.distanceKm.toFixed(1)} km away · tap to accept.`,
-        { bookingId: state.bookingId, kind: "sos" }
+        "sos_new",
+        { emergencyType: state.emergencyType, distanceKm: target.distanceKm },
+        { bookingId: state.bookingId, kind: "sos" },
+        "sos_alerts"
       );
     } catch (err) {
       app.log.warn(

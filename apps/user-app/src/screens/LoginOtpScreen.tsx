@@ -76,7 +76,7 @@ export function LoginOtpScreen({ onAuthenticated }: { onAuthenticated: (profile:
           right={stage === "phone" ? (
             <Pressable
               onPress={() => void setLang(lang === "en" ? "hi" : "en")}
-              accessibilityLabel="Switch language"
+              accessibilityLabel={t("common.switch_language")}
               style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "rgba(30,94,255,0.10)", borderRadius: 999 }}
             >
               <Text variant="small" weight="bold" style={{ color: lang === "en" ? colors.accent : "#94A3B8" }}>EN</Text>
@@ -136,7 +136,7 @@ export function LoginOtpScreen({ onAuthenticated }: { onAuthenticated: (profile:
           ) : (
             <View style={{ gap: space.lg }}>
               <Text variant="small" tone="secondary" align="center">
-                Enter the 4-digit code
+                {t("otp.enter_code_hint")}
               </Text>
               <OtpInput
                 value={code}
@@ -146,7 +146,7 @@ export function LoginOtpScreen({ onAuthenticated }: { onAuthenticated: (profile:
                 error={err ?? undefined}
               />
               <Button
-                label="Verify & continue"
+                label={t("otp.verify_continue")}
                 onPress={verifyOtp}
                 loading={busy}
                 disabled={code.length < OTP_LENGTH}

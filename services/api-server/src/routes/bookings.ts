@@ -11,6 +11,7 @@ const MAX_ACTIVE_BOOKINGS_PER_USER = 1;
 import { config } from "@jr/config";
 import { haversineDistanceKm } from "@jr/utils";
 import { dismissPushToDriver, dismissPushToUser, pushToUser, sendPush } from "../push";
+import { renderPushTemplate } from "../push-i18n";
 // v1.3.1: when a ride reaches a terminal state (COMPLETED / CANCELLED) any
 // still-ACTIVE in-ride safety alert for that booking is stale and must be
 // auto-resolved (clears responder cards + stands the raiser's bar down).
@@ -278,11 +279,13 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         void (async () => {
           try {
             const avail = await db
-              .select({ t: drivers.pushToken })
+              .select({ t: drivers.pushToken, lang: drivers.preferredLang })
               .from(drivers)
               .where(and(eq(drivers.status, "AVAILABLE"), eq(drivers.disabled, false), eq(drivers.kycVerified, true)));
             for (const d of avail) {
-              if (d.t) void sendPush(d.t, "New ambulance request 🚑", "A patient nearby needs an ambulance · open the app to accept.", { bookingId: created.id, kind: "booking" });
+              if (!d.t) continue;
+              const { title, body } = renderPushTemplate("booking_new", d.lang);
+              void sendPush(d.t, title, body, { bookingId: created.id, kind: "booking" }, "booking_alerts");
             }
           } catch {
             /* best-effort */
@@ -536,7 +539,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       await emitBookingEvent(id, "booking.accepted", `driver:${sub}`);
       await emitToHospital(updated);
       // v1.1.0 push: wake the patient even if their app is backgrounded.
-      void pushToUser(updated.userId, "Ambulance assigned 🚑", "A driver accepted your request and is on the way.", { bookingId: id, status: "ACCEPTED" });
+      void pushToUser(updated.userId, "booking_assigned", {}, { bookingId: id, status: "ACCEPTED" });
       // Mark this driver's attempt row accepted (for SOS) + notify the
       // patient + dismiss losers' modals. Wrapped so a normal-flow accept
       // (not via cascade) still goes through cleanly.
@@ -588,7 +591,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       if (!b) return reply.code(404).send({ error: "not_found_or_forbidden" });
       await emitBookingEvent(id, "booking.arrived", `driver:${sub}`);
       await emitToHospital(b);
-      void pushToUser(b.userId, "Driver has arrived 📍", "Your ambulance is at the pickup point · share your ride OTP with the driver.", { bookingId: id, status: "ARRIVED" });
+      void pushToUser(b.userId, "driver_arrived", {}, { bookingId: id, status: "ARRIVED" });
       return reply.send({ booking: b });
     }
   );
@@ -656,7 +659,9 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         destHospitalId: destPatch.destHospitalId ?? null
       });
       await emitToHospital(b);
-      void pushToUser(b.userId, "On the way to hospital 🏥", `En route to ${b.dropAddress ?? "the hospital"}.`, { bookingId: id, status: "PICKED_UP" });
+      // dropAddress omitted (not defaulted to English text here) when unset —
+      // the template's own per-language fallback ("the hospital" / "अस्पताल") applies.
+      void pushToUser(b.userId, "en_route_hospital", b.dropAddress ? { dropAddress: b.dropAddress } : {}, { bookingId: id, status: "PICKED_UP" });
       return reply.send({ booking: b });
     }
   );
@@ -748,7 +753,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         payableInr
       });
       await emitToHospital(b);
-      void pushToUser(b.userId, "Trip complete 💚", "You've reached the hospital. Thank you for using Jeevan Rakshak.", { bookingId: id, status: "COMPLETED" });
+      void pushToUser(b.userId, "trip_complete", {}, { bookingId: id, status: "COMPLETED" });
       // v1.2.8: the request is now dead. Silently clear any lingering "New SOS
       // request" tray notifications on the drivers who were pushed (losers whose
       // modal/tray never got dismissed, or the winner's own incoming-request
@@ -842,7 +847,26 @@ export async function registerBookingRoutes(app: FastifyInstance) {
     pregnancyMonths: z.number().int().min(0).max(10).optional(),
     seizureActivity: z.boolean().optional(),
     immediateRisk: z.boolean().optional(),
-    notes: z.string().max(1000).optional()
+    notes: z.string().max(1000).optional(),
+    // CR7 (2026-08): Pregnancy Assessment sub-section, gated on pregnancyStatus.
+    pregnancyStatus: z.enum(["yes", "no", "unknown"]).optional(),
+    pregnancyParity: z.enum(["first", "second", "third", "fourth_or_more"]).optional(),
+    pregnancyComplaints: z
+      .array(
+        z.enum([
+          "leaking_fluid",
+          "vaginal_bleeding",
+          "severe_abdominal_pain",
+          "excessive_vomiting",
+          "reduced_movements",
+          "seizures",
+          "high_fever",
+          "other"
+        ])
+      )
+      .optional(),
+    pregnancyComplaintOther: z.string().max(200).optional(),
+    pregnancyAdditionalComplaint: z.string().max(500).optional()
   });
 
   app.post(

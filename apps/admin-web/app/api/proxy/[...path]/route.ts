@@ -58,7 +58,11 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
 
   try {
     const res = await fetch(target, init);
-    const body = await res.text();
+    // CR6 (2026-08): arrayBuffer (not text()) so binary responses — the new
+    // KYC document /raw route — pass through byte-for-byte. A UTF-8 text
+    // round-trip is a no-op for JSON, so this is safe for every existing
+    // proxied response too.
+    const body = await res.arrayBuffer();
     const out = new NextResponse(body, { status: res.status });
     const contentType = res.headers.get("content-type");
     if (contentType) out.headers.set("content-type", contentType);

@@ -88,7 +88,7 @@ function TripHistoryRow({ item, t }: { item: Booking; t: (k: string) => string }
     <Card padding="md">
       <View style={{ gap: space.sm }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <Pill label={prettyEmergency(item.emergencyType)} />
+          <Pill label={prettyEmergency(item.emergencyType, t)} />
           <Text variant="small" tone="muted">{dateLabel}</Text>
         </View>
         <View style={{ gap: 2 }}>
@@ -101,11 +101,11 @@ function TripHistoryRow({ item, t }: { item: Booking; t: (k: string) => string }
         </View>
         <View style={{ flexDirection: "row", justifyContent: "space-between", paddingTop: space.xs, borderTopWidth: 1, borderTopColor: colors.border }}>
           <View>
-            <Text variant="tiny" tone="muted">DISTANCE</Text>
+            <Text variant="tiny" tone="muted">{t("trip_history.distance_label")}</Text>
             <Text variant="body" weight="semi">{kmLabel}</Text>
           </View>
           <View style={{ alignItems: "flex-end" }}>
-            <Text variant="tiny" tone="muted">TIME TAKEN</Text>
+            <Text variant="tiny" tone="muted">{t("trip_history.time_taken_label")}</Text>
             <Text variant="body" weight="semi">{durationLabel}</Text>
           </View>
         </View>

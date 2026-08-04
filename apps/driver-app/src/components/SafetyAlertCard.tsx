@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Linking, View } from "react-native";
 import { Button, Card, Pill, PulseDot, Text, colors, space } from "@jr/ui";
 import { SafetyActiveAlert } from "../api";
+import { useT } from "../i18n";
 
 type LatLng = { lat: number; lng: number };
 
@@ -47,14 +48,15 @@ function distanceKm(from: LatLng | null, lat: number, lng: number): number | nul
 }
 
 // Alert age label — NaN-guarded, mirrors IncomingRequestList's ageLabel.
-function ageLabel(iso: string | null | undefined): string {
+function ageLabel(iso: string | null | undefined, t: (key: string) => string): string {
   const ms = iso ? new Date(iso).getTime() : NaN;
-  if (Number.isNaN(ms)) return "just now";
+  if (Number.isNaN(ms)) return t("incoming.just_now");
   const min = Math.max(0, Math.floor((Date.now() - ms) / 60000));
-  return min < 1 ? "just now" : `${min}m ago`;
+  return min < 1 ? t("incoming.just_now") : t("incoming.request_age_min").replace("{min}", String(min));
 }
 
 export function SafetyAlertCard({ alert, myPos, onRespond, onDismiss }: Props) {
+  const { t } = useT();
   const [busy, setBusy] = useState(false);
 
   const respond = async () => {
@@ -67,8 +69,11 @@ export function SafetyAlertCard({ alert, myPos, onRespond, onDismiss }: Props) {
   };
 
   const dist = distanceKm(myPos, alert.lat, alert.lng);
-  const rideLabel = alert.displayId ? `ride #${alert.displayId}` : "a nearby ride";
-  const distAge = [dist != null ? `${dist.toFixed(1)} km away` : null, ageLabel(alert.createdAt)]
+  const rideLabel = alert.displayId ? `${t("safety.ride_prefix")}${alert.displayId}` : t("safety.nearby_ride");
+  const distAge = [
+    dist != null ? t("incoming.distance_km").replace("{km}", dist.toFixed(1)) : null,
+    ageLabel(alert.createdAt, t)
+  ]
     .filter(Boolean)
     .join(" · ");
 
@@ -78,13 +83,13 @@ export function SafetyAlertCard({ alert, myPos, onRespond, onDismiss }: Props) {
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
             <PulseDot size={8} color={colors.danger} rings={1} />
-            <Pill label="SAFETY" color={colors.danger} bg="rgba(239,68,68,0.12)" />
+            <Pill label={t("safety.label")} color={colors.danger} bg="rgba(239,68,68,0.12)" />
           </View>
           <Text variant="tiny" tone="muted">{distAge}</Text>
         </View>
 
-        <Text variant="body" weight="semi">🆘  Safety alert nearby</Text>
-        <Text variant="small" tone="secondary">Someone on {rideLabel} needs help nearby.</Text>
+        <Text variant="body" weight="semi">{t("safety.alert_title")}</Text>
+        <Text variant="small" tone="secondary">{t("safety.alert_body").replace("{rideLabel}", rideLabel)}</Text>
 
         {alert.acked ? (
           // Acked: calm "Responding" state. Keep Open in Maps so the responder
@@ -92,10 +97,10 @@ export function SafetyAlertCard({ alert, myPos, onRespond, onDismiss }: Props) {
           <View style={{ gap: space.sm, marginTop: space.xs }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
               <PulseDot size={8} color={colors.success} rings={1} />
-              <Text variant="small" weight="bold" tone="success">Responding</Text>
+              <Text variant="small" weight="bold" tone="success">{t("safety.responding")}</Text>
             </View>
             <Button
-              label="Open in Maps"
+              label={t("trip.open_maps")}
               onPress={() => openInMaps(alert.lat, alert.lng)}
               variant="outline"
               fullWidth
@@ -104,7 +109,7 @@ export function SafetyAlertCard({ alert, myPos, onRespond, onDismiss }: Props) {
         ) : (
           <View style={{ gap: space.sm, marginTop: space.xs }}>
             <Button
-              label="Open in Maps"
+              label={t("trip.open_maps")}
               onPress={() => openInMaps(alert.lat, alert.lng)}
               variant="outline"
               fullWidth
@@ -112,7 +117,7 @@ export function SafetyAlertCard({ alert, myPos, onRespond, onDismiss }: Props) {
             <View style={{ flexDirection: "row", gap: space.sm }}>
               <View style={{ flex: 1 }}>
                 <Button
-                  label="Dismiss"
+                  label={t("safety.dismiss")}
                   onPress={() => onDismiss(alert)}
                   variant="ghost"
                   fullWidth
@@ -121,7 +126,7 @@ export function SafetyAlertCard({ alert, myPos, onRespond, onDismiss }: Props) {
               </View>
               <View style={{ flex: 2 }}>
                 <Button
-                  label="I am responding"
+                  label={t("safety.i_am_responding")}
                   onPress={respond}
                   variant="danger"
                   loading={busy}

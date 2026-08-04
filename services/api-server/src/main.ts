@@ -485,7 +485,36 @@ async function bootstrap() {
     `;
     await pgClient`CREATE INDEX IF NOT EXISTS safety_alert_acks_alert_idx ON safety_alert_acks(alert_id)`;
     await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS safety_alert_acks_alert_driver_unique_idx ON safety_alert_acks(alert_id, driver_id)`;
-    app.log.info("[migrate] schema v1.3.0 ready (booking_cancellations + cancel_wait + hospital portal creds + hospital_ack + portal_password_plain + support_tickets + ticket category + helpdesk source/priority/severity/resolved_by/raisers + support_ticket_messages + safety_alerts + safety_alert_acks)");
+
+    // CR6 (2026-08): KYC redesign — Ambulance Details + Driver Details
+    // sections, employment-type-conditional fields, mandatory document
+    // uploads. Documents go in a separate table (not a `drivers` column) so
+    // the image bytes never ride along on the hot-path driver queries
+    // (dispatch eligibility, admin lists, /me) that SELECT from `drivers`.
+    await pgClient`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS employment_type text`;
+    await pgClient`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS employee_number text`;
+    await pgClient`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS puc_number      text`;
+    await pgClient`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS fitness_number  text`;
+    await pgClient`
+      CREATE TABLE IF NOT EXISTS driver_documents (
+        id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        driver_id    uuid NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
+        doc_type     text NOT NULL,
+        content_type text NOT NULL,
+        data         bytea NOT NULL,
+        uploaded_at  timestamptz NOT NULL DEFAULT now()
+      )
+    `;
+    // One current document per (driver, type) — re-upload replaces via
+    // ON CONFLICT upsert in the route handler rather than accumulating history.
+    await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS driver_documents_driver_doctype_unique_idx ON driver_documents(driver_id, doc_type)`;
+
+    // CR3/CR4 (2026-08): server-composed push notifications (SOS/booking
+    // alerts) can now localize by reading the recipient's synced preference.
+    await pgClient`ALTER TABLE users   ADD COLUMN IF NOT EXISTS preferred_lang text NOT NULL DEFAULT 'en'`;
+    await pgClient`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS preferred_lang text NOT NULL DEFAULT 'en'`;
+
+    app.log.info("[migrate] schema v1.4.0 ready (KYC redesign: employment_type/employee_number/puc_number/fitness_number + driver_documents + preferred_lang)");
   } catch (err) {
     // Thumb rule: migrations FATAL-EXIT on failure. Silent catch+warn here
     // previously let the service start with a broken schema (system_events

@@ -101,7 +101,7 @@ export function CancelRideSheet({ bookingId, patientPhone, onCancelled, onClose 
         clearTick();
         setSelected(null);
         setRemaining(null);
-        void dialog.alert("Could not start wait", e?.message ?? "Tap the reason again to retry.");
+        void dialog.alert(t("cancel.start_wait_error_title"), e?.message ?? t("cancel.start_wait_error_body"));
       }
     } else {
       // Non-patient reason → no wait gate.
@@ -134,11 +134,11 @@ export function CancelRideSheet({ bookingId, patientPhone, onCancelled, onClose 
         // seconds from the error if available, else keep the local countdown.
         const remainingS = (e as any)?.remainingS;
         if (typeof remainingS === "number") setRemaining(remainingS);
-        void dialog.alert("Please wait", t("cancel.wait_countdown_hint"));
+        void dialog.alert(t("cancel.please_wait_title"), t("cancel.wait_countdown_hint"));
       } else if (msg.includes("remarks_required")) {
-        void dialog.alert("More detail needed", t("cancel.remarks_min_hint").replace("{count}", String(remarks.trim().length)));
+        void dialog.alert(t("cancel.more_detail_title"), t("cancel.remarks_min_hint").replace("{count}", String(remarks.trim().length)));
       } else {
-        void dialog.alert("Could not cancel", e?.message ?? "Try again.");
+        void dialog.alert(t("cancel.cancel_error_title"), e?.message ?? t("cancel.cancel_error_body"));
       }
     } finally {
       setBusy(false);
@@ -152,7 +152,7 @@ export function CancelRideSheet({ bookingId, patientPhone, onCancelled, onClose 
           <View style={styles.handle} />
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <Text variant="heading" weight="bold">{t("cancel.reason_title")}</Text>
-            <Pressable onPress={onClose} disabled={busy} accessibilityLabel="Close">
+            <Pressable onPress={onClose} disabled={busy} accessibilityLabel={t("common.close")}>
               <Text variant="body" tone="muted">✕</Text>
             </Pressable>
           </View>

@@ -90,7 +90,7 @@ export function GoogleLoginScreen({ onAuthenticated, onProfileSetupRequired }: P
         right={
           <Pressable
             onPress={() => void setLang(lang === "en" ? "hi" : "en")}
-            accessibilityLabel="Switch language"
+            accessibilityLabel={t("common.switch_language")}
             style={{
               flexDirection: "row",
               alignItems: "center",

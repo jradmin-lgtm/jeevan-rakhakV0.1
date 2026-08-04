@@ -9,8 +9,17 @@ import {
   pgEnum,
   jsonb,
   index,
-  uniqueIndex
+  uniqueIndex,
+  customType
 } from "drizzle-orm/pg-core";
+
+// CR6 (2026-08): raw image bytes for KYC documents. drizzle-orm/pg-core has
+// no built-in `bytea` column helper, so it's defined once here via customType.
+const bytea = customType<{ data: Buffer }>({
+  dataType() {
+    return "bytea";
+  }
+});
 
 export const emergencyTypeEnum = pgEnum("emergency_type", [
   "ACCIDENT_TRAUMA",
@@ -59,6 +68,11 @@ export const users = pgTable(
     // getDevicePushTokenAsync on Android). Used to send status-change
     // notifications even when the app is backgrounded/killed.
     pushToken: text("push_token"),
+    // CR3/CR4 (2026-08): synced from the app's in-app language toggle
+    // (POST /api/v1/me { preferredLang }) so server-composed push
+    // notifications can localize. UI copy stays client-side (i18n.ts);
+    // this only drives which push-string template gets sent.
+    preferredLang: text("preferred_lang").default("en").notNull(),
     // Admin-set disable flag. Disabled users are blocked at /auth/verify-otp
     // (they can still request an OTP — the SMS still goes out — but they
     // can't redeem it). Admins toggle this from the user detail page.
@@ -105,6 +119,9 @@ export const drivers = pgTable(
     // v1.1.0 push: FCM device token — used to alert the driver of a new
     // SOS/booking even when the app is backgrounded/killed.
     pushToken: text("push_token"),
+    // CR3/CR4 (2026-08): synced from the driver app's language toggle so
+    // server-composed push templates (SOS/booking alerts) can localize.
+    preferredLang: text("preferred_lang").default("en").notNull(),
     isDemo: boolean("is_demo").default(false).notNull(),
     // Admin-set disable flag. Disabled drivers can't redeem an OTP, can't be
     // matched to bookings, and stop appearing in dispatch fan-out.
@@ -118,6 +135,14 @@ export const drivers = pgTable(
     insuranceNumber: text("insurance_number"),
     hospitalId: text("hospital_id"),
     hospitalName: text("hospital_name"),
+    // CR6 (2026-08): KYC redesign — Ambulance Details + Driver Details.
+    // employmentType: "hospital_employee" | "private_driver". employeeNumber
+    // only applicable/mandatory when employmentType === "hospital_employee".
+    // Document photos live in `driverDocuments` below, not here.
+    employmentType: text("employment_type"),
+    employeeNumber: text("employee_number"),
+    pucNumber: text("puc_number"),
+    fitnessNumber: text("fitness_number"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
   },
@@ -125,6 +150,24 @@ export const drivers = pgTable(
     phoneIdx: index("drivers_phone_idx").on(t.phone),
     statusIdx: index("drivers_status_idx").on(t.status),
     demoIdx: index("drivers_is_demo_idx").on(t.isDemo)
+  })
+);
+
+// CR6 (2026-08): one row per (driver, document type). Kept off the `drivers`
+// table so image bytes never ride along on the hot-path driver queries
+// (dispatch eligibility, admin lists, /me) that select from `drivers`.
+export const driverDocuments = pgTable(
+  "driver_documents",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    driverId: uuid("driver_id").notNull().references(() => drivers.id, { onDelete: "cascade" }),
+    docType: text("doc_type").notNull(),
+    contentType: text("content_type").notNull(),
+    data: bytea("data").notNull(),
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (t) => ({
+    driverDoctypeIdx: index("driver_documents_driver_doctype_idx").on(t.driverId, t.docType)
   })
 );
 

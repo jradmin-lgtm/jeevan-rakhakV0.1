@@ -3,6 +3,8 @@ import { Animated, Easing, Modal, Pressable, StyleSheet, View } from "react-nati
 import { Button, IconBadge, PulseDot, Text, colors, dialog, radius, space } from "@jr/ui";
 import { Booking, bookings as bookingsApi } from "../api";
 import { getSocket } from "../socket";
+import { useT } from "../i18n";
+import { LangToggle } from "./LangToggle";
 
 type SosPayload = {
   bookingId: string;
@@ -40,6 +42,7 @@ type Props = {
  * sos_dispatch_attempts so the cascade skips this driver).
  */
 export function SosIncomingModal({ onAccept }: Props) {
+  const { t } = useT();
   const [active, setActive] = useState<SosPayload | null>(null);
   const [busy, setBusy] = useState(false);
   // Bookings the driver dismissed from the FLASH — keeps the overlay from
@@ -147,9 +150,9 @@ export function SosIncomingModal({ onAccept }: Props) {
       // gentle notice so the driver knows the SOS isn't for them anymore.
       const msg = String(e?.message ?? "").toLowerCase();
       if (msg.includes("already_taken") || msg.includes("409")) {
-        void dialog.alert("Already taken", "Another driver accepted this SOS.");
+        void dialog.alert(t("sos_modal.already_taken_title"), t("sos_modal.already_taken_body"));
       } else {
-        void dialog.alert("Couldn't accept", e?.message ?? "Try again.");
+        void dialog.alert(t("sos_modal.accept_error_title"), e?.message ?? t("sos_modal.accept_error_body"));
       }
       setActive(null);
     } finally {
@@ -174,30 +177,37 @@ export function SosIncomingModal({ onAccept }: Props) {
     <Modal visible animationType="fade" transparent onRequestClose={dismiss}>
       <View style={styles.backdrop}>
         <View style={styles.card}>
+          {/* CR4 (2026-08): this full-screen emergency overlay had no language
+            * toggle at all — a Hindi-preferring driver saw it 100% in English
+            * at the exact moment an SOS was pushed to them. Top-right corner,
+            * matching the placement convention used elsewhere in this app. */}
+          <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+            <LangToggle />
+          </View>
           <View style={{ alignItems: "center", gap: space.sm }}>
             <Animated.View style={{ transform: [{ scale: pulse }] }}>
               <PulseDot size={88} color={colors.danger} rings={3} />
             </Animated.View>
             <Text variant="label" tone="danger" weight="bold" style={{ letterSpacing: 1 }}>
-              EMERGENCY SOS
+              {t("sos_modal.headline")}
             </Text>
             <Text variant="title" weight="bold" align="center">
-              {prettyEmergency(active.emergencyType)}
+              {prettyEmergency(active.emergencyType, t)}
             </Text>
             <View style={styles.metaRow}>
               <IconBadge glyph="↗" bg={colors.primaryFaint} color={colors.primary} size={32} />
               <View style={{ flex: 1 }}>
-                <Text variant="small" tone="secondary">DISTANCE</Text>
+                <Text variant="small" tone="secondary">{t("sos_modal.distance_label")}</Text>
                 <Text variant="body" weight="semi">{active.distanceKm.toFixed(1)} km away</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text variant="small" tone="secondary">ETA</Text>
+                <Text variant="small" tone="secondary">{t("sos_modal.eta_label")}</Text>
                 <Text variant="body" weight="semi">~{etaMin} min</Text>
               </View>
             </View>
             {active.pickupAddress ? (
               <View style={styles.pickupRow}>
-                <Text variant="tiny" tone="secondary">PICKUP</Text>
+                <Text variant="tiny" tone="secondary">{t("map_picker.selected_pickup")}</Text>
                 <Text variant="small" weight="semi" align="center">{active.pickupAddress}</Text>
               </View>
             ) : null}
@@ -209,7 +219,7 @@ export function SosIncomingModal({ onAccept }: Props) {
               android_ripple={{ color: "rgba(0,0,0,0.05)" }}
               style={[styles.btn, styles.btnReject, busy && { opacity: 0.6 }]}
             >
-              <Text variant="body" weight="bold" tone="secondary">Dismiss</Text>
+              <Text variant="body" weight="bold" tone="secondary">{t("sos_modal.dismiss")}</Text>
             </Pressable>
             <Pressable
               onPress={accept}
@@ -218,12 +228,12 @@ export function SosIncomingModal({ onAccept }: Props) {
               style={[styles.btn, styles.btnAccept, busy && { opacity: 0.6 }]}
             >
               <Text variant="body" weight="bold" style={{ color: "#fff" }}>
-                {busy ? "Accepting…" : "ACCEPT"}
+                {busy ? t("sos_modal.accepting") : t("sos_modal.accept")}
               </Text>
             </Pressable>
           </View>
           <Text variant="tiny" tone="muted" align="center">
-            Wave {active.waveNumber} · auto-expanding every 20s
+            {t("sos_modal.wave_label").replace("{n}", String(active.waveNumber))}
           </Text>
         </View>
       </View>
@@ -231,17 +241,18 @@ export function SosIncomingModal({ onAccept }: Props) {
   );
 }
 
-function prettyEmergency(t: string): string {
-  // Mirrors prettyEmergency in user-app/screens/HomeScreen.tsx without
-  // importing across apps.
+// CR4 (2026-08): localized. Kept as a LOCAL duplicate (not imported from
+// DashboardScreen.tsx) deliberately — DashboardScreen already imports THIS
+// file (to render the modal), so importing back would be a circular import.
+function prettyEmergency(emergencyType: string, translate: (key: string) => string): string {
   const map: Record<string, string> = {
-    CARDIAC: "Cardiac",
-    ACCIDENT_TRAUMA: "Accident / Trauma",
-    BREATHING_DISTRESS: "Breathing distress",
-    PREGNANCY_NEONATAL: "Pregnancy / neonatal",
-    GENERAL_CRITICAL_TRANSFER: "Critical transfer"
+    CARDIAC: translate("emergency.cardiac"),
+    ACCIDENT_TRAUMA: translate("emergency.accident_trauma"),
+    BREATHING_DISTRESS: translate("emergency.breathing_distress"),
+    PREGNANCY_NEONATAL: translate("emergency.pregnancy_neonatal"),
+    GENERAL_CRITICAL_TRANSFER: translate("emergency.critical_transfer")
   };
-  return map[t] ?? t;
+  return map[emergencyType] ?? emergencyType;
 }
 
 const styles = StyleSheet.create({

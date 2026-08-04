@@ -126,6 +126,22 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
           )}
         </section>
 
+        {/* CR7 (2026-08): only printed when the paramedic marked the patient
+          * pregnant — keeps the document short for the majority non-obstetric
+          * calls. */}
+        {a && a.pregnancyStatus === "yes" ? (
+          <section className="assess-section">
+            <h2>Pregnancy Assessment</h2>
+            <div className="grid">
+              <KV label="Pregnancy status" value="Yes" />
+              <KV label="Birth order" value={prettyParity(a.pregnancyParity)} />
+              <KV label="Main complaint(s)" value={prettyComplaints(a.pregnancyComplaints)} fullWidth />
+              {a.pregnancyComplaintOther ? <KV label="Other complaint (specified)" value={a.pregnancyComplaintOther} fullWidth /> : null}
+              <KV label="Additional complaint" value={a.pregnancyAdditionalComplaint ?? "-"} fullWidth />
+            </div>
+          </section>
+        ) : null}
+
         <footer className="assess-footer">
           <div>
             Generated {formatIST(new Date().toISOString())} · Internal medical record · Jeevan Rakshak
@@ -160,6 +176,32 @@ function prettyAssessmentValue(field: string, v: unknown): string {
     }
   }
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function prettyParity(v: unknown): string {
+  if (v == null) return "-";
+  switch (String(v)) {
+    case "first": return "First baby";
+    case "second": return "Second baby";
+    case "third": return "Third baby";
+    case "fourth_or_more": return "Fourth or more";
+    default: return String(v);
+  }
+}
+
+function prettyComplaints(v: unknown): string {
+  if (!Array.isArray(v) || v.length === 0) return "-";
+  const labels: Record<string, string> = {
+    leaking_fluid: "Leaking of fluid (water broke)",
+    vaginal_bleeding: "Vaginal bleeding",
+    severe_abdominal_pain: "Severe abdominal pain",
+    excessive_vomiting: "Excessive vomiting",
+    reduced_movements: "Reduced baby movements",
+    seizures: "Fits / convulsions",
+    high_fever: "High fever",
+    other: "Other (specify)"
+  };
+  return v.map((x) => labels[String(x)] ?? String(x)).join(", ");
 }
 
 const cssBlock = `

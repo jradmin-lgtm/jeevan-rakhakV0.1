@@ -31,13 +31,13 @@ export function LoginScreen({ onAuthenticated }: { onAuthenticated: (profile: an
       setCode("");
       setStage("code");
       if (otp) {
-        setToast(`OTP received  •  ${otp}`);
+        setToast(`${t("otp.received_toast")}  •  ${otp}`);
         setTimeout(() => setCode(otp), 420);
       } else {
-        setToast("OTP sent to your mobile");
+        setToast(t("otp.sent_toast"));
       }
     } catch (e: any) {
-      setErr(e.message ?? "Could not send OTP.");
+      setErr(e.message ?? t("login.error_generic"));
     } finally {
       setBusy(false);
     }
@@ -51,7 +51,7 @@ export function LoginScreen({ onAuthenticated }: { onAuthenticated: (profile: an
       await setToken(r.accessToken);
       onAuthenticated(r.profile);
     } catch (e: any) {
-      setErr(e.message ?? "Invalid OTP.");
+      setErr(e.message ?? t("otp.error_invalid"));
     } finally {
       setBusy(false);
     }
@@ -67,7 +67,7 @@ export function LoginScreen({ onAuthenticated }: { onAuthenticated: (profile: an
           right={stage === "phone" ? (
             <Pressable
               onPress={() => void setLang(lang === "en" ? "hi" : "en")}
-              accessibilityLabel="Switch language"
+              accessibilityLabel={t("common.switch_language")}
               style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "rgba(30,94,255,0.10)", borderRadius: 999 }}
             >
               <Text variant="small" weight="bold" style={{ color: lang === "en" ? colors.accent : "#94A3B8" }}>EN</Text>
@@ -112,7 +112,7 @@ export function LoginScreen({ onAuthenticated }: { onAuthenticated: (profile: an
             ) : (
               <View style={{ gap: space.lg }}>
                 <Text variant="small" tone="secondary" align="center">
-                  Enter the 4-digit code
+                  {t("otp.enter_code_hint")}
                 </Text>
                 <OtpInput
                   value={code}

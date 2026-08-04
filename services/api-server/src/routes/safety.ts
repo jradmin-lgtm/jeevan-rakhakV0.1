@@ -316,8 +316,8 @@ export async function registerSafetyRoutes(app: FastifyInstance) {
         // booking id rides under a separate key (rideBookingId) for context.
         void pushToDriver(
           r.driverId,
-          "🆘 Safety alert nearby",
-          `Ride #${b.displayId ?? ""} needs help nearby. Tap to assist.`,
+          "safety_alert",
+          { displayId: b.displayId ?? "" },
           {
             type: "safety",
             alertId: alert.id,

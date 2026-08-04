@@ -4,6 +4,7 @@ import * as Location from "expo-location";
 import { AppHeader, Button, Card, IconBadge, OutOfServiceArea, PulseDot, Screen, Text, colors, space, dialog } from "@jr/ui";
 import { Booking, bookings as bookingsApi, serviceArea as serviceAreaApi } from "../api";
 import { SUPPORT_PHONE, SUPPORT_PHONE_DISPLAY } from "@jr/ui";
+import { useT } from "../i18n";
 
 // v1.3.x (geofence): local haversine for the client-side out-of-area pre-check.
 // Kept local (same helper as BookAmbulanceScreen) so the user app needs no
@@ -42,6 +43,7 @@ async function getPickup(): Promise<{ lat: number; lng: number } | null> {
 }
 
 export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: (b: Booking) => void }) {
+  const { t } = useT();
   const [busy, setBusy] = useState(false);
   const breathe = useRef(new Animated.Value(1)).current;
   // v1.3.x (geofence): public service-area config. When enabled, we block an
@@ -96,10 +98,10 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
   const dispatch = async () => {
     if (
       !(await dialog.confirm({
-        title: "Send SOS now?",
-        message: "We'll dispatch the closest ambulance with cardiac priority.",
-        confirmText: "Send SOS",
-        cancelText: "Cancel",
+        title: t("sos.confirm_title"),
+        message: t("sos.confirm_message"),
+        confirmText: t("sos.confirm_button"),
+        cancelText: t("common.cancel"),
         destructive: true
       }))
     ) {
@@ -110,12 +112,12 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
       const pickup = await getPickup();
       if (!pickup) {
         void dialog.show({
-          title: "Location unavailable",
-          message: `We can't send an ambulance without your location. Allow location access and try again, or call our mobile ${SUPPORT_PHONE_DISPLAY} to book by phone.`,
+          title: t("sos.location_unavailable_title"),
+          message: t("sos.location_unavailable_body").replace("{phone}", SUPPORT_PHONE_DISPLAY),
           actions: [
-            { label: "Allow location", onPress: () => Linking.openSettings().catch(() => {}) },
-            { label: `Call ${SUPPORT_PHONE_DISPLAY}`, onPress: () => Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {}) },
-            { label: "Cancel", style: "cancel" }
+            { label: t("sos.allow_location"), onPress: () => Linking.openSettings().catch(() => {}) },
+            { label: t("sos.call_number").replace("{phone}", SUPPORT_PHONE_DISPLAY), onPress: () => Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {}) },
+            { label: t("common.cancel"), style: "cancel" }
           ]
         });
         return;
@@ -156,7 +158,7 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
       if (e?.message === "out_of_service_area" || e?.details?.error === "out_of_service_area") {
         setOutOfAreaVisible(true);
       } else {
-        void dialog.alert("SOS failed", e?.message ?? "Please try again.");
+        void dialog.alert(t("sos.failed_title"), e?.message ?? t("common.please_try_again"));
       }
     } finally {
       setBusy(false);
@@ -172,10 +174,10 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
       <View style={styles.content}>
         <View style={styles.headlineWrap}>
           <Text variant="title" tone="inverse" weight="bold" align="center">
-            Emergency SOS
+            {t("sos.headline")}
           </Text>
           <Text variant="body" tone="inverse" align="center" style={{ opacity: 0.92 }}>
-            Hold the button below to dispatch the nearest ambulance immediately.
+            {t("sos.headline_sub")}
           </Text>
         </View>
 
@@ -194,10 +196,10 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
                 weight="bold"
                 style={{ fontSize: 48, lineHeight: 56, letterSpacing: 1, textAlign: "center" }}
               >
-                SOS
+                {t("sos.button_label")}
               </Text>
               <Text variant="small" tone="inverse" style={{ opacity: 0.92, marginTop: 4 }}>
-                Tap to dispatch
+                {t("home.sos.tap")}
               </Text>
             </Pressable>
           </Animated.View>
@@ -208,23 +210,23 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
             <View style={{ flexDirection: "row", alignItems: "flex-start", gap: space.md }}>
               <IconBadge glyph="!" bg="#FEE2E2" color={colors.danger} size={44} />
               <View style={{ flex: 1 }}>
-                <Text variant="heading" weight="semi">For life-threatening emergencies</Text>
+                <Text variant="heading" weight="semi">{t("sos.info_card_title")}</Text>
                 <Text variant="small" tone="secondary" style={{ marginTop: 4 }}>
-                  This sends a high-priority cardiac dispatch. Misuse may suspend your account.
+                  {t("sos.info_card_body")}
                 </Text>
               </View>
               <Pressable
-                onPress={() => dialog.alert("About emergency help", "In a life-threatening emergency you can also call 108. Jeevan Rakshak helps dispatch an ambulance, but it does not replace official emergency services.")}
+                onPress={() => dialog.alert(t("emergency.disclaimer.title"), t("emergency.disclaimer.body"))}
                 accessibilityRole="button"
-                accessibilityLabel="About emergency help"
+                accessibilityLabel={t("emergency.disclaimer.title")}
                 hitSlop={8}
               >
                 <IconBadge glyph="i" size={26} bg={colors.primaryFaint} color={colors.primary} />
               </Pressable>
             </View>
-            <Button label="Cancel and go back" variant="outline" onPress={onBack} fullWidth />
+            <Button label={t("sos.cancel_and_back")} variant="outline" onPress={onBack} fullWidth />
             {busy ? (
-              <Text variant="small" tone="secondary" align="center">Sending SOS…</Text>
+              <Text variant="small" tone="secondary" align="center">{t("sos.sending")}</Text>
             ) : null}
           </View>
         </Card>

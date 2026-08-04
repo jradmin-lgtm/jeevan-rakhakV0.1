@@ -83,8 +83,11 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
     enabled: true,
     cityName: "Bareilly",
     hospitalName: "SRMS IMS Hospital",
-    centerLat: 28.4875,
-    centerLng: 79.4452,
+    // CR1 (2026-08): corrected — the old value (28.4875, 79.4452) was
+    // actually CHC Bhojipura's coordinates, not SRMS's. On-ground-verified
+    // SRMS pin; see hospitals table fix + packages/config geofenceCenterLat/Lng.
+    centerLat: 28.481270,
+    centerLng: 79.443282,
     radiusKm: 1000
   });
   // v1.2.0 (CR#1): unified incoming-request queue, held as a keyed map keyed by
@@ -383,7 +386,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
       }
       sock.emit("driver:availability", payload);
     } catch (e: any) {
-      void dialog.alert("Could not update", e?.message ?? "Try again.");
+      void dialog.alert(t("dashboard.availability_error_title"), e?.message ?? t("dashboard.availability_error_body"));
       setAvailable(!next);
     }
   }, [available, myPos]);
@@ -411,11 +414,11 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
       const msg = String(e?.message ?? "").toLowerCase();
       const onActiveRide = e?.status === 409 && msg.includes("driver_on_active_ride");
       if (onActiveRide) {
-        void dialog.alert("Still on a ride", "Finish your current ride first.");
+        void dialog.alert(t("dashboard.on_active_ride_title"), t("dashboard.on_active_ride_body"));
         void refresh();
         return;
       }
-      void dialog.alert("Could not accept", e?.message ?? "Booking may have been taken.");
+      void dialog.alert(t("dashboard.accept_error_title"), e?.message ?? t("dashboard.accept_error_body"));
       setRequests((prev) => {
         const { [req.id]: _gone, ...rest } = prev;
         return rest;
@@ -461,7 +464,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
         prev[alert.id] ? { ...prev, [alert.id]: { ...prev[alert.id], acked: true } } : prev
       );
     } catch (e: any) {
-      void dialog.alert("Could not respond", e?.message ?? "Please try again.");
+      void dialog.alert(t("dashboard.safety_respond_error_title"), e?.message ?? t("dashboard.safety_respond_error_body"));
     }
   };
 
@@ -479,14 +482,14 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
   return (
     <Screen refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}>
       <AppHeader
-        title={`Hi${profile?.name ? `, ${String(profile.name).split(" ")[0]}` : ""}`}
-        subtitle={[profile?.vehicleNumber, profile?.hospitalName].filter(Boolean).join(" · ") || "Welcome to Jeevan Rakshak"}
+        title={`${t("dashboard.hi")}${profile?.name ? `, ${String(profile.name).split(" ")[0]}` : ""}`}
+        subtitle={[profile?.vehicleNumber, profile?.hospitalName].filter(Boolean).join(" · ") || t("dashboard.welcome_sub")}
         right={
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <LangToggle />
             {available ? <PulseDot size={8} color={colors.success} rings={1} /> : null}
             <Pill
-              label={available ? "ONLINE" : "OFFLINE"}
+              label={available ? t("dashboard.online") : t("dashboard.offline")}
               color={available ? colors.success : colors.textMuted}
               bg={available ? "rgba(16,185,129,0.12)" : "rgba(148,163,184,0.16)"}
             />
@@ -499,7 +502,10 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
         * the incoming-request list, the SOS modal, or anything below. */}
       <LaunchBanner
         cityName={area.cityName}
-        subtitle={"Serving " + area.cityName + " within " + area.radiusKm + " km of " + area.hospitalName}
+        subtitle={t("dashboard.launch_banner_subtitle")
+          .replace("{city}", area.cityName)
+          .replace("{km}", String(area.radiusKm))
+          .replace("{hospital}", area.hospitalName)}
       />
 
       <Card>
@@ -512,16 +518,16 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
               color={available ? colors.success : colors.textMuted}
             />
             <View style={{ flex: 1 }}>
-              <Text variant="heading">{available ? "You are receiving requests" : "You are offline"}</Text>
+              <Text variant="heading">{available ? t("dashboard.receiving") : t("dashboard.youoffline")}</Text>
               <Text variant="small" tone="secondary">
                 {available
-                  ? "Stay near major intersections to maximise pickups."
-                  : "Go online to start receiving bookings."}
+                  ? t("dashboard.available_hint")
+                  : t("dashboard.offline_hint")}
               </Text>
             </View>
           </View>
           <Button
-            label={available ? "Go offline" : "Go online"}
+            label={available ? t("dashboard.go_offline") : t("dashboard.go_online")}
             onPress={toggleAvailable}
             variant={available ? "outline" : "primary"}
             fullWidth
@@ -569,7 +575,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
                 </View>
                 <StatusBadge status={activeTrip.status} />
               </View>
-              <Text variant="heading">{prettyEmergency(activeTrip.emergencyType)}</Text>
+              <Text variant="heading">{prettyEmergency(activeTrip.emergencyType, t)}</Text>
               <Text variant="small" tone="secondary">{activeTrip.pickupAddress ?? `${activeTrip.pickupLat.toFixed(4)}, ${activeTrip.pickupLng.toFixed(4)}`}</Text>
               <Button label="Open trip" onPress={() => onTrip(activeTrip)} fullWidth />
             </View>
@@ -582,13 +588,13 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
             <IconBadge glyph="✓" size={36} bg="rgba(16,185,129,0.10)" color={colors.success} />
             <View>
-              <Text variant="label" tone="secondary">TRIPS TODAY</Text>
+              <Text variant="label" tone="secondary">{t("dashboard.trips_today")}</Text>
               <Text variant="title">{todayCompleted}</Text>
             </View>
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
             <View style={{ alignItems: "flex-end" }}>
-              <Text variant="label" tone="secondary">RATING</Text>
+              <Text variant="label" tone="secondary">{t("dashboard.rating")}</Text>
               <Text variant="title">{(profile?.rating ?? 5).toFixed(1)}</Text>
             </View>
             <IconBadge glyph="★" size={36} bg="rgba(245,158,11,0.10)" color={colors.warning} />
@@ -632,7 +638,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
             />
           ) : (
             <Card flat>
-              <EmptyState title="You're offline" description="Go online above to receive emergency requests." />
+              <EmptyState title={t("dashboard.empty_offline_title")} description={t("dashboard.empty_offline_body")} />
             </Card>
           )}
         </View>
@@ -643,15 +649,15 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
           <Text variant="label" tone="secondary">QUICK ACTIONS</Text>
           <View style={{ flexDirection: "row", gap: space.md }}>
             <View style={{ flex: 1 }}>
-              <Button label="My profile" variant="outline" onPress={onProfile} fullWidth testID="profile-cta" />
+              <Button label={t("dashboard.profile_cta")} variant="outline" onPress={onProfile} fullWidth testID="profile-cta" />
             </View>
             <View style={{ flex: 1 }}>
-              <Button label="Trip history" variant="outline" onPress={onEarnings} fullWidth testID="trip-history-cta" />
+              <Button label={t("dashboard.trip_history")} variant="outline" onPress={onEarnings} fullWidth testID="trip-history-cta" />
             </View>
           </View>
           <Button label={t("support.dashboard_cta")} variant="outline" onPress={onSupport} fullWidth testID="support-cta" />
           <Button
-            label="Sign out"
+            label={t("dashboard.sign_out")}
             variant="ghost"
             onPress={async () => {
               await clearToken();
@@ -660,16 +666,15 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
             }}
           />
           <Button
-            label="Delete account"
+            label={t("delete.button")}
             variant="ghost"
             onPress={async () => {
               if (
                 await dialog.confirm({
-                  title: "Delete your driver account?",
-                  message:
-                    "This will permanently remove your profile and KYC details. Completed trip records are kept for payout reconciliation but cannot be traced back to you. This cannot be undone.",
-                  confirmText: "Delete forever",
-                  cancelText: "Keep my account",
+                  title: t("delete.title"),
+                  message: t("delete.body"),
+                  confirmText: t("delete.confirm"),
+                  cancelText: t("delete.cancel"),
                   destructive: true
                 })
               ) {
@@ -682,11 +687,11 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
                   const msg = String(e?.message ?? "");
                   if (msg.includes("active_trip_exists")) {
                     void dialog.alert(
-                      "Active trip in progress",
-                      "Please complete or cancel your current trip before deleting your account."
+                      t("delete.in_trip_title"),
+                      t("delete.in_trip_body")
                     );
                   } else {
-                    void dialog.alert("Couldn't delete your account", e?.message ?? "Please try again or contact support.");
+                    void dialog.alert(t("delete.error_generic"), e?.message ?? "");
                   }
                 }
               }
@@ -711,13 +716,13 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
   );
 }
 
-export function prettyEmergency(t: string): string {
-  switch (t) {
-    case "ACCIDENT_TRAUMA": return "Accident / Trauma";
-    case "CARDIAC": return "Cardiac";
-    case "BREATHING_DISTRESS": return "Breathing distress";
-    case "PREGNANCY_NEONATAL": return "Pregnancy / Neonatal";
-    case "GENERAL_CRITICAL_TRANSFER": return "Critical transfer";
-    default: return t;
+export function prettyEmergency(emergencyType: string, translate: (key: string) => string): string {
+  switch (emergencyType) {
+    case "ACCIDENT_TRAUMA": return translate("emergency.accident_trauma");
+    case "CARDIAC": return translate("emergency.cardiac");
+    case "BREATHING_DISTRESS": return translate("emergency.breathing_distress");
+    case "PREGNANCY_NEONATAL": return translate("emergency.pregnancy_neonatal");
+    case "GENERAL_CRITICAL_TRANSFER": return translate("emergency.critical_transfer");
+    default: return emergencyType;
   }
 }

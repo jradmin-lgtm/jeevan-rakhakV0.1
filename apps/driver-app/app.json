@@ -2,7 +2,7 @@
   "expo": {
     "name": "Jeevan Rakshak Driver",
     "slug": "jr-driver-app",
-    "version": "2.0.1",
+    "version": "2.1.0",
     "orientation": "portrait",
     "scheme": "jrdriver",
     "userInterfaceStyle": "light",
@@ -27,17 +27,28 @@
     "owner": "jradmin29",
     "android": {
       "package": "com.jeevanrakshak.driver",
-      "versionCode": 42,
+      "versionCode": 43,
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "CAMERA",
+        "READ_MEDIA_IMAGES"
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
       }
     },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Jeevan Rakshak needs photo access to upload KYC documents (RC, PUC, fitness, insurance, licence).",
+          "cameraPermission": "Jeevan Rakshak needs camera access to photograph KYC documents (RC, PUC, fitness, insurance, licence)."
+        }
+      ]
+    ],
     "extra": {
       "eas": {
         "projectId": "6b1dd022-52b7-4c70-b0e8-93cf5bdf7e32"

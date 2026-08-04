@@ -19,6 +19,7 @@
 import { GoogleAuth } from "google-auth-library";
 import { eq } from "drizzle-orm";
 import { db, drivers, users } from "@jr/db";
+import { renderPushTemplate, type PushTemplateKey } from "./push-i18n";
 
 const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 
@@ -48,7 +49,8 @@ export async function sendPush(
   token: string | null | undefined,
   title: string,
   body: string,
-  data?: Record<string, string>
+  data?: Record<string, string>,
+  channelId?: string
 ): Promise<void> {
   if (!token) return;
   const a = getAuth();
@@ -65,9 +67,17 @@ export async function sendPush(
     // in the data payload too (defensive — it's the dismiss/collapse key).
     const bookingId = data?.bookingId;
     const payloadData = bookingId ? { ...data, bookingId } : data ?? {};
+    // CR2 (2026-08): channelId routes the push to a native Android channel
+    // (sos_alerts / booking_alerts, created in MainApplication.kt) so SOS vs
+    // normal requests ring with a different, already-on-the-device sound
+    // (alarm tone vs notification tone) instead of both using "default".
     const android: Record<string, unknown> = {
       priority: "HIGH",
-      notification: { sound: "default", ...(bookingId ? { tag: bookingId } : {}) }
+      notification: {
+        sound: "default",
+        ...(bookingId ? { tag: bookingId } : {}),
+        ...(channelId ? { channel_id: channelId } : {})
+      }
     };
     if (bookingId) android.collapseKey = bookingId;
     const res = await fetch(
@@ -147,31 +157,49 @@ export async function dismissPush(
   }
 }
 
-/** Convenience: look up a user's token + send. Fire-and-forget. */
+/**
+ * Convenience: look up a user's token + preferredLang, render the localized
+ * template, and send. Fire-and-forget.
+ *
+ * CR3/CR4 (2026-08): `key`/`vars` replace the old raw (title, body) params so
+ * every push string is localized via push-i18n.ts instead of hardcoded
+ * English at the call site.
+ */
 export async function pushToUser(
   userId: string,
-  title: string,
-  body: string,
+  key: PushTemplateKey,
+  vars: Record<string, string | number> = {},
   data?: Record<string, string>
 ): Promise<void> {
   try {
-    const [u] = await db.select({ t: users.pushToken }).from(users).where(eq(users.id, userId)).limit(1);
+    const [u] = await db
+      .select({ t: users.pushToken, lang: users.preferredLang })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    const { title, body } = renderPushTemplate(key, u?.lang, vars);
     await sendPush(u?.t, title, body, data);
   } catch {
     /* swallow */
   }
 }
 
-/** Convenience: look up a driver's token + send. Fire-and-forget. */
+/** Convenience: look up a driver's token + preferredLang, render, and send. */
 export async function pushToDriver(
   driverId: string,
-  title: string,
-  body: string,
-  data?: Record<string, string>
+  key: PushTemplateKey,
+  vars: Record<string, string | number> = {},
+  data?: Record<string, string>,
+  channelId?: string
 ): Promise<void> {
   try {
-    const [d] = await db.select({ t: drivers.pushToken }).from(drivers).where(eq(drivers.id, driverId)).limit(1);
-    await sendPush(d?.t, title, body, data);
+    const [d] = await db
+      .select({ t: drivers.pushToken, lang: drivers.preferredLang })
+      .from(drivers)
+      .where(eq(drivers.id, driverId))
+      .limit(1);
+    const { title, body } = renderPushTemplate(key, d?.lang, vars);
+    await sendPush(d?.t, title, body, data, channelId);
   } catch {
     /* swallow */
   }

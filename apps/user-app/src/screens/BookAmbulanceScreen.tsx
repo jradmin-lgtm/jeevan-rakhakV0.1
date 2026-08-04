@@ -68,7 +68,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
   const [pickupAddress, setPickupAddress] = useState<string>("Current location");
   const [pickupCoords, setPickupCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(true);
-  const [locationNote, setLocationNote] = useState<string>("Detecting your live location…");
+  const [locationNote, setLocationNote] = useState<string>(t("book.detecting_location"));
   const [coupon, setCoupon] = useState<string>("");
   const [couponApplied, setCouponApplied] = useState<boolean>(false);
   const [busy, setBusy] = useState(false);
@@ -98,12 +98,12 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
 
   const refreshLocation = useCallback(async () => {
     setLocating(true);
-    setLocationNote("Detecting your live location…");
+    setLocationNote(t("book.detecting_location"));
     setPickupCoords(null);
     try {
       const perm = await Location.requestForegroundPermissionsAsync();
       if (perm.status !== "granted") {
-        setLocationNote("Allow location access to book · we need it to send the ambulance to you.");
+        setLocationNote(t("book.location_permission_needed"));
         return;
       }
       const fix = await Location.getCurrentPositionAsync({
@@ -111,20 +111,23 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
       });
       setPickupCoords({ lat: fix.coords.latitude, lng: fix.coords.longitude });
       setLocationNote(
-        `Live location active · ${fix.coords.latitude.toFixed(4)}, ${fix.coords.longitude.toFixed(4)} (±${Math.round(fix.coords.accuracy ?? 0)}m)`
+        t("book.location_active")
+          .replace("{lat}", String(fix.coords.latitude.toFixed(4)))
+          .replace("{lng}", String(fix.coords.longitude.toFixed(4)))
+          .replace("{accuracy}", String(Math.round(fix.coords.accuracy ?? 0)))
       );
     } catch {
       try {
         const last = await Location.getLastKnownPositionAsync();
         if (last) {
           setPickupCoords({ lat: last.coords.latitude, lng: last.coords.longitude });
-          setLocationNote("Using your last known location (GPS lock failed) · tap Refresh to retry.");
+          setLocationNote(t("book.location_last_known"));
           return;
         }
       } catch {
         /* ignored */
       }
-      setLocationNote("Couldn't detect location · tap Refresh, or call support to book by phone.");
+      setLocationNote(t("book.location_failed"));
     } finally {
       setLocating(false);
     }
@@ -201,7 +204,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
       setCoupon(PILOT_COUPON);
       setCouponApplied(true);
     } else {
-      setErr("That coupon isn't valid for this account.");
+      setErr(t("book.coupon_invalid"));
     }
   };
 
@@ -217,9 +220,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
   // error for context, instead of a native dialog.alert popup.
   const showOutOfArea = () => {
     const city = area?.cityName ?? "Bareilly";
-    setErr(
-      "Jeevan Rakshak is live in " + city + " only right now. We cannot dispatch to your location yet."
-    );
+    setErr(t("book.out_of_area_error").replace("{city}", city));
     setOutOfAreaVisible(true);
   };
 
@@ -266,7 +267,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
       if (code === "out_of_service_area" || code.includes("out_of_service_area")) {
         showOutOfArea();
       } else {
-        setErr(e.message ?? "Could not create booking. Please try again.");
+        setErr(e.message ?? t("book.create_error"));
       }
     } finally {
       setBusy(false);
@@ -275,10 +276,10 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
 
   return (
     <Screen>
-      <AppHeader title="Book ambulance" onBack={onCancel} />
+      <AppHeader title={t("home.book_card.title")} onBack={onCancel} />
       <Card>
         <View style={{ gap: space.md }}>
-          <Text variant="label" tone="secondary">EMERGENCY TYPE</Text>
+          <Text variant="label" tone="secondary">{t("book.emergency_type_label")}</Text>
           <View style={{ gap: space.sm }}>
             {EMERGENCY_KEYS.map((e) => {
               const selected = type === e.key;
@@ -312,24 +313,24 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
 
       <Card>
         <View style={{ gap: space.md }}>
-          <Text variant="label" tone="secondary">PICKUP LOCATION</Text>
+          <Text variant="label" tone="secondary">{t("book.pickup_location_label")}</Text>
           <View style={styles.pickupLockedRow}>
             <View style={{ flex: 1, gap: 4 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
                 {!locating && pickupCoords ? <PulseDot size={8} color={colors.success} rings={1} /> : null}
                 <Text variant="body" weight="semi" numberOfLines={2}>
-                  {locating ? "Detecting…" : pickupCoords ? pickupAddress : "Location not set"}
+                  {locating ? t("book.detecting_short") : pickupCoords ? pickupAddress : t("book.location_not_set")}
                 </Text>
               </View>
               <Text variant="tiny" tone={locating ? "secondary" : "muted"}>
                 {locationNote}
               </Text>
               <Text variant="tiny" tone="secondary">
-                Your live location is what we share with the ambulance team.
+                {t("book.location_share_note")}
               </Text>
             </View>
             <Button
-              label={locating ? "…" : "GPS"}
+              label={locating ? "…" : t("book.gps_button")}
               variant="ghost"
               onPress={refreshLocation}
               disabled={locating}
@@ -353,7 +354,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
 
           <View style={{ gap: space.xs }}>
             <Input
-              label="Drop / hospital (optional)"
+              label={t("book.drop_label")}
               value={dropAddress}
               onChangeText={(v) => {
                 setDropAddress(v);
@@ -361,7 +362,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
                 // destination, the pin from the map no longer matches.
                 if (dropCoords) setDropCoords(null);
               }}
-              placeholder="Hospital or address"
+              placeholder={t("book.drop_placeholder")}
             />
             <Pressable
               onPress={() => setPickerMode("drop")}
@@ -370,11 +371,11 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
               testID="open-drop-picker"
             >
               <Text variant="small" weight="bold" tone="primary">
-                {dropCoords ? "📍 Edit pin on map" : `📍 ${t("drop_picker.open_button")}`}
+                {dropCoords ? t("book.edit_pin_on_map") : `📍 ${t("drop_picker.open_button")}`}
               </Text>
               <Text variant="tiny" tone="muted">
                 {dropCoords
-                  ? `Exact location set · ${dropCoords.lat.toFixed(4)}, ${dropCoords.lng.toFixed(4)}`
+                  ? t("book.exact_location_set").replace("{lat}", String(dropCoords.lat.toFixed(4))).replace("{lng}", String(dropCoords.lng.toFixed(4)))
                   : t("drop_picker.refine_hint")}
               </Text>
             </Pressable>
@@ -385,8 +386,8 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
       <Card>
         <View style={{ gap: space.md }}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-            <Text variant="label" tone="secondary">FARE &amp; OFFERS</Text>
-            {quoteBusy ? <Text variant="tiny" tone="muted">Calculating…</Text> : null}
+            <Text variant="label" tone="secondary">{t("book.fare_offers_label")}</Text>
+            {quoteBusy ? <Text variant="tiny" tone="muted">{t("book.calculating")}</Text> : null}
           </View>
 
           {/* v1.0.13 revised: dynamic fare with explicit multipliers.
@@ -401,46 +402,46 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
             <>
               <View style={styles.fareRow}>
                 <Text variant="body" tone="secondary">
-                  Distance ({quote.distanceKm.toFixed(1)} km × ₹{quote.perKmFareInr})
+                  {t("book.fare_distance").replace("{km}", String(quote.distanceKm.toFixed(1))).replace("{rate}", String(quote.perKmFareInr))}
                 </Text>
                 <Text variant="body" weight="semi">₹{distanceCharge}</Text>
               </View>
               {quote.multipliers.vehicleMult !== 1.0 ? (
                 <View style={styles.fareRow}>
                   <Text variant="body" tone="secondary">
-                    Vehicle ({quote.multipliers.vehicleType} × {quote.multipliers.vehicleMult.toFixed(2)})
+                    {t("book.fare_vehicle").replace("{type}", String(quote.multipliers.vehicleType)).replace("{mult}", String(quote.multipliers.vehicleMult.toFixed(2)))}
                   </Text>
                   <Text variant="body" weight="semi">×{quote.multipliers.vehicleMult.toFixed(2)}</Text>
                 </View>
               ) : null}
               {quote.multipliers.emergencyMult > 1.0 ? (
                 <View style={styles.fareRow}>
-                  <Text variant="body" tone="secondary">Priority dispatch</Text>
+                  <Text variant="body" tone="secondary">{t("book.fare_priority")}</Text>
                   <Text variant="body" weight="semi">×{quote.multipliers.emergencyMult.toFixed(2)}</Text>
                 </View>
               ) : null}
               {quote.multipliers.isNight ? (
                 <View style={styles.fareRow}>
-                  <Text variant="body" tone="secondary">Night surcharge (10pm to 6am)</Text>
+                  <Text variant="body" tone="secondary">{t("book.fare_night_surcharge")}</Text>
                   <Text variant="body" weight="semi">×{quote.multipliers.nightSurcharge.toFixed(2)}</Text>
                 </View>
               ) : null}
               <View style={styles.fareRow}>
-                <Text variant="body" tone="secondary">Subtotal</Text>
+                <Text variant="body" tone="secondary">{t("book.fare_subtotal")}</Text>
                 <Text variant="body" weight="semi" style={couponApplied ? styles.struck : undefined}>
                   ₹{totalBeforeDiscount}
                 </Text>
               </View>
               {quote.etaMin != null ? (
                 <View style={styles.fareRow}>
-                  <Text variant="tiny" tone="muted">⏱  Ambulance arrives in</Text>
+                  <Text variant="tiny" tone="muted">{t("book.fare_eta_label")}</Text>
                   <Text variant="tiny" tone="muted">~{quote.etaMin} min</Text>
                 </View>
               ) : null}
             </>
           ) : (
             <View style={styles.fareRow}>
-              <Text variant="body" tone="secondary">Minimum fare estimate</Text>
+              <Text variant="body" tone="secondary">{t("book.fare_minimum_estimate")}</Text>
               <Text variant="body" weight="semi">
                 {quote ? `₹${quote.totalInr}` : <Text variant="body" tone="muted">…</Text>}
               </Text>
@@ -449,39 +450,39 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
 
           {!quote || quote.distanceKm == null ? (
             <Text variant="tiny" tone="muted">
-              Pin a drop location to see the distance-based fare. Industry rates: ₹{quote?.perKmFareInr ?? 120}/km · minimum ₹{quote?.baseFareInr ?? 300}.
+              {t("book.fare_no_drop_hint").replace("{rate}", String(quote?.perKmFareInr ?? 120)).replace("{fare}", String(quote?.baseFareInr ?? 300))}
             </Text>
           ) : null}
 
           {couponApplied ? (
             <>
               <View style={styles.fareRow}>
-                <Text variant="body" tone="success">Coupon {coupon}</Text>
+                <Text variant="body" tone="success">{t("book.coupon_applied_label").replace("{code}", coupon)}</Text>
                 <Text variant="body" weight="semi" tone="success">− ₹{discount}</Text>
               </View>
               <View style={[styles.fareRow, styles.fareTotalRow]}>
-                <Text variant="heading" weight="bold">Total payable</Text>
+                <Text variant="heading" weight="bold">{t("book.total_payable")}</Text>
                 <Text variant="heading" weight="bold" tone="success">₹{finalFare}</Text>
               </View>
-              <Button label="Remove coupon" variant="ghost" onPress={removeCoupon} />
+              <Button label={t("book.remove_coupon")} variant="ghost" onPress={removeCoupon} />
             </>
           ) : (
             <>
               <View style={{ flexDirection: "row", gap: space.sm, alignItems: "flex-end" }}>
                 <View style={{ flex: 1 }}>
                   <Input
-                    label="Coupon code"
+                    label={t("book.coupon_code_label")}
                     value={coupon}
                     onChangeText={setCoupon}
                     placeholder={PILOT_COUPON}
                     autoCapitalize="characters"
                   />
                 </View>
-                <Button label="Apply" onPress={applyCoupon} variant="outline" />
+                <Button label={t("book.apply")} onPress={applyCoupon} variant="outline" />
               </View>
               <Pressable onPress={() => { setCoupon(PILOT_COUPON); setCouponApplied(true); }}>
                 <Text variant="small" tone="primary" style={{ textDecorationLine: "underline" }}>
-                  Use launch offer: {PILOT_COUPON} (100% off)
+                  {t("book.launch_offer_hint").replace("{code}", PILOT_COUPON)}
                 </Text>
               </Pressable>
             </>
@@ -496,7 +497,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
       ) : null}
 
       <Button
-        label={busy ? "Dispatching…" : finalFare === 0 ? "Confirm and dispatch (free)" : `Confirm and dispatch · ₹${finalFare}`}
+        label={busy ? t("book.dispatching") : finalFare === 0 ? t("book.confirm_free") : t("book.confirm_amount").replace("{amount}", String(finalFare))}
         onPress={submit}
         loading={busy}
         disabled={!type || !pickupCoords}
@@ -505,7 +506,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
         testID="confirm-booking"
       />
       <Text variant="tiny" tone="muted" align="center">
-        We dispatch the nearest available ambulance · Cashless during launch offer
+        {t("book.footer_note")}
       </Text>
 
       {/* v1.0.13 revised: one picker handles both pickup + drop. The mode

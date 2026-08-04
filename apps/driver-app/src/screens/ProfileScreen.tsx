@@ -25,10 +25,10 @@ export function ProfileScreen({ initial, onBack, onUpdated }: Props) {
     try {
       const r = await me.update({ name });
       onUpdated(r.profile);
-      void dialog.alert("Saved", "Your profile has been updated.");
+      void dialog.alert(t("profile.saved_title"), t("profile.saved_body"));
       onBack();
     } catch (e: any) {
-      void dialog.alert("Could not save", e?.message ?? "Try again.");
+      void dialog.alert(t("profile.save_error_title"), e?.message ?? t("profile.save_error_body"));
     } finally {
       setBusy(false);
     }
@@ -36,40 +36,40 @@ export function ProfileScreen({ initial, onBack, onUpdated }: Props) {
 
   return (
     <Screen>
-      <AppHeader title="My profile" subtitle="Driver account details" onBack={onBack} right={<LangToggle />} />
+      <AppHeader title={t("profile.header_title")} subtitle={t("profile.header_subtitle")} onBack={onBack} right={<LangToggle />} />
 
       <Card>
         <View style={{ gap: space.md }}>
-          <Text variant="label" tone="secondary">EDITABLE</Text>
-          <Input label="Full name" value={name} onChangeText={setName} placeholder="As on driving licence" />
-          <Button label="Save changes" onPress={save} loading={busy} fullWidth testID="save-profile" />
+          <Text variant="label" tone="secondary">{t("profile.section_editable")}</Text>
+          <Input label={t("profile_setup.name_label")} value={name} onChangeText={setName} placeholder={t("profile.name_placeholder_hint")} />
+          <Button label={t("profile.save_changes")} onPress={save} loading={busy} fullWidth testID="save-profile" />
         </View>
       </Card>
 
       <Card>
         <View style={{ gap: space.md }}>
-          <Text variant="label" tone="secondary">ACCOUNT</Text>
-          <Row label="Phone" value={initial?.phone ?? "-"} />
-          <Row label="Driver ID" value={initial?.id ? `${initial.id.slice(0, 8)}…` : "-"} />
-          <Row label="Rating" value={`⭐ ${(initial?.rating ?? 5).toFixed(1)}`} />
+          <Text variant="label" tone="secondary">{t("profile.section_account")}</Text>
+          <Row label={t("profile.row_phone")} value={initial?.phone ?? "-"} />
+          <Row label={t("profile.row_driver_id")} value={initial?.id ? `${initial.id.slice(0, 8)}…` : "-"} />
+          <Row label={t("profile.row_rating")} value={`⭐ ${(initial?.rating ?? 5).toFixed(1)}`} />
         </View>
       </Card>
 
       <Card>
         <View style={{ gap: space.md }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <Text variant="label" tone="secondary">VEHICLE & KYC</Text>
+            <Text variant="label" tone="secondary">{t("profile.section_vehicle_kyc")}</Text>
             <Pill
-              label={initial?.kycVerified ? "VERIFIED" : "PENDING REVIEW"}
+              label={initial?.kycVerified ? t("profile.kyc_verified") : t("profile.kyc_pending")}
               color={initial?.kycVerified ? colors.success : colors.warning}
               bg={initial?.kycVerified ? "rgba(16,185,129,0.12)" : "rgba(245,158,11,0.15)"}
             />
           </View>
-          <Row label="Vehicle number" value={initial?.vehicleNumber ?? "Not on file"} />
-          <Row label="Vehicle type" value={initial?.vehicleType ?? "BLS"} />
-          <Row label="Licence" value={initial?.licenseNumber ?? "Not on file"} />
+          <Row label={t("profile.row_vehicle_number")} value={initial?.vehicleNumber ?? t("profile.not_on_file")} />
+          <Row label={t("kyc.field.vehicle_type")} value={initial?.vehicleType ?? "BLS"} />
+          <Row label={t("profile.row_licence")} value={initial?.licenseNumber ?? t("profile.not_on_file")} />
           <Text variant="tiny" tone="muted">
-            Vehicle and licence updates require admin approval. Contact ops to change these.
+            {t("profile.vehicle_update_note")}
           </Text>
         </View>
       </Card>
@@ -104,7 +104,7 @@ export function ProfileScreen({ initial, onBack, onUpdated }: Props) {
       </Card>
 
       <Text variant="tiny" tone="muted" align="center">
-        Need help? support@jeevanrakshak.app
+        {t("profile.support_footer")}
       </Text>
     </Screen>
   );
