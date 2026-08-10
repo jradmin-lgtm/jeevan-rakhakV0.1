@@ -162,12 +162,39 @@ export const driverDocuments = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     driverId: uuid("driver_id").notNull().references(() => drivers.id, { onDelete: "cascade" }),
     docType: text("doc_type").notNull(),
+    // 2026-08: up to 3 pages per doc type (e.g. Aadhar front/back, a licence
+    // with a second page). page 1 is the only page any "required" check reads.
+    page: integer("page").notNull().default(1),
     contentType: text("content_type").notNull(),
     data: bytea("data").notNull(),
     uploadedAt: timestamp("uploaded_at", { withTimezone: true }).defaultNow().notNull()
   },
   (t) => ({
     driverDoctypeIdx: index("driver_documents_driver_doctype_idx").on(t.driverId, t.docType)
+  })
+);
+
+// 2026-08: reissue-request queue for the identity docs a driver can't just
+// freely self-swap (licence/aadhar/pan — see REISSUE_ELIGIBLE_DOC_TYPES in
+// drivers.ts). Ticket-linked so the request is tracked in the existing
+// helpdesk thread; the uploaded photo sits here as PENDING until an admin
+// approves it (copied into driverDocuments page 1) or rejects it.
+export const driverDocumentUpdates = pgTable(
+  "driver_document_updates",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    driverId: uuid("driver_id").notNull().references(() => drivers.id, { onDelete: "cascade" }),
+    docType: text("doc_type").notNull(),
+    contentType: text("content_type").notNull(),
+    data: bytea("data").notNull(),
+    ticketId: uuid("ticket_id").references(() => supportTickets.id, { onDelete: "set null" }),
+    status: text("status").default("PENDING").notNull(), // 'PENDING' | 'APPROVED' | 'REJECTED'
+    resolvedBy: text("resolved_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true })
+  },
+  (t) => ({
+    driverStatusIdx: index("driver_document_updates_driver_status_idx").on(t.driverId, t.status)
   })
 );
 

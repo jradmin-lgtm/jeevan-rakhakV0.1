@@ -75,24 +75,35 @@ function ChipPicker({
 
 type DocState = "empty" | "uploading" | "uploaded" | "error";
 
+// 2026-08: capture at a fixed document aspect ratio (ID/RC-card-ish 1.6:1,
+// wider than a phone screen's native photo) rather than whatever ratio the
+// camera defaults to, matching the frame-guide pattern used by ID-scan apps.
+// expo-image-picker's `aspect` only constrains the built-in crop step, which
+// is enough of a "framed for clicking" guide without a custom camera view.
+const DOC_ASPECT: [number, number] = [16, 10];
+
 /**
- * One mandatory-document row: RC / PUC / Fitness / Insurance / Licence /
- * Employee ID. Camera + Gallery both call the SAME upload path (base64,
- * quality-compressed client-side so the payload stays well under the
- * server's decoded-bytes cap). Re-picking replaces the previous upload.
+ * One document-photo capture row for a single page. Camera + Gallery both
+ * call the SAME upload path (base64, quality-compressed + cropped to a fixed
+ * document ratio client-side). Re-picking replaces the previous upload for
+ * THIS page only — other pages of the same doc type are untouched.
  */
 function DocUploadRow({
   label,
   docType,
+  page = 1,
   required,
   uploadedAt,
-  onUploaded
+  onUploaded,
+  onRemove
 }: {
   label: string;
   docType: string;
+  page?: number;
   required: boolean;
   uploadedAt: string | null;
-  onUploaded: (docType: string, uploadedAt: string) => void;
+  onUploaded: (docType: string, page: number, uploadedAt: string) => void;
+  onRemove?: () => void;
 }) {
   const { t } = useT();
   const [state, setState] = useState<DocState>(uploadedAt ? "uploaded" : "empty");
@@ -113,15 +124,21 @@ function DocUploadRow({
         setErr(t("kyc.permission_denied"));
         return;
       }
-      const opts: ImagePicker.ImagePickerOptions = { mediaTypes: "images", quality: 0.4, base64: true };
+      const opts: ImagePicker.ImagePickerOptions = {
+        mediaTypes: "images",
+        quality: 0.4,
+        base64: true,
+        allowsEditing: true,
+        aspect: DOC_ASPECT
+      };
       const result = source === "camera" ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);
       const asset = result.canceled ? null : result.assets?.[0];
       const base64 = asset?.base64;
       if (!base64) return;
       setState("uploading");
       const contentType = asset.mimeType && asset.mimeType.startsWith("image/") ? asset.mimeType : "image/jpeg";
-      const r = await driverApi.uploadKycDocument(docType, contentType, base64);
-      onUploaded(docType, r.uploadedAt);
+      const r = await driverApi.uploadKycDocument(docType, contentType, base64, page);
+      onUploaded(docType, page, r.uploadedAt);
       setState("uploaded");
     } catch (e: any) {
       setState("error");
@@ -134,6 +151,11 @@ function DocUploadRow({
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
         <Text variant="label" tone="secondary">{label}</Text>
         {required ? <Text variant="tiny" tone="danger">*</Text> : null}
+        {onRemove && state === "empty" ? (
+          <Pressable onPress={onRemove} style={{ marginLeft: "auto" }}>
+            <Text variant="tiny" tone="muted">{t("kyc.doc.remove_page")}</Text>
+          </Pressable>
+        ) : null}
       </View>
       {state === "uploaded" ? (
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: space.sm, borderRadius: radius.md, backgroundColor: "#F0FDF4", borderWidth: 1, borderColor: "#BBF7D0" }}>
@@ -162,6 +184,59 @@ function DocUploadRow({
         </View>
       )}
       {err ? <Text variant="tiny" tone="danger">{err}</Text> : null}
+    </View>
+  );
+}
+
+const MAX_DOC_PAGES = 3;
+
+/**
+ * Wraps DocUploadRow to add up to MAX_DOC_PAGES pages per doc type ("+ Add
+ * page" for multi-page documents like Aadhar front/back). Only page 1 can be
+ * `required` — pages 2/3 are always optional extras. An empty trailing page
+ * can be removed; a page with data cannot (re-upload/replace it instead).
+ */
+function MultiPageDocGroup({
+  label,
+  docType,
+  required,
+  pages,
+  onUploaded
+}: {
+  label: string;
+  docType: string;
+  required: boolean;
+  pages: Record<number, string>;
+  onUploaded: (docType: string, page: number, uploadedAt: string) => void;
+}) {
+  const { t } = useT();
+  const uploadedPageNumbers = Object.keys(pages).map(Number);
+  const highestUploaded = uploadedPageNumbers.length ? Math.max(...uploadedPageNumbers) : 0;
+  // Local-only "extra empty slot" count — lets the driver add a page before
+  // uploading into it. Resets to just the uploaded pages on remount, which is
+  // fine: an unfilled slot never persisted anything server-side anyway.
+  const [extraSlots, setExtraSlots] = useState(0);
+  const visibleCount = Math.max(1, highestUploaded, Math.min(highestUploaded + extraSlots, MAX_DOC_PAGES));
+
+  return (
+    <View style={{ gap: space.sm }}>
+      {Array.from({ length: visibleCount }, (_, i) => i + 1).map((page) => (
+        <DocUploadRow
+          key={page}
+          label={page === 1 ? label : `${label} · ${t("kyc.doc.page_n").replace("{n}", String(page))}`}
+          docType={docType}
+          page={page}
+          required={required && page === 1}
+          uploadedAt={pages[page] ?? null}
+          onUploaded={onUploaded}
+          onRemove={page > 1 && page > highestUploaded ? () => setExtraSlots((n) => Math.max(0, n - 1)) : undefined}
+        />
+      ))}
+      {visibleCount < MAX_DOC_PAGES ? (
+        <Pressable onPress={() => setExtraSlots((n) => n + 1)}>
+          <Text variant="tiny" tone="primary" weight="semi">+ {t("kyc.doc.add_page")}</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -195,7 +270,7 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
   const [hospitalId, setHospitalId] = useState<string>(initial?.hospitalId ?? "");
   const [hospitalName, setHospitalName] = useState<string>(initial?.hospitalName ?? "");
   const [hospitalList, setHospitalList] = useState<HospitalOption[] | null>(null);
-  const [docs, setDocs] = useState<Record<string, string>>({});
+  const [docs, setDocs] = useState<Record<string, Record<number, string>>>({});
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -221,22 +296,20 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
   }, []);
 
   const isHospitalEmployee = employmentType === "hospital_employee";
-  const requiredDocs = ["rc", "puc", "fitness", "insurance", "licence", ...(isHospitalEmployee ? ["employee_id"] : [])];
-  const allDocsUploaded = requiredDocs.every((d) => !!docs[d]);
+  // 2026-08: only licence/aadhar/pan (page 1) are mandatory to submit. RC,
+  // PUC, fitness, insurance, and employee ID remain uploadable but are
+  // optional line items — driven by real onboarding friction on launch day.
+  const MANDATORY_DOC_TYPES = ["licence", "aadhar", "pan"] as const;
+  const allMandatoryDocsUploaded = MANDATORY_DOC_TYPES.every((d) => !!docs[d]?.[1]);
 
   const canSubmit =
     licenseNumber.trim().length >= 4 &&
     vehicleNumber.trim().length >= 4 &&
-    rcNumber.trim().length >= 4 &&
-    pucNumber.trim().length >= 1 &&
-    fitnessNumber.trim().length >= 1 &&
-    insuranceNumber.trim().length >= 4 &&
     (vehicleType !== "OTHER" || vehicleTypeOther.trim().length >= 2) &&
     !!employmentType &&
-    (!isHospitalEmployee || employeeNumber.trim().length >= 1) &&
     hospitalId.trim().length >= 1 &&
     hospitalName.trim().length >= 2 &&
-    allDocsUploaded;
+    allMandatoryDocsUploaded;
 
   const submit = async () => {
     setBusy(true);
@@ -264,8 +337,8 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
     }
   };
 
-  const markUploaded = (docType: string, uploadedAt: string) => {
-    setDocs((prev) => ({ ...prev, [docType]: uploadedAt }));
+  const markUploaded = (docType: string, page: number, uploadedAt: string) => {
+    setDocs((prev) => ({ ...prev, [docType]: { ...(prev[docType] ?? {}), [page]: uploadedAt } }));
   };
 
   return (
@@ -284,16 +357,16 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
             <Input label={t("kyc.field.vehicle_number")} value={vehicleNumber} onChangeText={setVehicleNumber} placeholder="UP32 AB 4587" autoCapitalize="characters" />
 
             <Input label={t("kyc.field.rc_number")} value={rcNumber} onChangeText={setRcNumber} placeholder={t("kyc.field.rc_number_placeholder")} />
-            <DocUploadRow label={t("kyc.doc.rc_photo")} docType="rc" required uploadedAt={docs.rc ?? null} onUploaded={markUploaded} />
+            <MultiPageDocGroup label={t("kyc.doc.rc_photo")} docType="rc" required={false} pages={docs.rc ?? {}} onUploaded={markUploaded} />
 
             <Input label={t("kyc.field.puc_number")} value={pucNumber} onChangeText={setPucNumber} placeholder={t("kyc.field.puc_number_placeholder")} />
-            <DocUploadRow label={t("kyc.doc.puc_photo")} docType="puc" required uploadedAt={docs.puc ?? null} onUploaded={markUploaded} />
+            <MultiPageDocGroup label={t("kyc.doc.puc_photo")} docType="puc" required={false} pages={docs.puc ?? {}} onUploaded={markUploaded} />
 
             <Input label={t("kyc.field.fitness_number")} value={fitnessNumber} onChangeText={setFitnessNumber} placeholder={t("kyc.field.fitness_number_placeholder")} />
-            <DocUploadRow label={t("kyc.doc.fitness_photo")} docType="fitness" required uploadedAt={docs.fitness ?? null} onUploaded={markUploaded} />
+            <MultiPageDocGroup label={t("kyc.doc.fitness_photo")} docType="fitness" required={false} pages={docs.fitness ?? {}} onUploaded={markUploaded} />
 
             <Input label={t("kyc.field.insurance_number")} value={insuranceNumber} onChangeText={setInsuranceNumber} placeholder={t("kyc.field.insurance_number_placeholder")} />
-            <DocUploadRow label={t("kyc.doc.insurance_photo")} docType="insurance" required uploadedAt={docs.insurance ?? null} onUploaded={markUploaded} />
+            <MultiPageDocGroup label={t("kyc.doc.insurance_photo")} docType="insurance" required={false} pages={docs.insurance ?? {}} onUploaded={markUploaded} />
 
             <View style={{ gap: space.xs }}>
               <Text variant="label" tone="secondary">{t("kyc.ambulance_type_label")}</Text>
@@ -314,7 +387,11 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
             <Text variant="label" tone="primary">{t("kyc.section.driver_details")}</Text>
 
             <Input label={t("kyc.field.license")} value={licenseNumber} onChangeText={setLicenseNumber} placeholder="As printed on DL" autoCapitalize="characters" />
-            <DocUploadRow label={t("kyc.doc.licence_photo")} docType="licence" required uploadedAt={docs.licence ?? null} onUploaded={markUploaded} />
+            <MultiPageDocGroup label={t("kyc.doc.licence_photo")} docType="licence" required pages={docs.licence ?? {}} onUploaded={markUploaded} />
+
+            <MultiPageDocGroup label={t("kyc.doc.aadhar_photo")} docType="aadhar" required pages={docs.aadhar ?? {}} onUploaded={markUploaded} />
+
+            <MultiPageDocGroup label={t("kyc.doc.pan_photo")} docType="pan" required pages={docs.pan ?? {}} onUploaded={markUploaded} />
 
             <View style={{ gap: space.xs }}>
               <Text variant="label" tone="secondary">{t("kyc.employment_type_label")}</Text>
@@ -331,7 +408,7 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
             {isHospitalEmployee ? (
               <>
                 <Input label={t("kyc.employee_number_label")} value={employeeNumber} onChangeText={setEmployeeNumber} placeholder={t("kyc.employee_number_placeholder")} />
-                <DocUploadRow label={t("kyc.doc.employee_id_photo")} docType="employee_id" required uploadedAt={docs.employee_id ?? null} onUploaded={markUploaded} />
+                <MultiPageDocGroup label={t("kyc.doc.employee_id_photo")} docType="employee_id" required={false} pages={docs.employee_id ?? {}} onUploaded={markUploaded} />
               </>
             ) : null}
           </View>

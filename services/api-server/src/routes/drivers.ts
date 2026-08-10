@@ -7,6 +7,7 @@ import {
   bookingCancellations,
   drivers,
   driverDocuments,
+  driverDocumentUpdates,
   driverHeartbeats,
   driverHospitals,
   sosDispatchAttempts,
@@ -49,15 +50,21 @@ const kycSchema = z.object({
   employeeNumber: z.string().min(1).max(60).optional()
 });
 
-// CR6 (2026-08): the 6 document slots the KYC screen can upload. "employee_id"
+// CR6 (2026-08): the document slots the KYC screen can upload. "employee_id"
 // only applies when employmentType === "hospital_employee" (enforced client-side
 // via conditional rendering; the server accepts it regardless of employmentType
 // since KYC fields can be submitted/updated out of order during onboarding).
-const DOC_TYPES = ["rc", "puc", "fitness", "insurance", "licence", "employee_id"] as const;
+// "aadhar"/"pan" added 2026-08 as mandatory identity docs; rc/puc/fitness/
+// insurance/employee_id are optional line items (front-end no longer gates
+// submit on them — see MANDATORY_DOC_TYPES in KycOnboardingScreen.tsx).
+const DOC_TYPES = ["rc", "puc", "fitness", "insurance", "licence", "employee_id", "aadhar", "pan"] as const;
 type DocType = (typeof DOC_TYPES)[number];
 
 const kycDocumentSchema = z.object({
   docType: z.enum(DOC_TYPES),
+  // 2026-08: up to 3 pages per doc type (e.g. Aadhar front+back). Defaults to
+  // 1 so the pre-existing single-page upload call sites keep working as-is.
+  page: z.number().int().min(1).max(3).default(1),
   contentType: z.enum(["image/jpeg", "image/png", "application/pdf"]),
   // Raw base64 (no "data:...;base64," prefix — the client strips it). Capped
   // ~6MB decoded (~8MB base64) — client compresses photos before upload, this
@@ -437,10 +444,11 @@ export async function registerDriverRoutes(app: FastifyInstance) {
     }
   );
 
-  // CR6 (2026-08): KYC document upload — one row per (driver, docType) in
-  // driver_documents, upserted on re-upload (never accumulates history).
-  // Bytes stored in Postgres (no new blob-storage resource) — kept off the
-  // `drivers` table itself so this never bloats the hot-path driver queries.
+  // CR6 (2026-08): KYC document upload — one row per (driver, docType, page)
+  // in driver_documents, upserted on re-upload of the SAME page (never
+  // accumulates history). Bytes stored in Postgres (no new blob-storage
+  // resource) — kept off the `drivers` table itself so this never bloats the
+  // hot-path driver queries.
   app.post(
     "/api/v1/driver/kyc/document",
     { preHandler: [(app as any).authenticate], bodyLimit: 9 * 1024 * 1024 },
@@ -464,20 +472,21 @@ export async function registerDriverRoutes(app: FastifyInstance) {
         .values({
           driverId: sub,
           docType: parsed.data.docType,
+          page: parsed.data.page,
           contentType: parsed.data.contentType,
           data: buf
         })
         .onConflictDoUpdate({
-          target: [driverDocuments.driverId, driverDocuments.docType],
+          target: [driverDocuments.driverId, driverDocuments.docType, driverDocuments.page],
           set: { contentType: parsed.data.contentType, data: buf, uploadedAt: new Date() }
         });
-      return reply.send({ ok: true, docType: parsed.data.docType, uploadedAt: new Date().toISOString() });
+      return reply.send({ ok: true, docType: parsed.data.docType, page: parsed.data.page, uploadedAt: new Date().toISOString() });
     }
   );
 
   // Which documents this driver already has on file (no bytes — just
-  // existence + timestamp) so the KYC screen can restore "uploaded" chips on
-  // reload without re-fetching multi-MB payloads.
+  // existence + timestamp per page) so the KYC screen can restore "uploaded"
+  // chips on reload without re-fetching multi-MB payloads.
   app.get(
     "/api/v1/driver/kyc/documents",
     { preHandler: [(app as any).authenticate] },
@@ -485,12 +494,114 @@ export async function registerDriverRoutes(app: FastifyInstance) {
       const { sub, role } = req.user;
       if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
       const rows = await db
-        .select({ docType: driverDocuments.docType, uploadedAt: driverDocuments.uploadedAt })
+        .select({ docType: driverDocuments.docType, page: driverDocuments.page, uploadedAt: driverDocuments.uploadedAt })
         .from(driverDocuments)
         .where(eq(driverDocuments.driverId, sub));
-      const byType: Record<string, string> = {};
-      for (const r of rows) byType[r.docType] = r.uploadedAt.toISOString();
+      const byType: Record<string, Record<number, string>> = {};
+      for (const r of rows) {
+        if (!byType[r.docType]) byType[r.docType] = {};
+        byType[r.docType][r.page] = r.uploadedAt.toISOString();
+      }
       return reply.send({ documents: byType });
+    }
+  );
+
+  // 2026-08: identity docs a driver shouldn't be able to silently self-swap
+  // once uploaded (a compromised account swapping its own licence/Aadhar/PAN
+  // photo unreviewed is a fraud vector RC/PUC/insurance don't carry). Instead
+  // of overwriting driver_documents directly, this raises a tracked support
+  // ticket + parks the new photo in driver_document_updates as PENDING; an
+  // admin approves (copies it into driver_documents page 1) or rejects it.
+  const REISSUE_ELIGIBLE_DOC_TYPES = ["licence", "aadhar", "pan"] as const;
+  const reissueRequestSchema = z.object({
+    docType: z.enum(REISSUE_ELIGIBLE_DOC_TYPES),
+    contentType: z.enum(["image/jpeg", "image/png", "application/pdf"]),
+    base64: z.string().min(1).max(8 * 1024 * 1024)
+  });
+  const REISSUE_DOC_LABEL: Record<(typeof REISSUE_ELIGIBLE_DOC_TYPES)[number], string> = {
+    licence: "driving licence",
+    aadhar: "Aadhar card",
+    pan: "PAN card"
+  };
+
+  app.post(
+    "/api/v1/driver/kyc/document/reissue",
+    { preHandler: [(app as any).authenticate], bodyLimit: 9 * 1024 * 1024 },
+    async (req: any, reply) => {
+      const { sub, role } = req.user;
+      if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
+      const parsed = reissueRequestSchema.safeParse(req.body);
+      if (!parsed.success)
+        return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+      // One outstanding request per doc type at a time — a second tap while
+      // one's already PENDING would just confuse the review queue.
+      const [existing] = await db
+        .select({ id: driverDocumentUpdates.id })
+        .from(driverDocumentUpdates)
+        .where(
+          and(
+            eq(driverDocumentUpdates.driverId, sub),
+            eq(driverDocumentUpdates.docType, parsed.data.docType),
+            eq(driverDocumentUpdates.status, "PENDING")
+          )
+        )
+        .limit(1);
+      if (existing) return reply.code(409).send({ error: "request_already_pending" });
+      let buf: Buffer;
+      try {
+        buf = Buffer.from(parsed.data.base64, "base64");
+      } catch {
+        return reply.code(400).send({ error: "invalid_base64" });
+      }
+      if (buf.length === 0 || buf.length > 6 * 1024 * 1024) {
+        return reply.code(400).send({ error: "document_too_large_or_empty" });
+      }
+      const [{ name: driverName = null } = {}] = await pgClient<any[]>`
+        SELECT name FROM drivers WHERE id = ${sub} LIMIT 1`;
+      const label = REISSUE_DOC_LABEL[parsed.data.docType];
+      const message = `Requesting an update to my ${label} on file.`;
+      const [{ id: ticketId } = {}] = await pgClient`
+        INSERT INTO support_tickets (subject_type, category, source, raiser_driver_id, message, status)
+        VALUES ('GENERAL', 'DOC_UPDATE', 'DRIVER', ${sub}, ${message}, 'OPEN')
+        RETURNING id`;
+      await pgClient`
+        INSERT INTO support_ticket_messages (ticket_id, author_role, author_name, body)
+        VALUES (${ticketId}, 'DRIVER', ${driverName}, ${message})`;
+      const [row] = await db
+        .insert(driverDocumentUpdates)
+        .values({
+          driverId: sub,
+          docType: parsed.data.docType,
+          contentType: parsed.data.contentType,
+          data: buf,
+          ticketId
+        })
+        .returning({ id: driverDocumentUpdates.id });
+      return reply.send({ ok: true, id: row.id, ticketId });
+    }
+  );
+
+  // This driver's own reissue requests (no bytes) so the doc-update screen can
+  // show "Pending review" / "Approved" / "Rejected" instead of letting them
+  // spam duplicate requests for the same doc type.
+  app.get(
+    "/api/v1/driver/kyc/document/reissue-requests",
+    { preHandler: [(app as any).authenticate] },
+    async (req: any, reply) => {
+      const { sub, role } = req.user;
+      if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
+      const rows = await db
+        .select({
+          id: driverDocumentUpdates.id,
+          docType: driverDocumentUpdates.docType,
+          status: driverDocumentUpdates.status,
+          createdAt: driverDocumentUpdates.createdAt,
+          resolvedAt: driverDocumentUpdates.resolvedAt
+        })
+        .from(driverDocumentUpdates)
+        .where(eq(driverDocumentUpdates.driverId, sub))
+        .orderBy(desc(driverDocumentUpdates.createdAt));
+      return reply.send({ requests: rows });
     }
   );
 

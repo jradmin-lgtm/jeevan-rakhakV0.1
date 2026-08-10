@@ -192,7 +192,10 @@ export const me = {
   // (disabled=true + PII nulled), cancels in-flight bookings, retains phone
   // for trip-history continuity. Phone is the only field we keep so the
   // driver-side payout records aren't orphaned.
-  delete: () => api<{ deleted: boolean }>("/api/v1/me/delete", { method: "POST" })
+  // Content-Type: application/json with a truly empty body makes Fastify's
+  // strict JSON parser 400 before the route even runs — body: {} avoids it
+  // (same reason every other no-payload POST in this file passes body: {}).
+  delete: () => api<{ deleted: boolean }>("/api/v1/me/delete", { method: "POST", body: {} })
 };
 
 export type FareQuote = {

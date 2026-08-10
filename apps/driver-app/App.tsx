@@ -13,6 +13,7 @@ import { DashboardScreen } from "./src/screens/DashboardScreen";
 import { TripScreen } from "./src/screens/TripScreen";
 import { TripHistoryScreen } from "./src/screens/TripHistoryScreen";
 import { ProfileScreen } from "./src/screens/ProfileScreen";
+import { DocumentUpdateScreen } from "./src/screens/DocumentUpdateScreen";
 import { SupportScreen } from "./src/screens/SupportScreen";
 import { KycOnboardingScreen, KycPendingScreen } from "./src/screens/KycOnboardingScreen";
 import { hydrateLang } from "./src/i18n";
@@ -33,6 +34,7 @@ type RootStackParamList = {
   Trip: { booking: Booking };
   TripHistory: undefined;
   Profile: undefined;
+  DocumentUpdate: undefined;
   Support: undefined;
 };
 
@@ -204,8 +206,12 @@ export default function App() {
                   initial={profile}
                   onBack={() => navigation.goBack()}
                   onUpdated={(p) => { setProfile(p); void setCachedProfile(p); }}
+                  onManageDocuments={() => navigation.navigate("DocumentUpdate")}
                 />
               )}
+            </Stack.Screen>
+            <Stack.Screen name="DocumentUpdate">
+              {({ navigation }) => <DocumentUpdateScreen onBack={() => navigation.goBack()} />}
             </Stack.Screen>
             <Stack.Screen name="Support">
               {({ navigation }) => <SupportScreen onBack={() => navigation.goBack()} />}

@@ -509,6 +509,34 @@ async function bootstrap() {
     // ON CONFLICT upsert in the route handler rather than accumulating history.
     await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS driver_documents_driver_doctype_unique_idx ON driver_documents(driver_id, doc_type)`;
 
+    // 2026-08: multi-page docs (up to 3 pages/doc type, e.g. Aadhar front+back).
+    // Existing rows default to page=1 (they were the only page anyway), so the
+    // old 1-row-per-doctype uploads keep working unchanged. Swap the unique
+    // index to include page so re-upload of the SAME page still replaces
+    // in-place, while a new page number inserts a new row.
+    await pgClient`ALTER TABLE driver_documents ADD COLUMN IF NOT EXISTS page integer NOT NULL DEFAULT 1`;
+    await pgClient`DROP INDEX IF EXISTS driver_documents_driver_doctype_unique_idx`;
+    await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS driver_documents_driver_doctype_page_unique_idx ON driver_documents(driver_id, doc_type, page)`;
+
+    // 2026-08: reissue-request queue for licence/aadhar/pan updates — see
+    // driverDocumentUpdates in schema.ts. References support_tickets, which
+    // must already exist (created earlier in this same migration block).
+    await pgClient`
+      CREATE TABLE IF NOT EXISTS driver_document_updates (
+        id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        driver_id    uuid NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
+        doc_type     text NOT NULL,
+        content_type text NOT NULL,
+        data         bytea NOT NULL,
+        ticket_id    uuid REFERENCES support_tickets(id) ON DELETE SET NULL,
+        status       text NOT NULL DEFAULT 'PENDING',
+        resolved_by  text,
+        created_at   timestamptz NOT NULL DEFAULT now(),
+        resolved_at  timestamptz
+      )
+    `;
+    await pgClient`CREATE INDEX IF NOT EXISTS driver_document_updates_driver_status_idx ON driver_document_updates(driver_id, status)`;
+
     // CR3/CR4 (2026-08): server-composed push notifications (SOS/booking
     // alerts) can now localize by reading the recipient's synced preference.
     await pgClient`ALTER TABLE users   ADD COLUMN IF NOT EXISTS preferred_lang text NOT NULL DEFAULT 'en'`;

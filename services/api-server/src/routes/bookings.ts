@@ -557,6 +557,13 @@ export async function registerBookingRoutes(app: FastifyInstance) {
           const { stopCascade, notifyCascadeLosers } = await import("../sos-cascade.js");
           stopCascade(id);
           await notifyCascadeLosers(id, sub);
+          // notifyCascadeLosers deliberately skips the winner (sub) — but the
+          // winner's OWN device still has the original SOS push sitting in its
+          // tray with the alarm-channel sound, which keeps ringing until it's
+          // explicitly dismissed (accepting in-app only closes the JS modal,
+          // it doesn't touch the OS notification that triggered it). Clear it
+          // here so accepting actually silences the alert on the winner's phone.
+          void dismissPushToDriver(sub, id);
           // Emit to the patient so LiveTrackingScreen flips out of the
           // "looking for ambulance" wait card.
           await fetch(`${config.socketBaseUrl}/internal/emit-to-user`, {

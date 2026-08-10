@@ -9,9 +9,10 @@ type Props = {
   initial: any;
   onBack: () => void;
   onUpdated: (profile: any) => void;
+  onManageDocuments: () => void;
 };
 
-export function ProfileScreen({ initial, onBack, onUpdated }: Props) {
+export function ProfileScreen({ initial, onBack, onUpdated, onManageDocuments }: Props) {
   const { t, lang } = useT();
   const [name, setName] = useState<string>(initial?.name ?? "");
   const [busy, setBusy] = useState(false);
@@ -71,6 +72,7 @@ export function ProfileScreen({ initial, onBack, onUpdated }: Props) {
           <Text variant="tiny" tone="muted">
             {t("profile.vehicle_update_note")}
           </Text>
+          <Button label={t("profile.manage_documents")} variant="outline" onPress={onManageDocuments} fullWidth />
         </View>
       </Card>
 

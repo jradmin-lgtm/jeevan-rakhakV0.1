@@ -158,7 +158,10 @@ export const me = {
   // v1.0.13: Google Play account-deletion compliance. Refuses if the driver
   // has an active trip (would strand the patient). On success, server soft-
   // deletes the row + nulls PII, retains phone for payout records.
-  delete: () => api<{ deleted: boolean }>("/api/v1/me/delete", { method: "POST" })
+  // Content-Type: application/json with a truly empty body makes Fastify's
+  // strict JSON parser 400 before the route even runs — body: {} avoids it
+  // (same reason every other no-payload POST in this file passes body: {}).
+  delete: () => api<{ deleted: boolean }>("/api/v1/me/delete", { method: "POST", body: {} })
 };
 
 export const driver = {
@@ -198,14 +201,27 @@ export const driver = {
     employmentType?: "hospital_employee" | "private_driver";
     employeeNumber?: string;
   }) => api<{ driver: any }>("/api/v1/driver/kyc", { method: "POST", body: data }),
-  // CR6 (2026-08): one call per document. base64 has no "data:...;base64,"
-  // prefix — strip it client-side before calling this.
-  uploadKycDocument: (docType: string, contentType: string, base64: string) =>
-    api<{ ok: true; docType: string; uploadedAt: string }>("/api/v1/driver/kyc/document", {
+  // CR6 (2026-08): one call per document page. base64 has no
+  // "data:...;base64," prefix — strip it client-side before calling this.
+  // page defaults to 1 (2026-08: up to 3 pages per doc type).
+  uploadKycDocument: (docType: string, contentType: string, base64: string, page: number = 1) =>
+    api<{ ok: true; docType: string; page: number; uploadedAt: string }>("/api/v1/driver/kyc/document", {
+      method: "POST",
+      body: { docType, page, contentType, base64 }
+    }),
+  kycDocuments: () => api<{ documents: Record<string, Record<number, string>> }>("/api/v1/driver/kyc/documents"),
+  // 2026-08: reissue-request flow for licence/aadhar/pan — raises a tracked
+  // support ticket + parks the new photo pending admin approve/reject
+  // (unlike other doc types, these can't be freely self-replaced).
+  requestDocReissue: (docType: "licence" | "aadhar" | "pan", contentType: string, base64: string) =>
+    api<{ ok: true; id: string; ticketId: string }>("/api/v1/driver/kyc/document/reissue", {
       method: "POST",
       body: { docType, contentType, base64 }
     }),
-  kycDocuments: () => api<{ documents: Record<string, string> }>("/api/v1/driver/kyc/documents")
+  docReissueRequests: () =>
+    api<{ requests: { id: string; docType: string; status: "PENDING" | "APPROVED" | "REJECTED"; createdAt: string; resolvedAt: string | null }[] }>(
+      "/api/v1/driver/kyc/document/reissue-requests"
+    )
 };
 
 export type SosPending = {

@@ -7,6 +7,7 @@ import { prettyStatus, prettyEmergency } from "../../../../lib/status";
 import { resolveAmountPaid } from "../../../../lib/fare";
 import { DisableToggle } from "../../users/[id]/DisableToggle";
 import { KycVerifyToggle } from "./KycVerifyToggle";
+import { DocumentUpdateActions } from "./DocumentUpdateActions";
 import { EditableField } from "../../EditableField";
 import { DriverHospitals } from "./DriverHospitals";
 
@@ -26,7 +27,7 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
   const { id } = await params;
   const data = await getDriver(id);
   if (!data) notFound();
-  const { driver, bookings, totals, assignedHospitals = [], allHospitals = [], documents = {} } = data;
+  const { driver, bookings, totals, assignedHospitals = [], allHospitals = [], documents = {}, pendingDocUpdates = [] } = data;
 
   return (
     <>
@@ -135,32 +136,46 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
           <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
             <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--muted)", marginBottom: 8 }}>Documents</div>
             {[
+              { key: "licence", label: "Driving licence" },
+              { key: "aadhar", label: "Aadhar card" },
+              { key: "pan", label: "PAN card" },
               { key: "rc", label: "RC" },
               { key: "puc", label: "PUC certificate" },
               { key: "fitness", label: "Fitness certificate" },
               { key: "insurance", label: "Insurance" },
-              { key: "licence", label: "Driving licence" },
               { key: "employee_id", label: "Employee ID card" }
             ]
               .filter((d) => d.key !== "employee_id" || driver.employmentType === "hospital_employee")
-              .map((d) => (
-                <div key={d.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0" }}>
-                  <span style={{ fontSize: 13 }}>{d.label}</span>
-                  {documents[d.key] ? (
-                    <a
-                      href={`/api/proxy/api/v1/admin/drivers/${driver.id}/documents/${d.key}/raw`}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ fontSize: 12, color: "var(--accent)", fontWeight: 600 }}
-                    >
-                      ✓ View
-                    </a>
-                  ) : (
-                    <span className="muted" style={{ fontSize: 12 }}>Not uploaded</span>
-                  )}
-                </div>
-              ))}
+              .map((d) => {
+                // 2026-08: up to 3 pages per doc type — documents[d.key] is
+                // {pageNumber: uploadedAtIso}. Render one "View" link per
+                // uploaded page so admins can open each page independently.
+                const pages = Object.keys(documents[d.key] ?? {}).map(Number).sort((a, b) => a - b);
+                return (
+                  <div key={d.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0" }}>
+                    <span style={{ fontSize: 13 }}>{d.label}</span>
+                    {pages.length > 0 ? (
+                      <div style={{ display: "flex", gap: 10 }}>
+                        {pages.map((p) => (
+                          <a
+                            key={p}
+                            href={`/api/proxy/api/v1/admin/drivers/${driver.id}/documents/${d.key}/raw?page=${p}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ fontSize: 12, color: "var(--accent)", fontWeight: 600 }}
+                          >
+                            ✓ View{pages.length > 1 ? ` pg${p}` : ""}
+                          </a>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="muted" style={{ fontSize: 12 }}>Not uploaded</span>
+                    )}
+                  </div>
+                );
+              })}
           </div>
+          <DocumentUpdateActions driverId={driver.id} apiBase={API_BASE} pending={pendingDocUpdates} />
         </div>
         <div className="card">
           <h3 style={{ margin: "0 0 12px" }}>Lifetime</h3>

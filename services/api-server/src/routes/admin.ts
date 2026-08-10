@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, count, desc, eq, gte, inArray, lte, sql as drizzleSql } from "drizzle-orm";
-import { bookingEvents, bookings, drivers, driverDocuments, db, driverHospitals, hospitals, supportTickets, users, systemEvents, sql as pgClient } from "@jr/db";
+import { bookingEvents, bookings, drivers, driverDocuments, driverDocumentUpdates, db, driverHospitals, hospitals, supportTickets, supportTicketMessages, users, systemEvents, sql as pgClient } from "@jr/db";
 import { config } from "@jr/config";
 import { hashPassword } from "../password";
 
@@ -439,13 +439,29 @@ export async function registerAdminRoutes(app: FastifyInstance) {
 
     // CR6 (2026-08): KYC document upload status — metadata only (no bytes;
     // the actual image streams from the /documents/:docType/raw route below,
-    // on demand, so this detail fetch stays fast).
+    // on demand, so this detail fetch stays fast). Keyed by page (2026-08:
+    // up to 3 pages per doc type).
     const docRows = await db
-      .select({ docType: driverDocuments.docType, uploadedAt: driverDocuments.uploadedAt })
+      .select({ docType: driverDocuments.docType, page: driverDocuments.page, uploadedAt: driverDocuments.uploadedAt })
       .from(driverDocuments)
       .where(eq(driverDocuments.driverId, id));
-    const documents: Record<string, string> = {};
-    for (const r of docRows) documents[r.docType] = r.uploadedAt.toISOString();
+    const documents: Record<string, Record<number, string>> = {};
+    for (const r of docRows) {
+      if (!documents[r.docType]) documents[r.docType] = {};
+      documents[r.docType][r.page] = r.uploadedAt.toISOString();
+    }
+
+    // 2026-08: outstanding reissue requests (licence/aadhar/pan) awaiting
+    // admin review — surfaced inline in the Documents card.
+    const pendingDocUpdates = await db
+      .select({
+        id: driverDocumentUpdates.id,
+        docType: driverDocumentUpdates.docType,
+        createdAt: driverDocumentUpdates.createdAt
+      })
+      .from(driverDocumentUpdates)
+      .where(and(eq(driverDocumentUpdates.driverId, id), eq(driverDocumentUpdates.status, "PENDING")))
+      .orderBy(desc(driverDocumentUpdates.createdAt));
 
     return reply.send({
       driver: d,
@@ -456,24 +472,115 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       cancellationCount: cancels,
       cancellationRate,
       cancellationFlagged: cancellationRate >= config.driverCancelFlagRate,
-      documents
+      documents,
+      pendingDocUpdates
     });
   });
 
   // CR6 (2026-08): stream the raw bytes of one uploaded KYC document so an
   // admin reviewer can open/verify it against the physical original. Same
-  // x-admin-key boundary (adminGuard) as every other admin route.
+  // x-admin-key boundary (adminGuard) as every other admin route. ?page=
+  // (2026-08, defaults to 1) selects which page of a multi-page doc to stream.
   app.get("/api/v1/admin/drivers/:id/documents/:docType/raw", adminGuard, async (req, reply) => {
     const { id, docType } = req.params as { id: string; docType: string };
+    const pageRaw = Number((req.query as any)?.page ?? 1);
+    const page = Number.isInteger(pageRaw) && pageRaw >= 1 && pageRaw <= 3 ? pageRaw : 1;
     const [row] = await db
       .select({ contentType: driverDocuments.contentType, data: driverDocuments.data })
       .from(driverDocuments)
-      .where(and(eq(driverDocuments.driverId, id), eq(driverDocuments.docType, docType)))
+      .where(and(eq(driverDocuments.driverId, id), eq(driverDocuments.docType, docType), eq(driverDocuments.page, page)))
       .limit(1);
     if (!row) return reply.code(404).send({ error: "not_found" });
     reply.header("Content-Type", row.contentType);
     reply.header("Cache-Control", "private, max-age=0, no-store");
     return reply.send(row.data);
+  });
+
+  // 2026-08: stream the pending photo from a reissue request (not yet in
+  // driver_documents — still awaiting approve/reject).
+  app.get("/api/v1/admin/document-updates/:id/raw", adminGuard, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const [row] = await db
+      .select({ contentType: driverDocumentUpdates.contentType, data: driverDocumentUpdates.data })
+      .from(driverDocumentUpdates)
+      .where(eq(driverDocumentUpdates.id, id))
+      .limit(1);
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    reply.header("Content-Type", row.contentType);
+    reply.header("Cache-Control", "private, max-age=0, no-store");
+    return reply.send(row.data);
+  });
+
+  const resolveDocUpdateSchema = z.object({
+    resolvedBy: z.string().trim().min(2).max(120),
+    note: z.string().trim().max(500).optional()
+  });
+
+  // 2026-08: approve a reissue request — copies the pending photo into
+  // driver_documents at page 1 (upsert, same target the normal upload path
+  // uses) so it becomes the live doc, marks the request APPROVED, and closes
+  // out the linked ticket with an admin reply (required by the ticket's own
+  // resolve gate — see PATCH /admin/tickets/:id).
+  app.post("/api/v1/admin/document-updates/:id/approve", adminGuard, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const parsed = resolveDocUpdateSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+    const [pending] = await db
+      .select()
+      .from(driverDocumentUpdates)
+      .where(and(eq(driverDocumentUpdates.id, id), eq(driverDocumentUpdates.status, "PENDING")))
+      .limit(1);
+    if (!pending) return reply.code(404).send({ error: "not_found_or_already_resolved" });
+    await db
+      .insert(driverDocuments)
+      .values({
+        driverId: pending.driverId,
+        docType: pending.docType,
+        page: 1,
+        contentType: pending.contentType,
+        data: pending.data
+      })
+      .onConflictDoUpdate({
+        target: [driverDocuments.driverId, driverDocuments.docType, driverDocuments.page],
+        set: { contentType: pending.contentType, data: pending.data, uploadedAt: new Date() }
+      });
+    const now = new Date();
+    await db
+      .update(driverDocumentUpdates)
+      .set({ status: "APPROVED", resolvedBy: parsed.data.resolvedBy, resolvedAt: now })
+      .where(eq(driverDocumentUpdates.id, id));
+    if (pending.ticketId) {
+      const note = parsed.data.note?.trim() || "Approved. The new document has replaced the one on file.";
+      await db.insert(supportTicketMessages).values({ ticketId: pending.ticketId, authorRole: "ADMIN", authorName: parsed.data.resolvedBy, body: note });
+      await db.update(supportTickets).set({ status: "RESOLVED", resolvedBy: parsed.data.resolvedBy, resolvedAt: now }).where(eq(supportTickets.id, pending.ticketId));
+    }
+    return reply.send({ ok: true });
+  });
+
+  // 2026-08: reject a reissue request — leaves the current live document
+  // untouched, marks the request REJECTED, and closes the ticket with the
+  // admin's note (e.g. "photo is blurry, please retake").
+  app.post("/api/v1/admin/document-updates/:id/reject", adminGuard, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const parsed = resolveDocUpdateSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+    const [pending] = await db
+      .select()
+      .from(driverDocumentUpdates)
+      .where(and(eq(driverDocumentUpdates.id, id), eq(driverDocumentUpdates.status, "PENDING")))
+      .limit(1);
+    if (!pending) return reply.code(404).send({ error: "not_found_or_already_resolved" });
+    const now = new Date();
+    await db
+      .update(driverDocumentUpdates)
+      .set({ status: "REJECTED", resolvedBy: parsed.data.resolvedBy, resolvedAt: now })
+      .where(eq(driverDocumentUpdates.id, id));
+    if (pending.ticketId) {
+      const note = parsed.data.note?.trim() || "Rejected. Please raise a new request with a clearer photo.";
+      await db.insert(supportTicketMessages).values({ ticketId: pending.ticketId, authorRole: "ADMIN", authorName: parsed.data.resolvedBy, body: note });
+      await db.update(supportTickets).set({ status: "RESOLVED", resolvedBy: parsed.data.resolvedBy, resolvedAt: now }).where(eq(supportTickets.id, pending.ticketId));
+    }
+    return reply.send({ ok: true });
   });
 
   // v1.2.0 CR#2: paginated driver-cancellation audit log, joined to the
