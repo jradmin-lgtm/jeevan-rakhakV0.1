@@ -124,7 +124,17 @@ export async function signInWithGoogle(): Promise<{
         err
       );
     }
-    throw new JrGoogleSignInError("unknown", err?.message ?? "Google sign-in failed.", err);
+    // 2026-08-10: the v2.1.0 signing-certificate incident took hours to
+    // root-cause specifically because this branch discarded the native error
+    // code — Play Services' DEVELOPER_ERROR (10), the standard code for "the
+    // app's signing cert doesn't match the registered OAuth Android client",
+    // was swallowed into a generic "Google sign-in failed." with nothing a
+    // screenshot could act on. The message is JUST the technical detail (no
+    // "sign-in failed" prefix) — callers append it to their own translated
+    // user-facing copy, so any future failure in this bucket is
+    // self-diagnosing from a screenshot instead of another investigation.
+    const detail = code !== undefined && code !== null ? `code ${code}` : err?.message ? String(err.message) : "no detail";
+    throw new JrGoogleSignInError("unknown", detail, err);
   }
 }
 

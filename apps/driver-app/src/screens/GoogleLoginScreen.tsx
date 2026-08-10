@@ -70,8 +70,15 @@ export function GoogleLoginScreen({ onAuthenticated, onProfileSetupRequired }: P
         setErr(t("auth.google.error_play_services"));
       } else {
         const msg = (e as any)?.message ?? "";
-        if (msg.includes("email_already_used")) setErr(t("auth.google.error_email_used"));
-        else setErr(t("auth.google.error_generic"));
+        if (msg.includes("email_already_used")) {
+          setErr(t("auth.google.error_email_used"));
+        } else {
+          // 2026-08-10: append the raw detail (native error code, when this
+          // came from the "unknown" bucket in googleSignIn.ts) so a failure
+          // we haven't seen before is diagnosable from a screenshot instead
+          // of another hours-long investigation like the v2.1.0 incident.
+          setErr(msg ? `${t("auth.google.error_generic")} (${msg})` : t("auth.google.error_generic"));
+        }
       }
       setStage({ kind: "idle" });
     }
