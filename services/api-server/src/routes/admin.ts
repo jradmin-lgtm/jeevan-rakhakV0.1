@@ -588,11 +588,50 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     return reply.send({ cancellations: rows });
   });
 
+  // 2026-08-10: found via live audit — a driver with every field blank and
+  // zero documents uploaded could still be flipped to kycVerified:true from
+  // here, since the schema above only checks TYPES (is this a string of the
+  // right length), never whether the underlying KYC is actually complete.
+  // A verified driver can accept live ride requests, so this was a real gap,
+  // not a cosmetic one. Mirrors the exact completeness gate the driver app's
+  // own KycOnboardingScreen.tsx enforces client-side before it lets a driver
+  // submit — server-side here so it can't be bypassed by calling the API
+  // directly, and so admin can never mark someone verified who couldn't have
+  // legitimately gotten there through the app.
+  async function driverKycCompleteness(id: string, merged: Record<string, any>) {
+    const missing: string[] = [];
+    if (!String(merged.licenseNumber ?? "").trim() || String(merged.licenseNumber).trim().length < 4) missing.push("licenseNumber");
+    if (!String(merged.vehicleNumber ?? "").trim() || String(merged.vehicleNumber).trim().length < 4) missing.push("vehicleNumber");
+    if (!merged.employmentType) missing.push("employmentType");
+    if (!String(merged.hospitalId ?? "").trim()) missing.push("hospitalId");
+    if (!String(merged.hospitalName ?? "").trim()) missing.push("hospitalName");
+    const docRows = await db
+      .select({ docType: driverDocuments.docType, page: driverDocuments.page })
+      .from(driverDocuments)
+      .where(eq(driverDocuments.driverId, id));
+    const page1 = new Set(docRows.filter((r) => r.page === 1).map((r) => r.docType));
+    if (!page1.has("licence")) missing.push("licence_photo");
+    if (!page1.has("aadhar") && !page1.has("pan")) missing.push("identity_proof_photo");
+    return missing;
+  }
+
   app.patch("/api/v1/admin/drivers/:id", adminGuard, async (req, reply) => {
     const id = (req.params as any).id as string;
     const parsed = patchDriverSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+    }
+    if (parsed.data.kycVerified === true) {
+      const [existing] = await db.select().from(drivers).where(eq(drivers.id, id)).limit(1);
+      if (!existing) return reply.code(404).send({ error: "not_found" });
+      const missing = await driverKycCompleteness(id, { ...existing, ...parsed.data });
+      if (missing.length > 0) {
+        return reply.code(409).send({
+          error: "kyc_incomplete",
+          message: "Cannot verify: this driver is missing required KYC fields or documents.",
+          missing
+        });
+      }
     }
     const [updated] = await db
       .update(drivers)

@@ -4,6 +4,16 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { adminFetch } from "../../../../lib/adminFetch";
 
+const MISSING_LABEL: Record<string, string> = {
+  licenseNumber: "licence number",
+  vehicleNumber: "vehicle number",
+  employmentType: "employment type",
+  hospitalId: "assigned hospital",
+  hospitalName: "assigned hospital",
+  licence_photo: "driving licence photo",
+  identity_proof_photo: "Aadhar or PAN photo"
+};
+
 /**
  * Verify / revoke KYC on a driver. Verified drivers can accept ride requests
  * (server-side gate on POST /bookings/:id/accept also checks this flag).
@@ -35,8 +45,12 @@ export function KycVerifyToggle({
         body: JSON.stringify({ kycVerified: next })
       });
       if (!res.ok) {
-        const t = await res.text();
-        throw new Error(t || `HTTP ${res.status}`);
+        const body = await res.json().catch(() => null);
+        if (body?.error === "kyc_incomplete" && Array.isArray(body.missing)) {
+          const list = body.missing.map((m: string) => MISSING_LABEL[m] ?? m).join(", ");
+          throw new Error(`Can't verify, missing: ${list}.`);
+        }
+        throw new Error(body?.message ?? body?.error ?? `HTTP ${res.status}`);
       }
       setVerified(next);
       router.refresh();
