@@ -255,53 +255,41 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   // (v1.0.15) so it's a clean activity signal post-v1.0.15. Drivers who've
   // never been seen (lastSeenAt IS NULL) are excluded from date-bounded
   // queries — that matches the "active in range" intent.
+  // 2026-08-10 fix: this used to filter by lastSeenAt (activity), which hid
+  // any brand-new driver from every date preset except "All time" — a driver
+  // who just signed up and hasn't gone online yet has no heartbeat to match.
+  // Filtering by createdAt (signup date) is what "Last 7/30 days" actually
+  // means to an admin checking on recent signups.
   app.get("/api/v1/admin/drivers", adminGuard, async (req, reply) => {
     const source = pickSource(req);
     const range = pickDateRange(req);
     const filter = and(
       sourceClause(source, drivers.isDemo),
-      dateRangeClause(drivers.lastSeenAt, range)
+      dateRangeClause(drivers.createdAt, range)
     );
 
     const rows = await db
       .select()
       .from(drivers)
       .where(filter)
-      .orderBy(desc(drivers.lastSeenAt))
+      .orderBy(desc(drivers.createdAt))
       .limit(500);
     return reply.send({ source, drivers: rows });
   });
 
-  // v1.0.15.1: users list filtered by ACTIVITY (booked at least once within
-  // the range), not signup date. users table doesn't carry a lastSeenAt
-  // column — closest proxy for "active today" is "booked today". Two-step
-  // lookup: first the distinct user_ids whose bookings fall in the range,
-  // then the users in that set + source filter. The two-query approach is
-  // simple, indexed (bookings_user_idx + bookings_created_at_idx) and safe
-  // when the set is empty (FALSE clause short-circuits the second query).
+  // 2026-08-10 fix: previously filtered by ACTIVITY (booked at least once
+  // within the range, via a join through bookings) instead of signup date —
+  // a brand-new user with zero bookings yet was invisible under every date
+  // preset except "All time", which read as "the user vanished" rather than
+  // "hasn't booked yet". Filtering by createdAt directly matches what an
+  // admin actually means by "Last 7/30 days": who joined in that window.
   app.get("/api/v1/admin/users", adminGuard, async (req, reply) => {
     const source = pickSource(req);
     const range = pickDateRange(req);
 
-    let activeIdsClause: any = undefined;
-    if (range.since || range.until) {
-      const activeRows = await db
-        .selectDistinct({ uid: bookings.userId })
-        .from(bookings)
-        .where(dateRangeClause(bookings.createdAt, range));
-      const ids = activeRows.map((r) => r.uid).filter(Boolean) as string[];
-      if (ids.length === 0) {
-        return reply.send({ source, users: [] });
-      }
-      activeIdsClause = drizzleSql`${users.id} IN (${drizzleSql.join(
-        ids.map((id) => drizzleSql`${id}`),
-        drizzleSql`, `
-      )})`;
-    }
-
     const filter = and(
       sourceClause(source, users.isDemo),
-      activeIdsClause
+      dateRangeClause(users.createdAt, range)
     );
 
     const rows = await db
