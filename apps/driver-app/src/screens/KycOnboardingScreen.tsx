@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { AppHeader, Button, Card, Input, Screen, Text, colors, dialog, radius, space } from "@jr/ui";
@@ -271,6 +271,12 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
   const [hospitalName, setHospitalName] = useState<string>(initial?.hospitalName ?? "");
   const [hospitalList, setHospitalList] = useState<HospitalOption[] | null>(null);
   const [docs, setDocs] = useState<Record<string, Record<number, string>>>({});
+  // 2026-08: which identity doc the picker shows. Defaults to "aadhar";
+  // flipped to "pan" once the async doc fetch below reveals a driver already
+  // has a PAN on file but no Aadhar (e.g. re-opening onboarding after a
+  // partial fill). A manual pick afterward always wins — see the effect below.
+  const [identityDocType, setIdentityDocType] = useState<"aadhar" | "pan">("aadhar");
+  const identityDocDefaulted = useRef(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -287,7 +293,13 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
     (async () => {
       try {
         const r = await driverApi.kycDocuments();
-        if (mounted) setDocs(r.documents ?? {});
+        if (!mounted) return;
+        const fetched = r.documents ?? {};
+        setDocs(fetched);
+        if (!identityDocDefaulted.current) {
+          identityDocDefaulted.current = true;
+          if (fetched.pan?.[1] && !fetched.aadhar?.[1]) setIdentityDocType("pan");
+        }
       } catch {
         /* best-effort — doc rows just show as not-yet-uploaded */
       }
@@ -296,11 +308,13 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
   }, []);
 
   const isHospitalEmployee = employmentType === "hospital_employee";
-  // 2026-08: only licence/aadhar/pan (page 1) are mandatory to submit. RC,
-  // PUC, fitness, insurance, and employee ID remain uploadable but are
-  // optional line items — driven by real onboarding friction on launch day.
-  const MANDATORY_DOC_TYPES = ["licence", "aadhar", "pan"] as const;
-  const allMandatoryDocsUploaded = MANDATORY_DOC_TYPES.every((d) => !!docs[d]?.[1]);
+  // 2026-08: licence is mandatory; identity proof is Aadhar OR PAN (driver's
+  // choice, not both). A PAN card isn't universal (it's a tax ID, not every
+  // driver has one) — requiring both would permanently block onboarding for
+  // anyone without one. RC, PUC, fitness, insurance, and employee ID remain
+  // uploadable but optional, driven by real onboarding friction on launch day.
+  const hasIdentityProof = !!docs.aadhar?.[1] || !!docs.pan?.[1];
+  const allMandatoryDocsUploaded = !!docs.licence?.[1] && hasIdentityProof;
 
   const canSubmit =
     licenseNumber.trim().length >= 4 &&
@@ -389,9 +403,28 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
             <Input label={t("kyc.field.license")} value={licenseNumber} onChangeText={setLicenseNumber} placeholder="As printed on DL" autoCapitalize="characters" />
             <MultiPageDocGroup label={t("kyc.doc.licence_photo")} docType="licence" required pages={docs.licence ?? {}} onUploaded={markUploaded} />
 
-            <MultiPageDocGroup label={t("kyc.doc.aadhar_photo")} docType="aadhar" required pages={docs.aadhar ?? {}} onUploaded={markUploaded} />
-
-            <MultiPageDocGroup label={t("kyc.doc.pan_photo")} docType="pan" required pages={docs.pan ?? {}} onUploaded={markUploaded} />
+            <View style={{ gap: space.xs }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Text variant="label" tone="secondary">{t("kyc.identity_proof_label")}</Text>
+                <Text variant="tiny" tone="danger">*</Text>
+              </View>
+              <Text variant="tiny" tone="muted">{t("kyc.identity_proof_hint")}</Text>
+              <ChipPicker
+                options={[
+                  { value: "aadhar", label: t("kyc.identity_proof.aadhar") },
+                  { value: "pan", label: t("kyc.identity_proof.pan") }
+                ]}
+                value={identityDocType}
+                onChange={(v) => setIdentityDocType(v as "aadhar" | "pan")}
+              />
+            </View>
+            <MultiPageDocGroup
+              label={identityDocType === "aadhar" ? t("kyc.doc.aadhar_photo") : t("kyc.doc.pan_photo")}
+              docType={identityDocType}
+              required
+              pages={docs[identityDocType] ?? {}}
+              onUploaded={markUploaded}
+            />
 
             <View style={{ gap: space.xs }}>
               <Text variant="label" tone="secondary">{t("kyc.employment_type_label")}</Text>

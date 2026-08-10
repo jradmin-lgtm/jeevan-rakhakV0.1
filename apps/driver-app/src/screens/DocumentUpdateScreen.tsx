@@ -31,6 +31,13 @@ export function DocumentUpdateScreen({ onBack }: Props) {
   const { t } = useT();
   const [requests, setRequests] = useState<ReissueRequest[] | null>(null);
   const [busyType, setBusyType] = useState<string | null>(null);
+  // 2026-08: identity proof is Aadhar OR PAN (driver's choice at onboarding,
+  // see KycOnboardingScreen.tsx) — only show a reissue row for whichever one
+  // this driver actually has on file, not both unconditionally.
+  const [identityDocType, setIdentityDocType] = useState<"aadhar" | "pan" | null>(null);
+  const docTypesToShow: readonly (typeof REISSUE_DOC_TYPES)[number][] = identityDocType
+    ? ["licence", identityDocType]
+    : ["licence"];
 
   const refresh = async () => {
     try {
@@ -43,6 +50,15 @@ export function DocumentUpdateScreen({ onBack }: Props) {
 
   useEffect(() => {
     void refresh();
+    (async () => {
+      try {
+        const r = await driverApi.kycDocuments();
+        const docs = r.documents ?? {};
+        setIdentityDocType(docs.pan?.[1] && !docs.aadhar?.[1] ? "pan" : "aadhar");
+      } catch {
+        setIdentityDocType("aadhar");
+      }
+    })();
   }, []);
 
   const pendingFor = (docType: string) =>
@@ -95,7 +111,7 @@ export function DocumentUpdateScreen({ onBack }: Props) {
           <ActivityIndicator color={colors.primary} />
         </View>
       ) : (
-        REISSUE_DOC_TYPES.map((docType) => {
+        docTypesToShow.map((docType) => {
           const pending = pendingFor(docType);
           const busy = busyType === docType;
           return (
