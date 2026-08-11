@@ -14,6 +14,7 @@ import { registerHospitalRoutes } from "./routes/hospital";
 import { registerSafetyRoutes } from "./routes/safety";
 import { registerDownloadRoutes } from "./routes/download";
 import { emitEvent } from "./events";
+import { runDatabaseBackup } from "./backup";
 
 declare module "@fastify/jwt" {
   interface FastifyJWT {
@@ -600,6 +601,16 @@ async function bootstrap() {
     } catch (err) {
       app.log.warn({ err }, "[events] cleanup failed");
     }
+  }, 6 * 60 * 60 * 1000);
+
+  // 2026-08-11: full DB backup to a private Drive folder, every 6h + once on
+  // boot. Independent of Neon's own point-in-time restore (6h window on
+  // Free) — this is a durable, separate copy so a bad migration or an
+  // accidental destructive op still has a recovery path beyond Neon's own
+  // retention window. Never blocks startup or a request; failures just log.
+  void runDatabaseBackup().catch((err) => app.log.warn({ err }, "[backup] initial run failed"));
+  setInterval(() => {
+    void runDatabaseBackup().catch((err) => app.log.warn({ err }, "[backup] scheduled run failed"));
   }, 6 * 60 * 60 * 1000);
 
   await app.listen({ host: "0.0.0.0", port: config.apiPort });
