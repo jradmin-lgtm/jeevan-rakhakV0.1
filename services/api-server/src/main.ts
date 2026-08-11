@@ -505,15 +505,25 @@ async function bootstrap() {
         uploaded_at  timestamptz NOT NULL DEFAULT now()
       )
     `;
-    // One current document per (driver, type) — re-upload replaces via
-    // ON CONFLICT upsert in the route handler rather than accumulating history.
-    await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS driver_documents_driver_doctype_unique_idx ON driver_documents(driver_id, doc_type)`;
-
     // 2026-08: multi-page docs (up to 3 pages/doc type, e.g. Aadhar front+back).
     // Existing rows default to page=1 (they were the only page anyway), so the
-    // old 1-row-per-doctype uploads keep working unchanged. Swap the unique
-    // index to include page so re-upload of the SAME page still replaces
-    // in-place, while a new page number inserts a new row.
+    // old 1-row-per-doctype uploads keep working unchanged. Final state is one
+    // unique index on (driver, docType, page) — re-upload of the SAME page
+    // replaces in-place, a new page number inserts a new row.
+    //
+    // 2026-08-11 CRITICAL FIX: this block used to CREATE the transitional
+    // 2-column index (driver_id, doc_type) every single boot, immediately
+    // before dropping it again a few lines down. That was harmless the first
+    // time this ran (table was empty), but once real drivers started
+    // uploading a second page for the same doc type (a normal, supported use
+    // of the feature), that 2-column index became impossible to (re)create —
+    // ON EVERY SUBSEQUENT BOOT, this line failed with a duplicate-key error,
+    // the fail-loud migration guard correctly refused to start, and the
+    // ENTIRE BACKEND WAS DOWN (including SOS dispatch) until this was fixed.
+    // The 2-column index only ever needed to exist transiently as a stepping
+    // stone to the 3-column one below — it must never be recreated once the
+    // page column exists. DROP is kept as a harmless one-time cleanup for any
+    // environment still carrying the old index; it will no-op everywhere else.
     await pgClient`ALTER TABLE driver_documents ADD COLUMN IF NOT EXISTS page integer NOT NULL DEFAULT 1`;
     await pgClient`DROP INDEX IF EXISTS driver_documents_driver_doctype_unique_idx`;
     await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS driver_documents_driver_doctype_page_unique_idx ON driver_documents(driver_id, doc_type, page)`;
