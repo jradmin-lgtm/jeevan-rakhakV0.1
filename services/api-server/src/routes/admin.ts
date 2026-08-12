@@ -1,9 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, count, desc, eq, gte, inArray, lte, sql as drizzleSql } from "drizzle-orm";
-import { bookingEvents, bookings, drivers, driverDocuments, driverDocumentUpdates, db, driverHospitals, hospitals, supportTickets, supportTicketMessages, users, systemEvents, sql as pgClient } from "@jr/db";
+import { bookingEvents, bookings, drivers, driverDocuments, driverDocumentUpdates, db, driverHospitals, driverLocations, hospitals, supportTickets, supportTicketMessages, users, systemEvents, sql as pgClient } from "@jr/db";
 import { config } from "@jr/config";
 import { hashPassword } from "../password";
+import { haversineDistanceKm } from "@jr/utils";
 
 /**
  * v1.1.2 — recompute a driver's PRIMARY hospital from the join table and
@@ -245,7 +246,43 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       ? await db.select().from(drivers).where(eq(drivers.id, b.driverId)).limit(1)
       : [null];
 
-    return reply.send({ booking: b, events, user: u, driver: d });
+    // 2026-08-12: actual GPS trail for the trip receipt's "total KM" + start/
+    // end location, distinct from the booking's stated pickup/drop address.
+    // This is what the ambulance's tracked path actually recorded, summed as
+    // consecutive-point haversine (matches the distance convention used
+    // everywhere else in this codebase; no OSRM round trip needed here).
+    const trackPoints = await db
+      .select({ lat: driverLocations.lat, lng: driverLocations.lng, recordedAt: driverLocations.recordedAt })
+      .from(driverLocations)
+      .where(eq(driverLocations.bookingId, id))
+      .orderBy(driverLocations.recordedAt);
+    let track: {
+      pointCount: number;
+      distanceKm: number | null;
+      start: { lat: number; lng: number; recordedAt: string } | null;
+      end: { lat: number; lng: number; recordedAt: string } | null;
+    } | null = null;
+    if (trackPoints.length > 0) {
+      let distanceKm = 0;
+      for (let i = 1; i < trackPoints.length; i++) {
+        distanceKm += haversineDistanceKm(
+          trackPoints[i - 1].lat,
+          trackPoints[i - 1].lng,
+          trackPoints[i].lat,
+          trackPoints[i].lng
+        );
+      }
+      const first = trackPoints[0];
+      const last = trackPoints[trackPoints.length - 1];
+      track = {
+        pointCount: trackPoints.length,
+        distanceKm: trackPoints.length >= 2 ? distanceKm : null,
+        start: { lat: first.lat, lng: first.lng, recordedAt: first.recordedAt.toISOString() },
+        end: { lat: last.lat, lng: last.lng, recordedAt: last.recordedAt.toISOString() }
+      };
+    }
+
+    return reply.send({ booking: b, events, user: u, driver: d, track });
   });
 
   // v1.0.15.1: drivers list filtered by ACTIVITY (lastSeenAt within range),

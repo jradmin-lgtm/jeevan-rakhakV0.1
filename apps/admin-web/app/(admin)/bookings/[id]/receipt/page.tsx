@@ -31,7 +31,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
   const { id } = await params;
   const data = await getBooking(id);
   if (!data) notFound();
-  const { booking, user, driver } = data;
+  const { booking, user, driver, track } = data;
   const paid = resolveAmountPaid(booking);
   const fare = booking.fareEstimateInr ?? booking.fareFinalInr ?? 0;
   const discount = booking.discountInr ?? 0;
@@ -68,6 +68,29 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
             <KV label="Drop / hospital" value={booking.dropAddress ?? "Not specified"} fullWidth />
           </div>
         </section>
+
+        {track ? (
+          <section className="rcpt-section">
+            <h2>Distance & route (tracked)</h2>
+            <div className="grid">
+              <KV label="Total distance travelled" value={track.distanceKm != null ? `${track.distanceKm.toFixed(1)} km` : "Not enough tracking data"} />
+              <KV label="GPS points recorded" value={String(track.pointCount)} />
+              <KV
+                label="Start location"
+                value={track.start ? `${track.start.lat.toFixed(5)}, ${track.start.lng.toFixed(5)} · ${formatIST(track.start.recordedAt)}` : "-"}
+                fullWidth
+              />
+              <KV
+                label="End location"
+                value={track.end ? `${track.end.lat.toFixed(5)}, ${track.end.lng.toFixed(5)} · ${formatIST(track.end.recordedAt)}` : "-"}
+                fullWidth
+              />
+            </div>
+            <div className="muted small" style={{ marginTop: 6 }}>
+              From the driver's live GPS trail during this trip, not the straight-line pickup-to-drop distance.
+            </div>
+          </section>
+        ) : null}
 
         <section className="rcpt-section">
           <h2>Patient</h2>
