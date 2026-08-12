@@ -6,6 +6,7 @@ import { adminFetch } from "../../../../lib/adminFetch";
 import { formatIST, formatTimeIST } from "../../../../lib/dates";
 import { prettyStatus, prettyEmergency, assessmentBadge } from "../../../../lib/status";
 import { resolveAmountPaid } from "../../../../lib/fare";
+import { AdminLiveMap } from "./AdminLiveMap";
 
 type BookingEvent = {
   id: string;
@@ -23,6 +24,8 @@ type Booking = {
   pickupLng: number;
   pickupAddress?: string | null;
   dropAddress?: string | null;
+  dropLat?: number | null;
+  dropLng?: number | null;
   rideOtpCode?: string | null;
   fareEstimateInr?: number | null;
   fareFinalInr?: number | null;
@@ -169,6 +172,22 @@ export function BookingDetailLive({
           />
           {booking.feedbackByDriver ? <Field label="↳ feedback" value={`“${booking.feedbackByDriver}”`} /> : null}
         </div>
+        {/* 2026-08-12: admin live location visibility, matching what the user
+          * app already shows. Pulls from the same 4s-polled `driver` row
+          * (lastLat/lastLng), so no separate polling loop needed here. Only
+          * shown while there's an actual live trip to track. */}
+        {["ACCEPTED", "ARRIVED", "PICKED_UP"].includes(booking.status) && driver?.lastLat != null && driver?.lastLng != null ? (
+          <div className="card">
+            <h3 style={{ margin: "0 0 12px" }}>Live location</h3>
+            <AdminLiveMap
+              pickup={{ lat: booking.pickupLat, lng: booking.pickupLng, label: "Pickup" }}
+              driver={{ lat: driver.lastLat, lng: driver.lastLng, label: driver.name ?? "Driver" }}
+              drop={booking.dropLat != null && booking.dropLng != null
+                ? { lat: booking.dropLat, lng: booking.dropLng, label: booking.dropAddress ?? "Hospital" }
+                : null}
+            />
+          </div>
+        ) : null}
         <div className="card">
           <h3 style={{ margin: "0 0 12px" }}>Fare</h3>
           {/* v1.0.13: card restructured to read as a receipt — Fare, Coupon,
