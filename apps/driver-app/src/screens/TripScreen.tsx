@@ -24,6 +24,7 @@ import {
 } from "@jr/ui";
 import { Booking, bookings as bookingsApi, driver as driverApi, safety as safetyApi } from "../api";
 import { getSocket } from "../socket";
+import { startBackgroundLocationTracking, stopBackgroundLocationTracking } from "../backgroundLocation";
 import { prettyEmergency } from "./DashboardScreen";
 import { MapLocationPicker } from "./MapLocationPicker";
 import { LangToggle } from "../components/LangToggle";
@@ -101,7 +102,6 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
   const [navRoute, setNavRoute] = useState<Array<[number, number]> | null>(null);
   const [navEta, setNavEta] = useState<{ km: number; min: number } | null>(null);
   const autoNavFiredRef = useRef(false);
-  const ticker = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // v1.3.1 (safety): in-ride panic alert raised by THIS driver. `safetyActive`
   // reflects whether the alert is live (drives the small header SafetyButton +
@@ -112,60 +112,44 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
   const [safetyActive, setSafetyActive] = useState(false);
   const safetyAlertIdRef = useRef<string | null>(null);
 
-  // Push real GPS location every 5s to socket + every 15s to API for persistence.
+  // 2026-08-12: sending the location to the server and showing it on THIS
+  // screen are now two separate concerns. Sending happens via
+  // startBackgroundLocationTracking (backgroundLocation.ts) — a real Android
+  // foreground service that keeps working even if the driver locks their
+  // screen or switches apps mid-trip, which the old setInterval-based
+  // approach here did not (it stopped dead the instant the app left
+  // foreground). This effect now ONLY watches position for this screen's own
+  // UI (myPos/pushedAt below) while it happens to be in the foreground —
+  // it no longer emits or persists anything itself, so there's no double-send
+  // between this and the background task.
   useEffect(() => {
     let mounted = true;
-    let counter = 0;
+    let sub: { remove: () => void } | null = null;
 
     (async () => {
-      // Foreground permission only — pilot doesn't track when the app is
-      // backgrounded. If denied, fall back to a static centroid so the patient
-      // at least sees something on the live map.
       try {
         await Location.requestForegroundPermissionsAsync();
       } catch {
         /* ignored */
       }
-      const sock = await getSocket();
-      ticker.current = setInterval(async () => {
-        if (!mounted) return;
-        counter += 1;
-
-        // v1.0.12: only push when we have a *real* fix. If GPS is still
-        // warming up (denied / no signal / first-launch cold start) we
-        // skip the tick instead of broadcasting Delhi. Patient UI shows
-        // "Locating ambulance…" until the first real fix lands.
-        let lat: number | null = null;
-        let lng: number | null = null;
-        try {
-          const fix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          lat = fix.coords.latitude;
-          lng = fix.coords.longitude;
-        } catch {
-          /* GPS unavailable on this tick — try last-known as a soft fallback */
-          try {
-            const last = await Location.getLastKnownPositionAsync();
-            if (last) {
-              lat = last.coords.latitude;
-              lng = last.coords.longitude;
-            }
-          } catch {
-            /* ignored */
+      void startBackgroundLocationTracking(booking.id);
+      try {
+        sub = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.Balanced, timeInterval: 5000, distanceInterval: 0 },
+          (fix) => {
+            if (!mounted) return;
+            setPushedAt(Date.now());
+            setMyPos({ lat: fix.coords.latitude, lng: fix.coords.longitude });
           }
-        }
-        if (lat == null || lng == null) return;
-
-        sock.emit("driver:location", { bookingId: booking.id, lat, lng, ts: Date.now() });
-        setPushedAt(Date.now());
-        setMyPos({ lat, lng });
-        if (counter % 3 === 0) {
-          try { await driverApi.pushLocation(lat, lng, booking.id); } catch { /* ignore */ }
-        }
-      }, 5000);
+        );
+      } catch {
+        /* GPS unavailable — the map/ETA blocks below just stay hidden until it recovers */
+      }
     })();
     return () => {
       mounted = false;
-      if (ticker.current) clearInterval(ticker.current);
+      sub?.remove();
+      void stopBackgroundLocationTracking();
     };
   }, [booking.id]);
 

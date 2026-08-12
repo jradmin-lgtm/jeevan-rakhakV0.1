@@ -2,7 +2,7 @@
   "expo": {
     "name": "Jeevan Rakshak Driver",
     "slug": "jr-driver-app",
-    "version": "2.1.4",
+    "version": "2.1.5",
     "orientation": "portrait",
     "scheme": "jrdriver",
     "userInterfaceStyle": "light",
@@ -27,10 +27,13 @@
     "owner": "jradmin29",
     "android": {
       "package": "com.jeevanrakshak.driver",
-      "versionCode": 47,
+      "versionCode": 48,
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
         "POST_NOTIFICATIONS",
         "CAMERA",
         "READ_MEDIA_IMAGES"
