@@ -86,6 +86,11 @@ def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 // Play Store upload signing (CONTEXT.md 0-OPS #8). keystore.properties is gitignored and
 // points at the upload keystore in "12. Jeevan App/release/". If absent (CI / fresh checkout),
 // the release build falls back to the debug key so typecheck and local dev still work.
+// 2026-08-12 (0-OPS #10): renamed to keystore.properties.play-upload-disabled on disk right
+// now, deliberately, because the live trial ships sideload debug-signed APKs and this file's
+// mere presence used to silently flip assembleRelease to the upload key, breaking Google
+// Sign-In (the v2.1.1 incident, then a near-repeat this session). Rename it back to
+// keystore.properties only when actually building for a real Play submission.
 def keystorePropertiesFile = rootProject.file("keystore.properties")
 def keystoreProperties = new Properties()
 if (keystorePropertiesFile.exists()) {

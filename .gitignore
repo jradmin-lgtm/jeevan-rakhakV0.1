@@ -17,6 +17,11 @@ package-lock.json
 
 # Play Store upload signing — keystore.properties is machine-local; the upload
 # keystore itself lives gitignored in "12. Jeevan App/release/". See CONTEXT.md 0-OPS #8.
+# 2026-08-12: renamed to keystore.properties.play-upload-disabled in both
+# apps/{user,driver}-app/android/ so a plain assembleRelease can't silently
+# pick it up and sign trial sideload builds with the wrong key (0-OPS #10,
+# the v2.1.1 incident). Same real credentials, still must never be committed.
 keystore.properties
+keystore.properties.*
 jr-upload.keystore
 *.jks

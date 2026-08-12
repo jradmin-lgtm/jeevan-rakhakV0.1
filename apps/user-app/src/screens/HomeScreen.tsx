@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Animated, Pressable, RefreshControl, StyleSheet, View } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   AppHeader,
   Button,
@@ -7,7 +8,6 @@ import {
   IconBadge,
   ContactSupport,
   LaunchBanner,
-  Pill,
   PulseDot,
   Screen,
   StatusBadge,
@@ -43,7 +43,6 @@ const DEFAULT_BANNER = { cityName: "Bareilly", hospitalName: "SRMS IMS Hospital"
 export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfile, onHistory, onSupport }: Props) {
   const { t, lang, setLang } = useT();
   const [active, setActive] = useState<Booking | null>(null);
-  const [activeCount, setActiveCount] = useState<number>(0);
   const [refreshing, setRefreshing] = useState(false);
   const [name, setName] = useState<string | null>(profile?.name ?? null);
   // v1.3.x (geofence): banner copy. Best-effort fetch, keep-last-good — we
@@ -89,16 +88,23 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
       const liveList = b.bookings.filter((x) =>
         ["REQUESTED", "ACCEPTED", "ARRIVED", "PICKED_UP"].includes(x.status)
       );
-      setActiveCount(liveList.length);
       setActive(liveList[0] ?? null);
     } finally {
       setRefreshing(false);
     }
   }, []);
 
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  // 2026-08-12: was a plain mount-only useEffect, so returning to Home via
+  // navigation.popToTop() after a ride (LiveTrackingScreen's onClose) reused
+  // the same still-mounted Home instance and never refetched. The active-
+  // ride card could show stale state instead of the real current ride.
+  // useFocusEffect re-runs every time Home becomes the visible screen,
+  // including the initial mount, so this replaces the old effect entirely.
+  useFocusEffect(
+    useCallback(() => {
+      void refresh();
+    }, [refresh])
+  );
 
   const greet = (() => {
     const h = new Date().getHours();
@@ -208,18 +214,6 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
           </View>
         </>
       )}
-
-      {activeCount > 0 ? (
-        <Card flat>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <View>
-              <Text variant="label" tone="secondary">{t("home.active_ride")}</Text>
-              <Text variant="body">{t("home.active_ride.sub")}</Text>
-            </View>
-            <Pill label={t("home.active.pill")} color={colors.danger} bg={colors.primaryFaint} />
-          </View>
-        </Card>
-      ) : null}
 
       <Card flat>
         <View style={{ gap: space.md }}>
