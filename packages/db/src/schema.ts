@@ -266,6 +266,12 @@ export const bookings = pgTable(
     patientAge: integer("patient_age"),
     patientGender: text("patient_gender"),
     patientCondition: text("patient_condition"),
+    // 2026-08-12: multi-select conditions (a patient can be e.g. both "Road
+    // Accident" AND "Severe Bleeding"). Added alongside the old single-value
+    // column rather than replacing it — every read site falls back to
+    // wrapping patientCondition in a 1-item array for bookings created
+    // before this change, so old data keeps displaying correctly.
+    patientConditions: jsonb("patient_conditions").$type<string[]>(),
     patientNotes: text("patient_notes"),
     // Paramedic assessment recorded by the driver after arriving at pickup.
     // JSONB so we can iterate on field shape without a migration per change.

@@ -113,7 +113,15 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
     if (b.driverId) [driver] = await db.select().from(drivers).where(eq(drivers.id, b.driverId)).limit(1);
     return reply.send({
       sectionA: { name: b.patientName, age: b.patientAge, gender: b.patientGender,
-                  emergencyType: b.emergencyType, condition: b.patientCondition, notes: b.patientNotes },
+                  emergencyType: b.emergencyType,
+                  // 2026-08-12: multi-select — fall back to wrapping the old
+                  // single-value column for bookings created before this change.
+                  conditions: (b.patientConditions as string[] | null)?.length
+                    ? b.patientConditions
+                    : b.patientCondition
+                      ? [b.patientCondition]
+                      : [],
+                  notes: b.patientNotes },
       sectionB: b.paramedicAssessment ?? null,
       sectionC: { status: b.status, ambulanceLat: driver?.lastLat ?? null, ambulanceLng: driver?.lastLng ?? null,
                   dropLat: b.dropLat, dropLng: b.dropLng, ackAt: b.hospitalAckAt },

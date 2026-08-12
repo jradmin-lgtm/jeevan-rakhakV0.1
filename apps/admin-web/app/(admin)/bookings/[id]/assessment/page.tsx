@@ -74,7 +74,17 @@ export default async function AssessmentPage({ params }: { params: Promise<{ id:
             <KV label="Phone" value={user?.phone ?? "-"} />
             <KV label="Blood group" value={user?.bloodGroup ?? "-"} />
             <KV label="Known allergies" value={user?.allergies ?? "-"} />
-            <KV label="Patient-reported condition" value={booking.patientCondition ?? "-"} fullWidth />
+            <KV
+              label="Patient-reported condition"
+              value={
+                // 2026-08-12: multi-select — fall back to the old single-value
+                // field for bookings created before this change.
+                (Array.isArray(booking.patientConditions) && booking.patientConditions.length
+                  ? booking.patientConditions.join(", ")
+                  : booking.patientCondition) ?? "-"
+              }
+              fullWidth
+            />
             <KV label="User notes" value={booking.patientNotes ?? "-"} fullWidth />
           </div>
         </section>

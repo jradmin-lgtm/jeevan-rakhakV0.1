@@ -374,6 +374,10 @@ async function bootstrap() {
     // CR#3: hospital "acknowledge — preparing" loop-closer.
     await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS hospital_ack_at   timestamptz`;
     await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS hospital_ack_note text`;
+    // 2026-08-12: multi-select patient conditions, additive alongside the old
+    // single-value patient_condition column (never dropped/altered — every
+    // read site falls back to wrapping the old column in a 1-item array).
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS patient_conditions jsonb`;
     // ---- v1.2.1 ----
     // CR#3: admin-only recoverable copy of the portal password (for the
     // hospitals-dashboard "view password" display). Never crosses the public

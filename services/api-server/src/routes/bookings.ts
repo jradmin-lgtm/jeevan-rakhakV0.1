@@ -793,7 +793,11 @@ export async function registerBookingRoutes(app: FastifyInstance) {
     patientName: z.string().max(120).optional(),
     patientAge: z.number().int().min(0).max(130).optional(),
     patientGender: z.enum(["M", "F", "O"]).optional(),
+    // 2026-08-12: multi-select — a patient can be e.g. both "Road Accident"
+    // AND "Severe Bleeding". patientCondition (single string) kept accepted
+    // for any client not yet updated; the app now sends patientConditions.
     patientCondition: z.string().max(80).optional(),
+    patientConditions: z.array(z.string().max(80)).min(1).max(15).optional(),
     patientNotes: z.string().max(500).optional()
   });
 
@@ -830,7 +834,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         .returning();
       if (!b) return reply.code(404).send({ error: "not_found_or_forbidden" });
       await emitBookingEvent(id, "booking.patient_info_captured", `user:${sub}`, {
-        condition: parsed.data.patientCondition
+        condition: parsed.data.patientConditions ?? parsed.data.patientCondition
       });
       return reply.send({ booking: b });
     }

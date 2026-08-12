@@ -17,6 +17,7 @@ type HospitalRecord = {
     gender?: string | null;
     emergencyType?: string | null;
     condition?: string | null;
+    conditions?: string[] | null;
     notes?: string | null;
   };
   sectionB: Assessment | null;
@@ -274,7 +275,7 @@ export function PatientRecordLive({ bookingId }: { bookingId: string }) {
           <dt className="muted">Age</dt><dd style={{ margin: 0 }}>{a.age ?? "-"}</dd>
           <dt className="muted">Gender</dt><dd style={{ margin: 0 }}>{a.gender === "M" ? "Male" : a.gender === "F" ? "Female" : a.gender === "O" ? "Other" : a.gender ?? "-"}</dd>
           <dt className="muted">Emergency</dt><dd style={{ margin: 0 }}>{prettyEmergency(a.emergencyType)}</dd>
-          <dt className="muted">Condition</dt><dd style={{ margin: 0 }}>{a.condition ? <strong style={{ color: "var(--danger)" }}>{a.condition}</strong> : "-"}</dd>
+          <dt className="muted">Condition</dt><dd style={{ margin: 0 }}>{a.conditions?.length ? <strong style={{ color: "var(--danger)" }}>{a.conditions.join(", ")}</strong> : "-"}</dd>
           <dt className="muted">Notes</dt><dd style={{ margin: 0 }}>{a.notes ?? "-"}</dd>
         </dl>
         <div style={{ marginTop: 10, fontSize: 12, color: "var(--muted)" }}>

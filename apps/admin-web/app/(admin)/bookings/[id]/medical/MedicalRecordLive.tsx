@@ -22,6 +22,7 @@ type Medical = {
     age?: number | null;
     gender?: string | null;
     condition?: string | null;
+    conditions?: string[] | null;
     notes?: string | null;
     phone?: string | null;
     bloodGroup?: string | null;
@@ -141,7 +142,7 @@ export function MedicalRecordLive({
           <dt className="muted">Name</dt><dd style={{ margin: 0 }}>{data.patient.name ?? "-"}</dd>
           <dt className="muted">Age</dt><dd style={{ margin: 0 }}>{data.patient.age ?? "-"}</dd>
           <dt className="muted">Gender</dt><dd style={{ margin: 0 }}>{data.patient.gender ?? "-"}</dd>
-          <dt className="muted">Condition</dt><dd style={{ margin: 0 }}>{data.patient.condition ?? "-"}</dd>
+          <dt className="muted">Condition</dt><dd style={{ margin: 0 }}>{data.patient.conditions?.length ? data.patient.conditions.join(", ") : "-"}</dd>
           <dt className="muted">Blood group</dt><dd style={{ margin: 0 }}>{data.patient.bloodGroup ?? "-"}</dd>
           <dt className="muted">Allergies</dt><dd style={{ margin: 0 }}>{data.patient.allergies ?? "-"}</dd>
           <dt className="muted">Notes</dt><dd style={{ margin: 0 }}>{data.patient.notes ?? "-"}</dd>

@@ -128,6 +128,7 @@ export type Booking = {
   patientAge?: number | null;
   patientGender?: "M" | "F" | "O" | null;
   patientCondition?: string | null;
+  patientConditions?: string[] | null;
   patientNotes?: string | null;
   rating?: number | null;
   feedback?: string | null;
@@ -291,7 +292,7 @@ export const bookings = {
     patientName?: string;
     patientAge?: number;
     patientGender?: "M" | "F" | "O";
-    patientCondition?: string;
+    patientConditions?: string[];
     patientNotes?: string;
   }) => api<{ booking: Booking }>(`/api/v1/bookings/${id}/patient-info`, { method: "POST", body: info })
 };

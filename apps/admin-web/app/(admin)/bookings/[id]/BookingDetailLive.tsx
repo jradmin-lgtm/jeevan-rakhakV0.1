@@ -35,6 +35,7 @@ type Booking = {
   patientAge?: number | null;
   patientGender?: "M" | "F" | "O" | null;
   patientCondition?: string | null;
+  patientConditions?: string[] | null;
   patientNotes?: string | null;
   paramedicAssessment?: Record<string, any> | null;
   rating?: number | null;
@@ -258,7 +259,15 @@ export function BookingDetailLive({
       {/* Patient + paramedic clinical details — admin/hospital only. Driver
         * app never displays the condition / notes / paramedic assessment
         * per the v1.0.11 visibility rules. */}
-      {(booking.patientCondition || booking.patientName || booking.paramedicAssessment) ? (
+      {(() => {
+        // 2026-08-12: multi-select — fall back to wrapping the old
+        // single-value field for bookings created before this change.
+        const conditions = booking.patientConditions?.length
+          ? booking.patientConditions
+          : booking.patientCondition
+            ? [booking.patientCondition]
+            : [];
+        return (booking.patientCondition || conditions.length || booking.patientName || booking.paramedicAssessment) ? (
         <div className="card" style={{ marginTop: 16 }}>
           <h3 style={{ margin: "0 0 12px" }}>Clinical brief · admin / hospital only</h3>
           {booking.patientName || booking.patientAge || booking.patientGender ? (
@@ -268,7 +277,9 @@ export function BookingDetailLive({
               booking.patientGender === "M" ? "Male" : booking.patientGender === "F" ? "Female" : booking.patientGender === "O" ? "Other" : null
             ].filter(Boolean).join(" · ") || "-"} />
           ) : null}
-          {booking.patientCondition ? <Field label="Condition" value={<strong style={{ color: "var(--danger, #DC2626)" }}>{booking.patientCondition}</strong>} /> : null}
+          {conditions.length ? (
+            <Field label="Condition" value={<strong style={{ color: "var(--danger, #DC2626)" }}>{conditions.join(", ")}</strong>} />
+          ) : null}
           {booking.patientNotes ? <Field label="User notes" value={booking.patientNotes} /> : null}
           {booking.paramedicAssessment ? (
             <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
@@ -304,7 +315,8 @@ export function BookingDetailLive({
             </div>
           ) : null}
         </div>
-      ) : null}
+        ) : null;
+      })()}
 
       <div className="card" style={{ marginTop: 16 }}>
         <h3 style={{ margin: "0 0 12px" }}>Event timeline · {events.length}</h3>

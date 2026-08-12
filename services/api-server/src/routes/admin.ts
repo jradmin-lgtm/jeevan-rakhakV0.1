@@ -1700,7 +1700,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         name: b.patientName ?? u?.name ?? null,
         age: b.patientAge,
         gender: b.patientGender,
-        condition: b.patientCondition,
+        // 2026-08-12: multi-select — fall back to wrapping the old
+        // single-value column for bookings created before this change.
+        conditions: (b.patientConditions as string[] | null)?.length
+          ? b.patientConditions
+          : b.patientCondition
+            ? [b.patientCondition]
+            : [],
         notes: b.patientNotes,
         phone: u?.phone ?? null,
         bloodGroup: u?.bloodGroup ?? null,

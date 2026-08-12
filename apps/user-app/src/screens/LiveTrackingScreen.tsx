@@ -62,10 +62,17 @@ function estimateEtaMin(km: number, avgKmh = 28, roadFactor = 1.4): number {
   return Math.max(1, Math.round(((km * roadFactor) / avgKmh) * 60));
 }
 
-function formatElapsed(sec: number): string {
-  const m = Math.floor(sec / 60);
+// 2026-08-12: proper duration scale (was raw "M:SS" / raw seconds forever) —
+// seconds alone under a minute, then whole minutes, then hours + minutes.
+// Used for both the elapsed/searching timer and the "LIVE · Xs ago" badge.
+function formatDuration(totalSec: number): string {
+  const sec = Math.max(0, Math.floor(totalSec));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
   const s = sec % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${s}s`;
 }
 
 type Props = {
@@ -96,6 +103,8 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
   // (we then fall back to the straight-line haversine ETA).
   const [navRoute, setNavRoute] = useState<Array<[number, number]> | null>(null);
   const [navEta, setNavEta] = useState<{ km: number; min: number } | null>(null);
+  const driverPosRef = useRef<{ lat: number; lng: number; ts: number } | null>(null);
+  driverPosRef.current = driverPos;
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastStatusRef = useRef<string>(initial.status);
@@ -151,29 +160,45 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
   }, [booking, onPayment]);
 
   // v1.1.0 (CR#3): once picked up, fetch the road route to the destination
-  // hospital (auto-assigned server-side at pickup). One OSRM call per trip —
-  // the live driver marker glides along the drawn route. Falls back silently
-  // to the straight-line haversine ETA if OSRM is unavailable.
+  // hospital (auto-assigned server-side at pickup). Falls back silently to
+  // the straight-line haversine ETA if OSRM is unavailable.
+  //
+  // 2026-08-12 fix: this used to fetch ONCE per PICKED_UP entry and never
+  // again, so the drawn polyline stayed anchored to wherever the driver was
+  // at the moment of pickup while the live driver marker kept moving —
+  // zoomed out, the two visibly drifted apart ("points vs path look
+  // misaligned"). Now it refetches every 30s from the driver's CURRENT
+  // position via a ref (not a dependency, so this doesn't refire on every
+  // 5s position tick — just re-reads the latest one on its own timer).
   useEffect(() => {
     if (booking.status !== "PICKED_UP" || booking.dropLat == null || booking.dropLng == null) {
       setNavRoute(null);
       setNavEta(null);
       return;
     }
-    const from = driverPos
-      ? { lat: driverPos.lat, lng: driverPos.lng }
-      : { lat: booking.pickupLat, lng: booking.pickupLng };
-    const to = { lat: booking.dropLat, lng: booking.dropLng };
-    const controller = new AbortController();
-    (async () => {
-      const r = await fetchOsrmRoute(from, to, { signal: controller.signal });
-      if (r) {
+    const dropLat = booking.dropLat;
+    const dropLng = booking.dropLng;
+    let alive = true;
+    let controller: AbortController | null = null;
+
+    const refetch = async () => {
+      const pos = driverPosRef.current;
+      const from = pos ? { lat: pos.lat, lng: pos.lng } : { lat: booking.pickupLat, lng: booking.pickupLng };
+      controller = new AbortController();
+      const r = await fetchOsrmRoute(from, { lat: dropLat, lng: dropLng }, { signal: controller.signal });
+      if (alive && r) {
         setNavRoute(r.coords);
         setNavEta({ km: r.distanceKm, min: Math.max(1, Math.round(r.durationMin)) });
       }
-    })();
-    return () => controller.abort();
-    // Intentionally not keyed on driverPos — one fetch per PICKED_UP entry.
+    };
+
+    void refetch();
+    const id = setInterval(refetch, 30_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+      controller?.abort();
+    };
   }, [booking.status, booking.dropLat, booking.dropLng]);
 
   useEffect(() => {
@@ -367,7 +392,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
     // each). Label reflects the expanding search so the patient doesn't
     // think the app is just spinning.
     timerLabel = booking.isSos ? t("live.searching_title") : t("live.looking_for_driver");
-    timerValue = formatElapsed(elapsedSec);
+    timerValue = formatDuration(elapsedSec);
   } else if (booking.status === "ACCEPTED" && driverPos) {
     const km = haversineKm(driverPos.lat, driverPos.lng, booking.pickupLat, booking.pickupLng);
     timerLabel = t("live.timer_driver_arrives_in");
@@ -385,8 +410,25 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
     timerValue = `~${estimateEtaMin(km)} min`;
   } else if (booking.status === "PICKED_UP") {
     timerLabel = t("live.timer_enroute");
-    timerValue = formatElapsed(elapsedSec);
+    timerValue = formatDuration(elapsedSec);
   }
+
+  // 2026-08-12: the map card's DISTANCE/ETA used to always target the pickup
+  // point, even after pickup — once the driver had the patient and was en
+  // route to the hospital, this showed distance-to-a-point-they'd-already-
+  // reached (~0.0 km, ~1 min), which read as broken. Now it switches phase
+  // like Ola/Uber: before pickup, target is the pickup point; after pickup,
+  // target is the destination hospital. Prefers the OSRM road distance/ETA
+  // (navEta) when available, matching the top status card's logic.
+  const pastPickup = booking.status === "PICKED_UP" && booking.dropLat != null && booking.dropLng != null;
+  const mapTargetLat = pastPickup ? booking.dropLat! : booking.pickupLat;
+  const mapTargetLng = pastPickup ? booking.dropLng! : booking.pickupLng;
+  const mapDistanceKm = driverPos
+    ? (pastPickup && navEta ? navEta.km : haversineKm(driverPos.lat, driverPos.lng, mapTargetLat, mapTargetLng))
+    : null;
+  const mapEtaMin = driverPos
+    ? (pastPickup && navEta ? navEta.min : estimateEtaMin(haversineKm(driverPos.lat, driverPos.lng, mapTargetLat, mapTargetLng)))
+    : null;
 
   return (
     <Screen>
@@ -521,7 +563,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
               <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
                 <PulseDot size={8} color={colors.success} rings={1} />
                 <Text variant="tiny" tone="success" weight="bold">
-                  {t("live.live_seconds_ago").replace("{seconds}", String(Math.max(0, Math.round((Date.now() - driverPos.ts) / 1000))))}
+                  {t("live.live_seconds_ago").replace("{time}", formatDuration((Date.now() - driverPos.ts) / 1000))}
                 </Text>
               </View>
             ) : null}
@@ -535,18 +577,18 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
             routePath={navRoute}
             height={280}
           />
-          {driverPos ? (
+          {driverPos && mapDistanceKm != null && mapEtaMin != null ? (
             <View style={{ flexDirection: "row", justifyContent: "space-around", paddingVertical: space.xs }}>
               <View style={{ alignItems: "center" }}>
                 <Text variant="tiny" tone="secondary">{t("live.distance_label")}</Text>
                 <Text variant="heading" weight="bold">
-                  {haversineKm(driverPos.lat, driverPos.lng, booking.pickupLat, booking.pickupLng).toFixed(1)} km
+                  {mapDistanceKm.toFixed(1)} km
                 </Text>
               </View>
               <View style={{ alignItems: "center" }}>
                 <Text variant="tiny" tone="secondary">{t("live.eta_label")}</Text>
                 <Text variant="heading" weight="bold" tone="primary">
-                  ~{estimateEtaMin(haversineKm(driverPos.lat, driverPos.lng, booking.pickupLat, booking.pickupLng))} min
+                  ~{mapEtaMin} min
                 </Text>
               </View>
             </View>
@@ -577,6 +619,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
       {!finished
         && ["REQUESTED", "ACCEPTED", "ARRIVED"].includes(booking.status)
         && !booking.patientCondition
+        && !(booking.patientConditions && booking.patientConditions.length > 0)
         ? (
           <PatientInfoCard
             bookingId={booking.id}
@@ -696,13 +739,19 @@ function PatientInfoCard({ bookingId, onSaved }: { bookingId: string; onSaved: (
   const [name, setName] = useState("");
   const [age, setAge] = useState("");
   const [gender, setGender] = useState<"M" | "F" | "O" | null>(null);
-  const [condition, setCondition] = useState<string | null>(null);
+  // 2026-08-12: multi-select — a patient can be e.g. both "Road Accident"
+  // AND "Severe Bleeding" at once.
+  const [conditions, setConditions] = useState<string[]>([]);
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  const toggleCondition = (c: string) => {
+    setConditions((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
+  };
+
   const submit = async () => {
-    if (!condition) {
+    if (conditions.length === 0) {
       setErr(t("live.patient_condition_required"));
       return;
     }
@@ -714,7 +763,7 @@ function PatientInfoCard({ bookingId, onSaved }: { bookingId: string; onSaved: (
         patientName: name || undefined,
         patientAge: Number.isFinite(ageNum) ? ageNum : undefined,
         patientGender: gender ?? undefined,
-        patientCondition: condition,
+        patientConditions: conditions,
         patientNotes: notes || undefined
       });
       onSaved(r.booking);
@@ -737,11 +786,11 @@ function PatientInfoCard({ bookingId, onSaved }: { bookingId: string; onSaved: (
 
         <View style={patientStyles.condGrid}>
           {EMERGENCY_CONDITIONS.map((c) => {
-            const selected = condition === c;
+            const selected = conditions.includes(c);
             return (
               <Pressable
                 key={c}
-                onPress={() => setCondition(c)}
+                onPress={() => toggleCondition(c)}
                 style={[patientStyles.chip, selected ? patientStyles.chipActive : null]}
               >
                 <Text variant="tiny" weight={selected ? "bold" : "regular"} style={{ color: selected ? colors.textInverse : colors.textPrimary }}>
@@ -794,7 +843,7 @@ function PatientInfoCard({ bookingId, onSaved }: { bookingId: string; onSaved: (
           label={busy ? t("live.sending") : t("live.send_to_medical_team")}
           onPress={submit}
           loading={busy}
-          disabled={!condition}
+          disabled={conditions.length === 0}
           fullWidth
         />
       </View>
