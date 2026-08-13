@@ -27,6 +27,10 @@ const PUBLIC_PATHS = [
   "/user-app-icon.png",
   "/driver-app-icon.png",
   "/qr-download-apk.png",
+  // /qr: a redirector so an already-printed/shared QR encoding this one
+  // stable URL can be repointed to a new destination later (QR_REDIRECT_TARGET
+  // env var) without ever reprinting or resharing the QR image itself.
+  "/qr",
   "/_next",
   "/favicon",
   "/icon",
