@@ -59,7 +59,7 @@ export function GetAppPanel() {
       <div className="lg-getapp-txt">
         <strong>Get the Jeevan Rakshak app</strong>
         <span>Scan the QR, or open the download page. Share it with patients and drivers.</span>
-        <a href="/download-apk">Open download page →</a>
+        <a href="/qr">Open download page →</a>
       </div>
       <style>{`
         /* Compact corner card (bottom-right): always anchored, never floats in
