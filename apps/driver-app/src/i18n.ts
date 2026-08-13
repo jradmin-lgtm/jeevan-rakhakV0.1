@@ -309,6 +309,10 @@ const en: Dict = {
   "profile.vehicle_update_note": "Vehicle and licence updates require admin approval. Contact ops to change these.",
   "profile.support_footer": "Need help? support@jeevanrakshak.app",
   "profile.manage_documents": "Update licence / Aadhar / PAN",
+  "share.card_title": "Share with friends",
+  "share.card_body": "Know another driver? Help them get onboarded faster.",
+  "share.button": "Share app",
+  "share.message": "Jeevan Rakshak · book an ambulance in an emergency, right from your phone. Get the app: {link}",
 
   // 2026-08: reissue-request flow (licence/Aadhar/PAN) — post-verification
   // document updates go through admin review instead of a free self-swap.
@@ -774,6 +778,10 @@ const hi: Dict = {
   "profile.vehicle_update_note": "वाहन और लाइसेंस में बदलाव के लिए एडमिन की मंज़ूरी ज़रूरी है। बदलने के लिए ऑप्स टीम से संपर्क करें।",
   "profile.support_footer": "मदद चाहिए? support@jeevanrakshak.app",
   "profile.manage_documents": "लाइसेंस / आधार / PAN अपडेट करें",
+  "share.card_title": "दोस्तों के साथ शेयर करें",
+  "share.card_body": "किसी और ड्राइवर को जानते हैं? उन्हें जल्दी जुड़ने में मदद करें।",
+  "share.button": "ऐप शेयर करें",
+  "share.message": "जीवन रक्षक · आपातकाल में अपने फोन से ही एम्बुलेंस बुक करें। ऐप डाउनलोड करें: {link}",
 
   "doc_update.header_title": "दस्तावेज़ अपडेट करें",
   "doc_update.header_subtitle": "लाइसेंस, आधार और PAN अपडेट एडमिन द्वारा समीक्षा किए जाते हैं",

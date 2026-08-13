@@ -1,8 +1,14 @@
 import React, { useEffect, useState } from "react";
-import { View } from "react-native";
+import { Share, View } from "react-native";
 import { AppHeader, Button, Card, IconBadge, Input, Screen, Text, colors, space, dialog } from "@jr/ui";
 import { me } from "../api";
 import { useT } from "../i18n";
+
+// The download link goes through the admin-web /qr redirector (not
+// /download-apk directly) so it can be repointed later (a custom domain, a
+// Play Store listing, etc.) without this already-shipped share text ever
+// going stale.
+const SHARE_LINK = "https://jr-admin.vercel.app/qr";
 
 export function MedicalProfileScreen({
   initial,
@@ -48,6 +54,14 @@ export function MedicalProfileScreen({
     }
   };
 
+  const shareApp = async () => {
+    try {
+      await Share.share({ message: t("share.message").replace("{link}", SHARE_LINK) });
+    } catch {
+      /* user dismissed the share sheet — nothing to do */
+    }
+  };
+
   return (
     <Screen>
       <AppHeader title={t("home.medical_profile")} subtitle={t("medical.subtitle")} onBack={onBack} />
@@ -86,6 +100,19 @@ export function MedicalProfileScreen({
           />
           <Button label={t("common.save")} onPress={save} loading={busy} fullWidth size="lg" testID="save-profile" />
         </View>
+      </Card>
+
+      <Card>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
+          <IconBadge glyph="↗" bg={colors.primaryFaint} color={colors.primary} size={44} />
+          <View style={{ flex: 1 }}>
+            <Text variant="body" weight="semi">{t("share.card_title")}</Text>
+            <Text variant="small" tone="secondary" style={{ marginTop: 2 }}>
+              {t("share.card_body")}
+            </Text>
+          </View>
+        </View>
+        <Button label={t("share.button")} variant="outline" onPress={shareApp} fullWidth style={{ marginTop: space.md }} />
       </Card>
 
       <Card flat>

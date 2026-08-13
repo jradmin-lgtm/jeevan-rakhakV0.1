@@ -1,9 +1,14 @@
 import React, { useState } from "react";
-import { Pressable, View } from "react-native";
-import { AppHeader, Button, Card, Input, Pill, Screen, Text, colors, dialog, space } from "@jr/ui";
+import { Pressable, Share, View } from "react-native";
+import { AppHeader, Button, Card, IconBadge, Input, Pill, Screen, Text, colors, dialog, space } from "@jr/ui";
 import { me } from "../api";
 import { useT, setLang, type Lang } from "../i18n";
 import { LangToggle } from "../components/LangToggle";
+
+// Goes through the admin-web /qr redirector (not /download-apk directly) so
+// it can be repointed later (custom domain, Play Store, etc.) without this
+// already-shipped share text ever going stale.
+const SHARE_LINK = "https://jr-admin.vercel.app/qr";
 
 type Props = {
   initial: any;
@@ -19,6 +24,14 @@ export function ProfileScreen({ initial, onBack, onUpdated, onManageDocuments }:
 
   const switchLang = (next: Lang) => {
     void setLang(next);
+  };
+
+  const shareApp = async () => {
+    try {
+      await Share.share({ message: t("share.message").replace("{link}", SHARE_LINK) });
+    } catch {
+      /* user dismissed the share sheet — nothing to do */
+    }
   };
 
   const save = async () => {
@@ -103,6 +116,19 @@ export function ProfileScreen({ initial, onBack, onUpdated, onManageDocuments }:
             </Pressable>
           </View>
         </View>
+      </Card>
+
+      <Card>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
+          <IconBadge glyph="↗" bg={colors.primaryFaint} color={colors.primary} size={44} />
+          <View style={{ flex: 1 }}>
+            <Text variant="body" weight="semi">{t("share.card_title")}</Text>
+            <Text variant="small" tone="secondary" style={{ marginTop: 2 }}>
+              {t("share.card_body")}
+            </Text>
+          </View>
+        </View>
+        <Button label={t("share.button")} variant="outline" onPress={shareApp} fullWidth style={{ marginTop: space.md }} />
       </Card>
 
       <Text variant="tiny" tone="muted" align="center">

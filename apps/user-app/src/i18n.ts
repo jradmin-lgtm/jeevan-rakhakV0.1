@@ -50,6 +50,10 @@ const en: Dict = {
   "home.get_help": "Get help / Raise a request",
   "home.get_help.sub": "Chat with our team about a ride or anything else",
   "home.made_with_care": "Made with care for India's emergency response.",
+  "share.card_title": "Share with friends",
+  "share.card_body": "Help someone else get faster access to emergency ambulance booking.",
+  "share.button": "Share app",
+  "share.message": "Jeevan Rakshak · book an ambulance in an emergency, right from your phone. Get the app: {link}",
 
   // Help & Support — v1.2.4 helpdesk (raise + two-way chat)
   "support.title": "Help & Support",
@@ -489,6 +493,10 @@ const hi: Dict = {
   "home.active.pill": "सक्रिय",
   "home.open_tracking": "लाइव ट्रैकिंग देखें",
   "home.made_with_care": "भारत की आपातकालीन सेवा के लिए बनाया गया।",
+  "share.card_title": "दोस्तों के साथ शेयर करें",
+  "share.card_body": "किसी और को आपातकालीन एम्बुलेंस बुकिंग तक तेज़ी से पहुँच दिलाने में मदद करें।",
+  "share.button": "ऐप शेयर करें",
+  "share.message": "जीवन रक्षक · आपातकाल में अपने फोन से ही एम्बुलेंस बुक करें। ऐप डाउनलोड करें: {link}",
 
   // Login (extended, standard banking-app phrasing)
   "login.title": "साइन इन करें",
