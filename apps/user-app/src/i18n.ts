@@ -272,9 +272,8 @@ const en: Dict = {
   "history.paid_amount": "Paid: ₹{amount}",
   "history.pickup_location_fallback": "Pickup location",
 
-  "sos.confirm_title": "Send SOS now?",
-  "sos.confirm_message": "We'll dispatch the closest ambulance with cardiac priority.",
-  "sos.confirm_button": "Send SOS",
+  "sos.picker_title": "What's the emergency?",
+  "sos.picker_subtitle": "Pick a category, we dispatch the closest ambulance the moment you do.",
   "sos.location_unavailable_title": "Location unavailable",
   "sos.location_unavailable_body": "We can't send an ambulance without your location. Allow location access and try again, or call our mobile {phone} to book by phone.",
   "sos.allow_location": "Allow location",
@@ -284,7 +283,7 @@ const en: Dict = {
   "sos.headline_sub": "Hold the button below to dispatch the nearest ambulance immediately.",
   "sos.button_label": "SOS",
   "sos.info_card_title": "For life-threatening emergencies",
-  "sos.info_card_body": "This sends a high-priority cardiac dispatch. Misuse may suspend your account.",
+  "sos.info_card_body": "This sends a high-priority ambulance dispatch. Misuse may suspend your account.",
   "sos.cancel_and_back": "Cancel and go back",
   "sos.sending": "Sending SOS…",
 
@@ -667,9 +666,8 @@ const hi: Dict = {
   "history.paid_amount": "भुगतान: ₹{amount}",
   "history.pickup_location_fallback": "पिकअप स्थान",
 
-  "sos.confirm_title": "अभी SOS भेजें?",
-  "sos.confirm_message": "हम कार्डियक प्राथमिकता के साथ निकटतम एम्बुलेंस भेजेंगे।",
-  "sos.confirm_button": "SOS भेजें",
+  "sos.picker_title": "आपातकाल क्या है?",
+  "sos.picker_subtitle": "एक श्रेणी चुनें, चुनते ही हम निकटतम एम्बुलेंस भेज देंगे।",
   "sos.location_unavailable_title": "स्थान उपलब्ध नहीं है",
   "sos.location_unavailable_body": "आपके स्थान के बिना हम एम्बुलेंस नहीं भेज सकते। स्थान की अनुमति दें और फिर से कोशिश करें, या फ़ोन पर बुक करने के लिए हमारे मोबाइल {phone} पर कॉल करें।",
   "sos.allow_location": "स्थान की अनुमति दें",
@@ -679,7 +677,7 @@ const hi: Dict = {
   "sos.headline_sub": "निकटतम एम्बुलेंस को तुरंत भेजने के लिए नीचे दिया गया बटन दबाएँ।",
   "sos.button_label": "SOS",
   "sos.info_card_title": "जानलेवा आपात स्थितियों के लिए",
-  "sos.info_card_body": "यह एक उच्च-प्राथमिकता कार्डियक डिस्पैच भेजता है। दुरुपयोग करने पर आपका अकाउंट सस्पेंड किया जा सकता है।",
+  "sos.info_card_body": "यह एक उच्च-प्राथमिकता एम्बुलेंस डिस्पैच भेजता है। दुरुपयोग करने पर आपका अकाउंट सस्पेंड किया जा सकता है।",
   "sos.cancel_and_back": "रद्द करें और वापस जाएँ",
   "sos.sending": "SOS भेजा जा रहा है…",
 

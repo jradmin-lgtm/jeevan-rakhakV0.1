@@ -4,6 +4,7 @@ import * as Location from "expo-location";
 import { AppHeader, Button, Card, Input, PulseDot, Screen, Text, colors, radius, space, OutOfServiceArea } from "@jr/ui";
 import { bookings as bookingsApi, fares as faresApi, serviceArea as serviceAreaApi, FareQuote, EmergencyType, Booking } from "../api";
 import { MapLocationPicker } from "./MapLocationPicker";
+import { EMERGENCY_KEYS } from "../constants/emergencyCategories";
 import { useT } from "../i18n";
 
 // v2.0: local haversine for the client-side geofence pre-check. Kept local so
@@ -19,19 +20,6 @@ function haversineDistanceKm(lat1: number, lng1: number, lat2: number, lng2: num
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
-
-// v1.0.15: emergency labels are now translation keys so the option list
-// re-renders in Hindi when the locale flips mid-screen. Previously the
-// labels were captured at module load time → option-select looked "broken"
-// for Hindi users (they tapped the right tile but saw English copy that
-// didn't match the language toggle).
-const EMERGENCY_KEYS: { key: EmergencyType; labelKey: string; subKey: string; emoji: string }[] = [
-  { key: "CARDIAC",                    labelKey: "emergency.cardiac.label",          subKey: "emergency.cardiac.sub",          emoji: "♥" },
-  { key: "BREATHING_DISTRESS",         labelKey: "emergency.breathing.label",        subKey: "emergency.breathing.sub",        emoji: "≈" },
-  { key: "ACCIDENT_TRAUMA",            labelKey: "emergency.accident.label",         subKey: "emergency.accident.sub",         emoji: "✚" },
-  { key: "PREGNANCY_NEONATAL",         labelKey: "emergency.pregnancy.label",        subKey: "emergency.pregnancy.sub",        emoji: "✿" },
-  { key: "GENERAL_CRITICAL_TRANSFER",  labelKey: "emergency.critical_transfer.label", subKey: "emergency.critical_transfer.sub", emoji: "→" }
-];
 
 // v1.0.12: removed the Delhi-centroid fallback. If we couldn't get a real
 // GPS fix we now leave pickupCoords null and surface a clear error — the

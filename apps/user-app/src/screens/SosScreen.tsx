@@ -2,8 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { Animated, Linking, Pressable, StyleSheet, View } from "react-native";
 import * as Location from "expo-location";
 import { AppHeader, Button, Card, IconBadge, OutOfServiceArea, PulseDot, Screen, Text, colors, space, dialog } from "@jr/ui";
-import { Booking, bookings as bookingsApi, serviceArea as serviceAreaApi } from "../api";
+import { Booking, EmergencyType, bookings as bookingsApi, serviceArea as serviceAreaApi } from "../api";
 import { SUPPORT_PHONE, SUPPORT_PHONE_DISPLAY } from "@jr/ui";
+import { SosCategoryPicker } from "../components/SosCategoryPicker";
 import { useT } from "../i18n";
 
 // v1.3.x (geofence): local haversine for the client-side out-of-area pre-check.
@@ -60,6 +61,7 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
     hospitalName: string;
   } | null>(null);
   const [outOfAreaVisible, setOutOfAreaVisible] = useState(false);
+  const [pickerVisible, setPickerVisible] = useState(false);
 
   // Pull the public service-area config once on mount. Mounted-guarded so we
   // don't setState after unmount; on failure we keep-last-good (null) and let
@@ -95,18 +97,14 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
     return () => loop.stop();
   }, [breathe]);
 
-  const dispatch = async () => {
-    if (
-      !(await dialog.confirm({
-        title: t("sos.confirm_title"),
-        message: t("sos.confirm_message"),
-        confirmText: t("sos.confirm_button"),
-        cancelText: t("common.cancel"),
-        destructive: true
-      }))
-    ) {
-      return;
-    }
+  // 2026-08-17 bug fix: this used to hardcode emergencyType: "CARDIAC" for
+  // every SOS regardless of what was actually happening, and gated dispatch
+  // behind a generic dialog.confirm() that claimed "cardiac priority"
+  // unconditionally. The category tile tap in SosCategoryPicker IS now the
+  // confirmation (net tap count unchanged: tap SOS -> tap a category, same
+  // as tap SOS -> tap "Send SOS" before) — dispatch takes the real category.
+  const dispatch = async (emergencyType: EmergencyType) => {
+    setPickerVisible(false);
     setBusy(true);
     try {
       const pickup = await getPickup();
@@ -140,7 +138,7 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
         }
       }
       const r = await bookingsApi.create({
-        emergencyType: "CARDIAC",
+        emergencyType,
         pickupLat: pickup.lat,
         pickupLng: pickup.lng,
         pickupAddress: "SOS · current location",
@@ -185,7 +183,7 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
           <PulseDot size={140} color="#FFFFFF" rings={3} />
           <Animated.View style={[styles.bigButton, { transform: [{ scale: breathe }] }]}>
             <Pressable
-              onPress={dispatch}
+              onPress={() => setPickerVisible(true)}
               android_ripple={{ color: "rgba(255,255,255,0.2)", borderless: true }}
               style={styles.bigButtonInner}
               disabled={busy}
@@ -243,6 +241,12 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
         hospitalName={area?.hospitalName}
         radiusKm={area?.radiusKm}
         emergency={true}
+      />
+
+      <SosCategoryPicker
+        visible={pickerVisible}
+        onClose={() => setPickerVisible(false)}
+        onSelect={(type) => void dispatch(type)}
       />
     </Screen>
   );
