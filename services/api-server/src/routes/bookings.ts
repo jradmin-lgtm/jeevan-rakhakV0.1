@@ -11,6 +11,7 @@ const MAX_ACTIVE_BOOKINGS_PER_USER = 1;
 import { config } from "@jr/config";
 import { haversineDistanceKm } from "@jr/utils";
 import { dismissPushToDriver, dismissPushToUser, pushToUser, sendPush } from "../push";
+import { getLiveRoute } from "../google-maps";
 import { renderPushTemplate } from "../push-i18n";
 // v1.3.1: when a ride reaches a terminal state (COMPLETED / CANCELLED) any
 // still-ACTIVE in-ride safety alert for that booking is stale and must be
@@ -98,7 +99,18 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         vehicleType,
         emergencyType
       );
-      return reply.send(quote);
+      // 2026-08-17 exploration (FLAG_GOOGLE_ETA_ENABLED, default off): additive
+      // `liveEtaMin` alongside the existing `etaMin` (which stays the
+      // AVG_KMH×ROAD_FACTOR estimate — see fare-config.ts). Never touches
+      // distanceKm/totalInr, so pricing is unaffected either way; this is a
+      // display-only improvement, not a re-pricing. Null when the flag is
+      // off, there's no drop point yet, or the Google call fails.
+      let liveEtaMin: number | null = null;
+      if (config.googleLiveEtaEnabled && dropLat != null && dropLng != null) {
+        const route = await getLiveRoute(pickupLat, pickupLng, dropLat, dropLng);
+        if (route) liveEtaMin = Math.round(route.durationMin);
+      }
+      return reply.send({ ...quote, liveEtaMin });
     }
   );
 
@@ -357,6 +369,42 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         }
       }
       return reply.send({ booking: b, driverProfile, driverPosition, userProfile });
+    }
+  );
+
+  // 2026-08-17 exploration (FLAG_GOOGLE_ETA_ENABLED, default off): traffic-aware
+  // ETA for the live-tracking screen, additive alongside the apps' existing
+  // client-side OSRM route (which has no live traffic — see CONTEXT.md line
+  // 303). Not called by either app yet; built + auth-checked so it's ready to
+  // wire in once reviewed. Same ownership check as GET /bookings/:id.
+  // `available:false` (flag off, no driver position yet, or any Google API
+  // failure) tells the caller to keep using its current OSRM-based ETA.
+  app.get(
+    "/api/v1/bookings/:id/live-eta",
+    { preHandler: [(app as any).authenticate] },
+    async (req: any, reply) => {
+      const id = req.params.id as string;
+      const { sub, role } = req.user;
+      const [b] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
+      if (!b) return reply.code(404).send({ error: "not_found" });
+      if (role === "user" && b.userId !== sub) return reply.code(403).send({ error: "forbidden" });
+      if (role === "driver" && b.driverId !== sub) return reply.code(403).send({ error: "forbidden" });
+
+      if (!config.googleLiveEtaEnabled || !b.driverId) {
+        return reply.send({ available: false });
+      }
+      const [d] = await db.select().from(drivers).where(eq(drivers.id, b.driverId)).limit(1);
+      if (!d || d.lastLat == null || d.lastLng == null) {
+        return reply.send({ available: false });
+      }
+      // Before PICKED_UP the target is the pickup point (driver en route to
+      // patient); dropLat/dropLng are only populated once the destination
+      // hospital is auto-assigned at PICKED_UP (see schema.ts comment).
+      const destLat = b.dropLat ?? b.pickupLat;
+      const destLng = b.dropLng ?? b.pickupLng;
+      const route = await getLiveRoute(d.lastLat, d.lastLng, destLat, destLng);
+      if (!route) return reply.send({ available: false });
+      return reply.send({ available: true, distanceKm: route.distanceKm, durationMin: route.durationMin });
     }
   );
 

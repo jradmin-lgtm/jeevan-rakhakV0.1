@@ -392,6 +392,13 @@ export const bookings = {
   sosPending: () => api<{ sos: SosPending[] }>("/api/v1/driver/sos-pending"),
   mine: () => api<{ bookings: Booking[] }>("/api/v1/bookings/mine"),
   get: (id: string) => api<{ booking: Booking }>(`/api/v1/bookings/${id}`),
+  // 2026-08-17: additive, real-traffic ETA (Google Directions). `available:
+  // false` whenever the backend flag is off, the driver has no position yet,
+  // or the Google call fails — callers keep their existing OSRM-based ETA.
+  liveEta: (id: string) =>
+    api<{ available: boolean; distanceKm?: number; durationMin?: number }>(
+      `/api/v1/bookings/${id}/live-eta`
+    ),
   accept: (id: string) =>
     api<{ booking: Booking }>(`/api/v1/bookings/${id}/accept`, { method: "POST", body: {} }),
   // v1.0.15: driver rejects a pushed SOS request. Server records the

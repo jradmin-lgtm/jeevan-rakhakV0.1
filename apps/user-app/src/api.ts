@@ -206,6 +206,10 @@ export type FareQuote = {
   distanceChargeInr: number;
   totalInr: number;
   etaMin: number | null;
+  // 2026-08-17: additive, real-traffic ETA from Google Directions — null
+  // unless FLAG_GOOGLE_ETA_ENABLED is set on the backend. Prefer this over
+  // etaMin when present; etaMin (static formula) is always the fallback.
+  liveEtaMin?: number | null;
   multipliers: {
     vehicleType: string;
     vehicleMult: number;
@@ -271,6 +275,13 @@ export const bookings = {
       breakdown?: { finalFare: number; couponCode: string | null; discountInr: number; payableInr: number };
     }>(`/api/v1/bookings/${id}/mark-paid`, { method: "POST", body: { couponCode } }),
   get: (id: string) => api<{ booking: Booking }>(`/api/v1/bookings/${id}`),
+  // 2026-08-17: additive, real-traffic ETA (Google Directions). `available:
+  // false` whenever the backend flag is off, the driver has no position yet,
+  // or the Google call fails — callers keep their existing OSRM-based ETA.
+  liveEta: (id: string) =>
+    api<{ available: boolean; distanceKm?: number; durationMin?: number }>(
+      `/api/v1/bookings/${id}/live-eta`
+    ),
   mine: () => api<{ bookings: Booking[] }>("/api/v1/bookings/mine"),
   pending: () => api<{ bookings: Booking[] }>("/api/v1/bookings/pending"),
   accept: (id: string) =>

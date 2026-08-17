@@ -35,6 +35,7 @@ import {
 } from "@jr/db";
 import { haversineDistanceKm } from "@jr/utils";
 import { emitEvent } from "./events";
+import { getRoadDistances } from "./google-maps";
 import { dismissPushToDriver, pushToDriver } from "./push";
 
 const MAX_DRIVERS = Number(process.env.SOS_CASCADE_MAX_DRIVERS ?? 10);
@@ -114,12 +115,41 @@ async function getEligibleDrivers(pickupLat: number, pickupLng: number): Promise
       if (lat == null || lng == null) return null;
       return {
         driverId: c.driverId,
+        lat,
+        lng,
         distanceKm: haversineDistanceKm(lat, lng, pickupLat, pickupLng)
-      } as EligibleDriver;
+      };
     })
-    .filter((d): d is EligibleDriver => d !== null);
+    .filter((d): d is { driverId: string; lat: number; lng: number; distanceKm: number } => d !== null);
   withDistance.sort((a, b) => a.distanceKm - b.distanceKm);
-  return withDistance.slice(0, MAX_DRIVERS);
+  const pool = withDistance.slice(0, MAX_DRIVERS);
+
+  // 2026-08-17 exploration (FLAG_GOOGLE_DISPATCH_ENABLED, default off): a
+  // straight-line-nearest driver can be further by actual road (river/one-way
+  // loop/highway divider) than the next-nearest by straight line. Re-rank the
+  // already-haversine-bounded pool by real driving time via one batched
+  // Distance Matrix call. On any failure this returns null and the pool keeps
+  // its haversine order — the cascade never blocks on a third-party API.
+  if (config.googleDispatchRankingEnabled && pool.length > 0) {
+    const roadDistances = await getRoadDistances(
+      pool.map((p) => ({ id: p.driverId, lat: p.lat, lng: p.lng })),
+      pickupLat,
+      pickupLng
+    );
+    if (roadDistances) {
+      pool.sort((a, b) => {
+        const ra = roadDistances.get(a.driverId);
+        const rb = roadDistances.get(b.driverId);
+        return (ra?.durationMin ?? Infinity) - (rb?.durationMin ?? Infinity);
+      });
+      for (const p of pool) {
+        const r = roadDistances.get(p.driverId);
+        if (r) p.distanceKm = r.distanceKm;
+      }
+    }
+  }
+
+  return pool.map((p) => ({ driverId: p.driverId, distanceKm: p.distanceKm }));
 }
 
 async function emitToDriver(driverId: string, event: string, payload: unknown) {

@@ -435,7 +435,10 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
               {quote.etaMin != null ? (
                 <View style={styles.fareRow}>
                   <Text variant="tiny" tone="muted">{t("book.fare_eta_label")}</Text>
-                  <Text variant="tiny" tone="muted">~{quote.etaMin} min</Text>
+                  {/* 2026-08-17: prefer the real-traffic liveEtaMin (Google
+                      Directions) when the backend has it; etaMin (static
+                      formula) is the fallback and is always present. */}
+                  <Text variant="tiny" tone="muted">~{quote.liveEtaMin ?? quote.etaMin} min</Text>
                 </View>
               ) : null}
             </>

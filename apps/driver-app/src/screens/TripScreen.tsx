@@ -235,6 +235,17 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
         setNavRoute(r.coords);
         setNavEta({ km: r.distanceKm, min: Math.max(1, Math.round(r.durationMin)) });
       }
+      // 2026-08-17: best-effort traffic-aware ETA refinement. No-op unless the
+      // backend's FLAG_GOOGLE_ETA_ENABLED is on; never touches the OSRM route
+      // line drawn above, only refines the displayed minutes when available.
+      try {
+        const live = await bookingsApi.liveEta(booking.id);
+        if (live.available && live.durationMin != null) {
+          setNavEta((cur) => (cur ? { ...cur, min: Math.max(1, Math.round(live.durationMin!)) } : cur));
+        }
+      } catch {
+        /* keep the OSRM-derived ETA */
+      }
     })();
     return () => controller.abort();
     // Not keyed on myPos — one fetch + one auto-launch per PICKED_UP entry.

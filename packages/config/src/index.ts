@@ -127,6 +127,16 @@ export const config = {
     }
   },
 
+  // 2026-08-17 exploration: real road-time ranking (Google Distance Matrix)
+  // for SOS/safety dispatch, and live-traffic ETA (Google Directions) for
+  // post-pickup + fare-quote display. Both default OFF so unset envs (current
+  // Render state) leave the existing haversine-based behavior byte-for-byte
+  // unchanged. Both call sites fall back to haversine on any Google API
+  // failure/timeout — dispatch must never hard-depend on a third-party API.
+  // See lib/google-maps.ts.
+  googleDispatchRankingEnabled: optional("FLAG_GOOGLE_DISPATCH_ENABLED", "false") === "true",
+  googleLiveEtaEnabled: optional("FLAG_GOOGLE_ETA_ENABLED", "false") === "true",
+
   // Payments
   payments: {
     provider: optional("PAYMENTS_PROVIDER", "mock") as

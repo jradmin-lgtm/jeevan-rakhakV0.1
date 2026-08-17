@@ -190,6 +190,17 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
         setNavRoute(r.coords);
         setNavEta({ km: r.distanceKm, min: Math.max(1, Math.round(r.durationMin)) });
       }
+      // 2026-08-17: best-effort traffic-aware ETA refinement. No-op unless the
+      // backend's FLAG_GOOGLE_ETA_ENABLED is on; never touches the OSRM route
+      // line drawn above, only refines the displayed minutes when available.
+      try {
+        const live = await bookingsApi.liveEta(initial.id);
+        if (alive && live.available && live.durationMin != null) {
+          setNavEta((cur) => (cur ? { ...cur, min: Math.max(1, Math.round(live.durationMin!)) } : cur));
+        }
+      } catch {
+        /* keep the OSRM-derived ETA */
+      }
     };
 
     void refetch();
