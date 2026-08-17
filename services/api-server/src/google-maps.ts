@@ -8,6 +8,8 @@
  * back to their existing haversine-based logic. Dispatch and fare-quote must
  * never hard-depend on a third-party API being reachable.
  */
+import { sql } from "drizzle-orm";
+import { apiUsage, db } from "@jr/db";
 import { config } from "@jr/config";
 
 const FETCH_TIMEOUT_MS = 4000;
@@ -22,6 +24,48 @@ async function fetchWithTimeout(url: string): Promise<Response | null> {
     return null;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * Best-effort usage counter, upserted per (provider, operation, UTC month).
+ * Only called when a request actually reached Google (fetchWithTimeout
+ * returned a Response) — a request that never left this process (aborted,
+ * DNS failure, no network) never consumed quota, so it's never counted.
+ * `units` is the quota-billed amount: Distance Matrix bills per element
+ * (origins×destinations), Directions bills 1 per request. Never throws —
+ * a usage-tracking hiccup must never affect dispatch/ETA.
+ */
+async function recordApiUsage(operation: string, units: number, ok: boolean, errorMessage?: string) {
+  try {
+    const period = new Date().toISOString().slice(0, 7); // "YYYY-MM", UTC
+    const now = new Date();
+    await db
+      .insert(apiUsage)
+      .values({
+        provider: "google_maps",
+        operation,
+        period,
+        calls: 1,
+        units,
+        errors: ok ? 0 : 1,
+        lastCallAt: now,
+        lastErrorAt: ok ? null : now,
+        lastErrorMessage: ok ? null : (errorMessage ?? "unknown error")
+      })
+      .onConflictDoUpdate({
+        target: [apiUsage.provider, apiUsage.operation, apiUsage.period],
+        set: {
+          calls: sql`${apiUsage.calls} + 1`,
+          units: sql`${apiUsage.units} + ${units}`,
+          errors: ok ? apiUsage.errors : sql`${apiUsage.errors} + 1`,
+          lastCallAt: now,
+          ...(ok ? {} : { lastErrorAt: now, lastErrorMessage: errorMessage ?? "unknown error" }),
+          updatedAt: now
+        }
+      });
+  } catch (err) {
+    console.warn("[google-maps] usage tracking failed (non-fatal)", err);
   }
 }
 
@@ -63,19 +107,28 @@ export async function getRoadDistances(
     `&key=${apiKey}`;
 
   const res = await fetchWithTimeout(url);
-  if (!res || !res.ok) return null;
+  if (!res) return null; // never reached Google — no quota consumed, don't track
+  const units = candidates.length; // Distance Matrix bills per element (origins×destinations)
+
+  if (!res.ok) {
+    void recordApiUsage("distance_matrix", units, false, `HTTP ${res.status}`);
+    return null;
+  }
 
   let json: DistanceMatrixResponse;
   try {
     json = (await res.json()) as DistanceMatrixResponse;
   } catch (err) {
     console.warn("[google-maps] distance matrix: bad JSON", err);
+    void recordApiUsage("distance_matrix", units, false, "bad JSON response");
     return null;
   }
   if (json.status !== "OK" || !json.rows || json.rows.length !== candidates.length) {
     if (json.status !== "OK") console.warn("[google-maps] distance matrix status", json.status);
+    void recordApiUsage("distance_matrix", units, false, json.status);
     return null;
   }
+  void recordApiUsage("distance_matrix", units, true);
 
   const out = new Map<string, RoadDistance>();
   candidates.forEach((c, i) => {
@@ -121,20 +174,28 @@ export async function getLiveRoute(
     `&key=${apiKey}`;
 
   const res = await fetchWithTimeout(url);
-  if (!res || !res.ok) return null;
+  if (!res) return null; // never reached Google — no quota consumed, don't track
+
+  if (!res.ok) {
+    void recordApiUsage("directions", 1, false, `HTTP ${res.status}`);
+    return null;
+  }
 
   let json: DirectionsResponse;
   try {
     json = (await res.json()) as DirectionsResponse;
   } catch (err) {
     console.warn("[google-maps] directions: bad JSON", err);
+    void recordApiUsage("directions", 1, false, "bad JSON response");
     return null;
   }
   const leg = json.routes?.[0]?.legs?.[0];
   if (json.status !== "OK" || !leg) {
     if (json.status !== "OK") console.warn("[google-maps] directions status", json.status);
+    void recordApiUsage("directions", 1, false, json.status);
     return null;
   }
+  void recordApiUsage("directions", 1, true);
 
   const durationSec = leg.duration_in_traffic?.value ?? leg.duration.value;
   return { distanceKm: leg.distance.value / 1000, durationMin: durationSec / 60 };

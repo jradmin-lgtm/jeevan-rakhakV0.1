@@ -149,6 +149,27 @@ async function bootstrap() {
     `;
     await pgClient`CREATE INDEX IF NOT EXISTS system_events_ts_idx ON system_events(ts DESC)`;
     await pgClient`CREATE INDEX IF NOT EXISTS system_events_level_idx ON system_events(level)`;
+    // 2026-08-17: third-party API usage counters (see schema.ts docstring on
+    // apiUsage). One row per (provider, operation, period), upserted by
+    // google-maps.ts on every outbound call so the admin portal can show
+    // consumption against each API's free-tier quota.
+    await pgClient`
+      CREATE TABLE IF NOT EXISTS api_usage (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        provider text NOT NULL,
+        operation text NOT NULL,
+        period text NOT NULL,
+        calls integer NOT NULL DEFAULT 0,
+        units integer NOT NULL DEFAULT 0,
+        errors integer NOT NULL DEFAULT 0,
+        last_call_at timestamptz,
+        last_error_at timestamptz,
+        last_error_message text,
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `;
+    await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS api_usage_provider_operation_period_uniq ON api_usage(provider, operation, period)`;
+    await pgClient`CREATE INDEX IF NOT EXISTS api_usage_period_idx ON api_usage(period)`;
     // Public download portal (the /get page): visit + gated-download analytics.
     await pgClient`
       CREATE TABLE IF NOT EXISTS app_events (

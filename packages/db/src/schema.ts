@@ -384,6 +384,38 @@ export const systemEvents = pgTable(
 );
 
 /**
+ * 2026-08-17 — third-party API usage counters, one row per
+ * (provider, operation, period) e.g. ("google_maps", "distance_matrix",
+ * "2026-08"). `period` is a UTC calendar-month label; upserted by
+ * services/api-server/src/google-maps.ts on every outbound call so the admin
+ * portal can show consumption against each API's free-tier quota and catch
+ * exhaustion before it silently starts costing money or failing dispatch.
+ * `calls` = HTTP requests that reached the provider; `units` = quota-billed
+ * units (Distance Matrix bills per element, i.e. origins×destinations, not
+ * per request — a single call can cost >1 unit). Unique index on
+ * (provider, operation, period) created via raw SQL in main.ts.
+ */
+export const apiUsage = pgTable(
+  "api_usage",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    provider: text("provider").notNull(),
+    operation: text("operation").notNull(),
+    period: text("period").notNull(),
+    calls: integer("calls").notNull().default(0),
+    units: integer("units").notNull().default(0),
+    errors: integer("errors").notNull().default(0),
+    lastCallAt: timestamp("last_call_at", { withTimezone: true }),
+    lastErrorAt: timestamp("last_error_at", { withTimezone: true }),
+    lastErrorMessage: text("last_error_message"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (t) => ({
+    periodIdx: index("api_usage_period_idx").on(t.period)
+  })
+);
+
+/**
  * v1.0.15 — "last known position" heartbeat table. One row per driver,
  * upserted by POST /driver/heartbeat every 60s while online + foregrounded.
  * Used by the SOS cascade engine to pick the nearest available drivers via
@@ -703,3 +735,4 @@ export type DriverHeartbeat = typeof driverHeartbeats.$inferSelect;
 export type SosDispatchAttempt = typeof sosDispatchAttempts.$inferSelect;
 export type SystemEvent = typeof systemEvents.$inferSelect;
 export type NewSystemEvent = typeof systemEvents.$inferInsert;
+export type ApiUsage = typeof apiUsage.$inferSelect;

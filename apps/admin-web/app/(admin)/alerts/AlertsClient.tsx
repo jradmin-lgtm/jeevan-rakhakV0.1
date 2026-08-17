@@ -4,10 +4,25 @@ import React, { useEffect, useState } from "react";
 import { adminFetch } from "../../../lib/adminFetch";
 import { formatIST } from "../../../lib/dates";
 
+type ApiUsageRow = {
+  provider: string;
+  operation: string;
+  period: string;
+  calls: number;
+  units: number;
+  errors: number;
+  freeQuota: number | null;
+  percentUsed: number | null;
+  lastCallAt: string | null;
+  lastErrorAt: string | null;
+  lastErrorMessage: string | null;
+};
+
 type Health = {
   api: { status: "up" | "down"; uptimeSec: number };
   db: { status: "up" | "down"; latencyMs: number | null; error?: string };
   events: { critical24h: number; error24h: number; warn24h: number };
+  apiUsage?: ApiUsageRow[];
   checkedAt: string;
 };
 
@@ -166,6 +181,64 @@ export function AlertsClient({ initialHealth, initialEvents, apiBase, embedded }
           color="#F59E0B"
         />
       </div>
+
+      {/* 2026-08-17: third-party API usage vs. free-tier quota — currently
+          just Google Maps (Distance Matrix + Directions), but the table
+          is provider-agnostic so a future integration's rows show up here
+          automatically. */}
+      {health?.apiUsage && health.apiUsage.length > 0 ? (
+        <div className="card" style={{ marginTop: 20 }}>
+          <h2 style={{ marginTop: 0 }}>Third-party API usage</h2>
+          <p className="meta" style={{ marginTop: -6, marginBottom: 12 }}>
+            Current + previous calendar month (UTC). Free-tier quota is per calendar month per Google.
+          </p>
+          <table className="events-table">
+            <thead>
+              <tr>
+                <th>Provider · operation</th>
+                <th>Period</th>
+                <th>Calls</th>
+                <th>Units used</th>
+                <th>Free quota</th>
+                <th>% used</th>
+                <th>Errors</th>
+                <th>Last call</th>
+                <th>Last error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {health.apiUsage.map((u) => {
+                const pct = u.percentUsed ?? 0;
+                const pctColor = pct >= 90 ? "#DC2626" : pct >= 70 ? "#F59E0B" : "#10B981";
+                return (
+                  <tr key={`${u.provider}:${u.operation}:${u.period}`}>
+                    <td className="nowrap">{u.provider} · {u.operation}</td>
+                    <td className="meta nowrap">{u.period}</td>
+                    <td>{u.calls.toLocaleString()}</td>
+                    <td>{u.units.toLocaleString()}</td>
+                    <td className="meta">{u.freeQuota ? u.freeQuota.toLocaleString() : "·"}</td>
+                    <td>
+                      {u.percentUsed != null ? (
+                        <span
+                          className="level-pill"
+                          style={{ background: `${pctColor}1a`, color: pctColor }}
+                        >
+                          {u.percentUsed}%
+                        </span>
+                      ) : (
+                        <span className="meta">·</span>
+                      )}
+                    </td>
+                    <td className="meta">{u.errors}</td>
+                    <td className="meta nowrap">{u.lastCallAt ? relative(u.lastCallAt, now) : "·"}</td>
+                    <td className="meta">{u.lastErrorMessage ? `${u.lastErrorMessage} (${u.lastErrorAt ? relative(u.lastErrorAt, now) : "?"})` : "·"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
 
       {/* Level filter */}
       <div style={{ display: "flex", gap: 8, margin: "20px 0 12px" }}>

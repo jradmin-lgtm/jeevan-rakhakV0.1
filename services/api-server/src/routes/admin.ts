@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, count, desc, eq, gte, inArray, lte, sql as drizzleSql } from "drizzle-orm";
-import { bookingEvents, bookings, drivers, driverDocuments, driverDocumentUpdates, db, driverHospitals, driverLocations, hospitals, supportTickets, supportTicketMessages, users, systemEvents, sql as pgClient } from "@jr/db";
+import { apiUsage, bookingEvents, bookings, drivers, driverDocuments, driverDocumentUpdates, db, driverHospitals, driverLocations, hospitals, supportTickets, supportTicketMessages, users, systemEvents, sql as pgClient } from "@jr/db";
 import { config } from "@jr/config";
 import { hashPassword } from "../password";
 import { haversineDistanceKm } from "@jr/utils";
@@ -1055,17 +1055,39 @@ export async function registerAdminRoutes(app: FastifyInstance) {
 
   // ─── Observability ─────────────────────────────────────────────────────────
 
+  // 2026-08-17: free-tier monthly quota per (provider, operation), so the
+  // health response can show percent-used, not just raw counts. Update here
+  // if Google (or a future provider) changes its free-tier terms.
+  const API_FREE_QUOTA: Record<string, number> = {
+    "google_maps:distance_matrix": 10_000, // elements/month
+    "google_maps:directions": 10_000 // requests/month
+  };
+
   app.get("/api/v1/admin/health", adminGuard, async (_req, reply) => {
     const start = Date.now();
     const result: {
       api: { status: "up" | "down"; uptimeSec: number };
       db: { status: "up" | "down"; latencyMs: number | null; error?: string };
       events: { critical24h: number; error24h: number; warn24h: number };
+      apiUsage: {
+        provider: string;
+        operation: string;
+        period: string;
+        calls: number;
+        units: number;
+        errors: number;
+        freeQuota: number | null;
+        percentUsed: number | null;
+        lastCallAt: string | null;
+        lastErrorAt: string | null;
+        lastErrorMessage: string | null;
+      }[];
       checkedAt: string;
     } = {
       api: { status: "up", uptimeSec: Math.floor(process.uptime()) },
       db: { status: "down", latencyMs: null },
       events: { critical24h: 0, error24h: 0, warn24h: 0 },
+      apiUsage: [],
       checkedAt: new Date().toISOString()
     };
     try {
@@ -1091,6 +1113,36 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       }
     } catch {
       /* leave zeros */
+    }
+
+    try {
+      const currentPeriod = new Date().toISOString().slice(0, 7);
+      const prevDate = new Date();
+      prevDate.setUTCMonth(prevDate.getUTCMonth() - 1);
+      const prevPeriod = prevDate.toISOString().slice(0, 7);
+      const rows = await db
+        .select()
+        .from(apiUsage)
+        .where(inArray(apiUsage.period, [currentPeriod, prevPeriod]))
+        .orderBy(desc(apiUsage.period), apiUsage.provider, apiUsage.operation);
+      result.apiUsage = rows.map((r) => {
+        const quota = API_FREE_QUOTA[`${r.provider}:${r.operation}`] ?? null;
+        return {
+          provider: r.provider,
+          operation: r.operation,
+          period: r.period,
+          calls: r.calls,
+          units: r.units,
+          errors: r.errors,
+          freeQuota: quota,
+          percentUsed: quota ? Math.round((r.units / quota) * 1000) / 10 : null,
+          lastCallAt: r.lastCallAt ? r.lastCallAt.toISOString() : null,
+          lastErrorAt: r.lastErrorAt ? r.lastErrorAt.toISOString() : null,
+          lastErrorMessage: r.lastErrorMessage
+        };
+      });
+    } catch {
+      /* leave empty — health check must never 500 on this being new/absent */
     }
 
     reply.header("x-server-time-ms", String(Date.now() - start));
