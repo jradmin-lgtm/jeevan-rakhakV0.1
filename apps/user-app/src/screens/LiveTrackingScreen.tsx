@@ -190,13 +190,23 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
         setNavRoute(r.coords);
         setNavEta({ km: r.distanceKm, min: Math.max(1, Math.round(r.durationMin)) });
       }
-      // 2026-08-17: best-effort traffic-aware ETA refinement. No-op unless the
-      // backend's FLAG_GOOGLE_ETA_ENABLED is on; never touches the OSRM route
-      // line drawn above, only refines the displayed minutes when available.
+      // 2026-08-17: best-effort traffic-aware refinement. No-op unless the
+      // backend's FLAG_GOOGLE_ETA_ENABLED is on. When a route path comes
+      // back, it REPLACES the drawn OSRM line (Google's own traffic-aware
+      // road path, not just a better number) — otherwise only the displayed
+      // minutes are refined, line stays OSRM's.
       try {
         const live = await bookingsApi.liveEta(initial.id);
         if (alive && live.available && live.durationMin != null) {
-          setNavEta((cur) => (cur ? { ...cur, min: Math.max(1, Math.round(live.durationMin!)) } : cur));
+          setNavEta((cur) =>
+            cur
+              ? {
+                  km: live.distanceKm ?? cur.km,
+                  min: Math.max(1, Math.round(live.durationMin!))
+                }
+              : cur
+          );
+          if (live.path && live.path.length > 1) setNavRoute(live.path);
         }
       } catch {
         /* keep the OSRM-derived ETA */

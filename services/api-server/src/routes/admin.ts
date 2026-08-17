@@ -1081,7 +1081,10 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   // if Google (or a future provider) changes its free-tier terms.
   const API_FREE_QUOTA: Record<string, number> = {
     "google_maps:distance_matrix": 10_000, // elements/month
-    "google_maps:directions": 10_000 // requests/month
+    "google_maps:directions": 10_000, // requests/month
+    "google_maps:places_details": 5_000 // requests/month — the only billed part of address search
+    // places_autocomplete omitted: free of charge per Google's own pricing
+    // page, no meaningful cap to warn against.
   };
 
   app.get("/api/v1/admin/health", adminGuard, async (_req, reply) => {

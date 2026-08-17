@@ -13,6 +13,7 @@ import { WebView } from "react-native-webview";
 import * as Location from "expo-location";
 import { Button, Text, colors, radius, space } from "@jr/ui";
 import { useT } from "../i18n";
+import { places as placesApi } from "../api";
 
 /**
  * v1.0.13 (revised): general-purpose map picker for both pickup and drop.
@@ -29,10 +30,14 @@ import { useT } from "../i18n";
  * Both paths share the same map + pin. The search results list is just an
  * overlay that vanishes once the user picks one or starts panning.
  *
- * Search uses Nominatim (OSM) — free, no API key. We bound to India via
- * `countrycodes=in` so results don't include Apollo Branches in the US.
- * Debounced 400ms; Nominatim's usage policy asks for ≤1 req/sec. Each
- * request carries the JR User-Agent so OSM can reach us if we misbehave.
+ * 2026-08-17: search now tries Google Places Autocomplete first (via the
+ * backend proxy — the API key never reaches this app), falling back to the
+ * original free Nominatim (OSM) search whenever Places is unavailable
+ * (backend flag off, or any Google-side failure) — search must never break
+ * just because a third-party API had a bad moment. A Places result only
+ * carries a placeId; picking one resolves lat/lng via a single Place
+ * Details call (the only billed step — never fired per keystroke).
+ * Nominatim remains bound to India via `countrycodes=in`, debounced 400ms.
  *
  * "Use my current location" — explicit button for either mode (we let
  * drop use GPS too, e.g. "I'm picking my mum up from her current location").
@@ -50,12 +55,16 @@ type Props = {
 
 const NOMINATIM_UA = "JeevanRakshak/1.0 (contact.jeevanrakshak@gmail.com)";
 
-type SearchResult = {
-  lat: number;
-  lng: number;
-  primary: string;     // first comma-separated token, e.g. "Apollo Hospitals"
-  secondary: string;   // remaining tokens trimmed to fit one line
-};
+type SearchResult =
+  | { source: "nominatim"; lat: number; lng: number; primary: string; secondary: string }
+  | { source: "places"; placeId: string; primary: string; secondary: string };
+
+// Groups a search's keystrokes with its eventual Place Details call for
+// Google's session-based billing. Doesn't need to be cryptographically
+// random, just unique-ish per search sequence.
+function newSessionToken(): string {
+  return `jr-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onConfirm }: Props) {
   const { t } = useT();
@@ -76,9 +85,17 @@ export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onCo
   const [searching, setSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [gpsBusy, setGpsBusy] = useState(false);
+  const [resolvingPlace, setResolvingPlace] = useState(false);
 
   const debounceCenterRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const debounceSearchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sessionTokenRef = useRef<string>(newSessionToken());
+  // Set right after a Places selection resolves, holding the coords the
+  // reverse-geocode-on-center-change effect below should skip (we already
+  // have Google's own formatted address for that exact point — re-running
+  // Nominatim reverse-geocode a moment later would just replace it with a
+  // differently-worded string for the same location, a pointless flicker).
+  const skipReverseGeocodeForRef = useRef<Coords | null>(null);
 
   // HTML is built ONCE per modal open. Subsequent coord changes go through
   // injectJavaScript(window.jrMap.flyTo) so the WebView never reloads.
@@ -88,6 +105,11 @@ export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onCo
   // long pan doesn't fire one request per frame.
   useEffect(() => {
     if (!visible) return;
+    const skip = skipReverseGeocodeForRef.current;
+    if (skip && skip.lat === center.lat && skip.lng === center.lng) {
+      skipReverseGeocodeForRef.current = null;
+      return;
+    }
     if (debounceCenterRef.current) clearTimeout(debounceCenterRef.current);
     debounceCenterRef.current = setTimeout(async () => {
       setResolving(true);
@@ -116,8 +138,32 @@ export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onCo
     };
   }, [center.lat, center.lng, visible]);
 
+  const searchNominatim = async (q: string): Promise<SearchResult[]> => {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=jsonv2&countrycodes=in&limit=8&addressdetails=1`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": NOMINATIM_UA, "Accept-Language": "en-IN,en;q=0.8" }
+    });
+    if (!res.ok) throw new Error("nominatim_search");
+    const data: any[] = await res.json();
+    type NominatimResult = Extract<SearchResult, { source: "nominatim" }>;
+    return (Array.isArray(data) ? data : [])
+      .map((d): NominatimResult => {
+        const parts = String(d.display_name ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
+        return {
+          source: "nominatim",
+          lat: Number(d.lat),
+          lng: Number(d.lon),
+          primary: parts[0] ?? t("map_picker.unnamed_place"),
+          secondary: parts.slice(1, 4).join(", ")
+        };
+      })
+      .filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lng));
+  };
+
   // Autocomplete search. Empty query => hide the results list. Debounced
-  // 400ms so we don't spam Nominatim with every keystroke.
+  // 400ms. Tries Google Places first; falls back to Nominatim whenever
+  // Places is unavailable (flag off or a Google-side failure) — search must
+  // never break just because a third-party API had a bad moment.
   useEffect(() => {
     if (!visible) return;
     if (debounceSearchRef.current) clearTimeout(debounceSearchRef.current);
@@ -130,28 +176,34 @@ export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onCo
     debounceSearchRef.current = setTimeout(async () => {
       setSearching(true);
       setShowResults(true);
+      let placesOk = false;
       try {
-        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=jsonv2&countrycodes=in&limit=8&addressdetails=1`;
-        const res = await fetch(url, {
-          headers: { "User-Agent": NOMINATIM_UA, "Accept-Language": "en-IN,en;q=0.8" }
-        });
-        if (!res.ok) throw new Error("nominatim_search");
-        const data: any[] = await res.json();
-        const rows: SearchResult[] = (Array.isArray(data) ? data : []).map((d) => {
-          const parts = String(d.display_name ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
-          return {
-            lat: Number(d.lat),
-            lng: Number(d.lon),
-            primary: parts[0] ?? t("map_picker.unnamed_place"),
-            secondary: parts.slice(1, 4).join(", ")
-          };
-        }).filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lng));
-        setResults(rows);
+        const placesRes = await placesApi.autocomplete(q, sessionTokenRef.current);
+        if (placesRes.available) {
+          placesOk = true;
+          setResults(
+            placesRes.predictions.map((p): SearchResult => {
+              const parts = p.description.split(",").map((s) => s.trim()).filter(Boolean);
+              return {
+                source: "places",
+                placeId: p.placeId,
+                primary: parts[0] ?? p.description,
+                secondary: parts.slice(1, 4).join(", ")
+              };
+            })
+          );
+        }
       } catch {
-        setResults([]);
-      } finally {
-        setSearching(false);
+        /* fall through to Nominatim below */
       }
+      if (!placesOk) {
+        try {
+          setResults(await searchNominatim(q));
+        } catch {
+          setResults([]);
+        }
+      }
+      setSearching(false);
     }, 400);
     return () => {
       if (debounceSearchRef.current) clearTimeout(debounceSearchRef.current);
@@ -188,13 +240,38 @@ export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onCo
     webRef.current.injectJavaScript(`window.jrMap && window.jrMap.flyTo(${c.lat}, ${c.lng}, ${zoom ?? 17}); true;`);
   };
 
-  const onPickResult = (r: SearchResult) => {
-    const c = { lat: r.lat, lng: r.lng };
-    setCenter(c);
-    injectFlyTo(c, 17);
+  const onPickResult = async (r: SearchResult) => {
     setQuery(r.primary);
     setShowResults(false);
     Keyboard.dismiss();
+
+    if (r.source === "nominatim") {
+      const c = { lat: r.lat, lng: r.lng };
+      setCenter(c);
+      injectFlyTo(c, 17);
+      return;
+    }
+
+    // Places result — only carries a placeId; resolve real coords via one
+    // Details call (the only billed step, fired once per selection here,
+    // never per keystroke). Falls back to leaving the pin where it was if
+    // the lookup fails — better than silently jumping nowhere.
+    setResolvingPlace(true);
+    try {
+      const details = await placesApi.details(r.placeId, sessionTokenRef.current);
+      sessionTokenRef.current = newSessionToken(); // this session is spent; fresh one for the next search
+      if (details.available && details.lat != null && details.lng != null) {
+        const c = { lat: details.lat, lng: details.lng };
+        skipReverseGeocodeForRef.current = c;
+        setCenter(c);
+        injectFlyTo(c, 17);
+        if (details.formattedAddress) setLabel(details.formattedAddress);
+      }
+    } catch {
+      /* keep current pin position — no silent jump to a wrong place */
+    } finally {
+      setResolvingPlace(false);
+    }
   };
 
   const headerTitle = mode === "pickup" ? t("map_picker.title_pickup") : t("map_picker.title_drop");
@@ -309,8 +386,8 @@ export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onCo
                 <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 260 }}>
                   {results.map((r, i) => (
                     <Pressable
-                      key={`${r.lat}-${r.lng}-${i}`}
-                      onPress={() => onPickResult(r)}
+                      key={r.source === "places" ? r.placeId : `${r.lat}-${r.lng}-${i}`}
+                      onPress={() => void onPickResult(r)}
                       android_ripple={{ color: "rgba(0,0,0,0.04)" }}
                       style={styles.resultRow}
                     >
@@ -336,7 +413,7 @@ export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onCo
             <View style={{ flex: 1 }}>
               <Text variant="tiny" tone="secondary" weight="bold">{labelHeading}</Text>
               <Text variant="body" weight="semi" numberOfLines={2}>
-                {resolving ? `${label} …` : label}
+                {resolving || resolvingPlace ? `${label} …` : label}
               </Text>
             </View>
           </View>
@@ -345,7 +422,7 @@ export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onCo
             onPress={() => onConfirm({ lat: center.lat, lng: center.lng, address: label })}
             fullWidth
             size="lg"
-            disabled={!mapReady}
+            disabled={!mapReady || resolvingPlace}
             testID="map-picker-confirm"
           />
         </View>

@@ -136,6 +136,8 @@ export const config = {
   // See lib/google-maps.ts.
   googleDispatchRankingEnabled: optional("FLAG_GOOGLE_DISPATCH_ENABLED", "false") === "true",
   googleLiveEtaEnabled: optional("FLAG_GOOGLE_ETA_ENABLED", "false") === "true",
+  // Places Autocomplete + Details for the pickup/drop search picker.
+  googlePlacesEnabled: optional("FLAG_GOOGLE_PLACES_ENABLED", "false") === "true",
 
   // Payments
   payments: {

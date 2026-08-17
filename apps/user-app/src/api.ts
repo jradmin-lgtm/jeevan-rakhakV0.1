@@ -252,6 +252,21 @@ export type ServiceArea = {
 export const serviceArea = () =>
   api<ServiceArea>("/api/v1/service-area", { auth: false });
 
+// 2026-08-17: Google Places search proxy — `available:false` whenever the
+// backend flag is off or the Google call fails, so MapLocationPicker.tsx
+// falls back to the existing free Nominatim search. Key never reaches the
+// client; these just proxy through the authenticated backend.
+export const places = {
+  autocomplete: (input: string, sessionToken: string) =>
+    api<{ available: boolean; predictions: { placeId: string; description: string }[] }>(
+      `/api/v1/places/autocomplete?input=${encodeURIComponent(input)}&sessionToken=${encodeURIComponent(sessionToken)}`
+    ),
+  details: (placeId: string, sessionToken: string) =>
+    api<{ available: boolean; lat?: number; lng?: number; formattedAddress?: string }>(
+      `/api/v1/places/details?placeId=${encodeURIComponent(placeId)}&sessionToken=${encodeURIComponent(sessionToken)}`
+    )
+};
+
 export const bookings = {
   create: (input: {
     emergencyType: EmergencyType;
@@ -279,7 +294,7 @@ export const bookings = {
   // false` whenever the backend flag is off, the driver has no position yet,
   // or the Google call fails — callers keep their existing OSRM-based ETA.
   liveEta: (id: string) =>
-    api<{ available: boolean; distanceKm?: number; durationMin?: number }>(
+    api<{ available: boolean; distanceKm?: number; durationMin?: number; path?: [number, number][] }>(
       `/api/v1/bookings/${id}/live-eta`
     ),
   mine: () => api<{ bookings: Booking[] }>("/api/v1/bookings/mine"),

@@ -396,7 +396,7 @@ export const bookings = {
   // false` whenever the backend flag is off, the driver has no position yet,
   // or the Google call fails — callers keep their existing OSRM-based ETA.
   liveEta: (id: string) =>
-    api<{ available: boolean; distanceKm?: number; durationMin?: number }>(
+    api<{ available: boolean; distanceKm?: number; durationMin?: number; path?: [number, number][] }>(
       `/api/v1/bookings/${id}/live-eta`
     ),
   accept: (id: string) =>

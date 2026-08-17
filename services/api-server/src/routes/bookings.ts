@@ -404,7 +404,15 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       const destLng = b.dropLng ?? b.pickupLng;
       const route = await getLiveRoute(d.lastLat, d.lastLng, destLat, destLng);
       if (!route) return reply.send({ available: false });
-      return reply.send({ available: true, distanceKm: route.distanceKm, durationMin: route.durationMin });
+      // 2026-08-17: path = the decoded route polyline, so the caller can draw
+      // the actual traffic-aware road line instead of (or as well as) the
+      // free OSRM line it draws today.
+      return reply.send({
+        available: true,
+        distanceKm: route.distanceKm,
+        durationMin: route.durationMin,
+        path: route.path
+      });
     }
   );
 
