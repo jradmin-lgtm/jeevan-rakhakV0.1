@@ -10,7 +10,10 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000"
 
 async function getBooking(id: string) {
   try {
-    const res = await adminFetch(`${API_BASE}/api/v1/admin/bookings/${id}`);
+    // enrichDistance=true opts into the Google road-distance lookup — safe
+    // here since this page is fetched once per view, never polled (unlike
+    // the live booking-detail page hitting the same endpoint every 4s).
+    const res = await adminFetch(`${API_BASE}/api/v1/admin/bookings/${id}?enrichDistance=true`);
     if (!res.ok) return null;
     return res.json();
   } catch {
@@ -73,7 +76,16 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
           <section className="rcpt-section">
             <h2>Distance & route (tracked)</h2>
             <div className="grid">
-              <KV label="Total distance travelled" value={track.distanceKm != null ? `${track.distanceKm.toFixed(1)} km` : "Not enough tracking data"} />
+              <KV
+                label="Total distance travelled"
+                value={
+                  track.googleDistanceKm != null
+                    ? `${track.googleDistanceKm.toFixed(1)} km`
+                    : track.distanceKm != null
+                      ? `${track.distanceKm.toFixed(1)} km`
+                      : "Not enough tracking data"
+                }
+              />
               <KV label="GPS points recorded" value={String(track.pointCount)} />
               <KV
                 label="Start location"
@@ -87,7 +99,9 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
               />
             </div>
             <div className="muted small" style={{ marginTop: 6 }}>
-              From the driver's live GPS trail during this trip, not the straight-line pickup-to-drop distance.
+              {track.googleDistanceKm != null
+                ? "Road distance (Google Maps) between the recorded start and end GPS points."
+                : "Sum of the driver's live GPS trail during this trip, not the straight-line pickup-to-drop distance."}
             </div>
           </section>
         ) : null}
@@ -95,7 +109,23 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
         <section className="rcpt-section">
           <h2>Patient</h2>
           <div className="grid">
-            <KV label="Name" value={booking.patientName ?? user?.name ?? "-"} />
+            {/* 2026-08-17 fix: the patient-info form is optional and rarely
+                filled in by real users (~1 in 6 completed bookings has
+                patientName set) — silently falling back to the ACCOUNT
+                HOLDER's name presented it as a confirmed patient identity,
+                which is often wrong (the booker isn't always the patient in
+                an emergency). Now explicitly labeled when it's a fallback. */}
+            <KV
+              label="Name"
+              value={
+                booking.patientName
+                  ? booking.patientName
+                  : user?.name
+                    ? <>{user.name} <span className="muted small">(booking contact · patient name not recorded)</span></>
+                    : "-"
+              }
+              fullWidth
+            />
             <KV label="Phone" value={user?.phone ?? "-"} />
             <KV label="Age" value={booking.patientAge ? `${booking.patientAge} years` : "-"} />
             <KV

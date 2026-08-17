@@ -5,6 +5,7 @@ import { apiUsage, bookingEvents, bookings, drivers, driverDocuments, driverDocu
 import { config } from "@jr/config";
 import { hashPassword } from "../password";
 import { haversineDistanceKm } from "@jr/utils";
+import { getLiveRoute } from "../google-maps";
 
 /**
  * v1.1.2 — recompute a driver's PRIMARY hospital from the join table and
@@ -230,6 +231,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
 
   app.get("/api/v1/admin/bookings/:id", adminGuard, async (req, reply) => {
     const id = (req.params as any).id as string;
+    // 2026-08-17: the live booking-detail page polls THIS SAME endpoint every
+    // 4s for as long as the tab is open (BookingDetailLive.tsx) — the Google
+    // road-distance enrichment below must never fire on that path, or one
+    // open admin tab burns the whole monthly free quota in hours. Strictly
+    // opt-in via ?enrichDistance=true, set only by the receipt page (fetched
+    // once per view, never polled).
+    const enrichDistance = (req.query as any)?.enrichDistance === "true";
     const [b] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
     if (!b) return reply.code(404).send({ error: "not_found" });
 
@@ -259,6 +267,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     let track: {
       pointCount: number;
       distanceKm: number | null;
+      googleDistanceKm: number | null;
       start: { lat: number; lng: number; recordedAt: string } | null;
       end: { lat: number; lng: number; recordedAt: string } | null;
     } | null = null;
@@ -277,9 +286,21 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       track = {
         pointCount: trackPoints.length,
         distanceKm: trackPoints.length >= 2 ? distanceKm : null,
+        googleDistanceKm: null,
         start: { lat: first.lat, lng: first.lng, recordedAt: first.recordedAt.toISOString() },
         end: { lat: last.lat, lng: last.lng, recordedAt: last.recordedAt.toISOString() }
       };
+      // 2026-08-17: real road distance between the recorded start/end, via the
+      // same Google Directions helper used for live ETA (FLAG_GOOGLE_ETA_ENABLED).
+      // The GPS-trail sum above is kept regardless — it's ground truth for what
+      // the driver's phone actually recorded; this is an additive, more precise
+      // reference distance shown in preference to it when available. We ignore
+      // the duration this call returns (it reflects CURRENT traffic, not the
+      // historical trip), only the distance is meaningful for a past ride.
+      if (enrichDistance && config.googleLiveEtaEnabled && trackPoints.length >= 2) {
+        const route = await getLiveRoute(first.lat, first.lng, last.lat, last.lng);
+        if (route) track.googleDistanceKm = route.distanceKm;
+      }
     }
 
     return reply.send({ booking: b, events, user: u, driver: d, track });
