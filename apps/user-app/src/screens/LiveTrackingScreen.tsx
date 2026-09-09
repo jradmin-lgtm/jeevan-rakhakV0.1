@@ -26,6 +26,7 @@ import { Booking, bookings as bookingsApi, safety as safetyApi } from "../api";
 import { getSocket } from "../socket";
 import { prettyEmergency } from "./HomeScreen";
 import { useT } from "../i18n";
+import { useMapConfig } from "../useMapConfig";
 
 type DriverProfile = {
   id: string;
@@ -93,6 +94,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
   // always holds the latest translate fn for those long-lived callbacks.
   const tRef = useRef(t);
   tRef.current = t;
+  const mapCfg = useMapConfig();
   const [booking, setBooking] = useState<Booking>(initial);
   const [driverPos, setDriverPos] = useState<{ lat: number; lng: number; ts: number } | null>(null);
   const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
@@ -596,6 +598,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
               ? { lat: booking.dropLat, lng: booking.dropLng, label: booking.dropAddress ?? t("live.pin_hospital_fallback") }
               : null}
             routePath={navRoute}
+          mapConfig={mapCfg}
             height={280}
           />
           {driverPos && mapDistanceKm != null && mapEtaMin != null ? (

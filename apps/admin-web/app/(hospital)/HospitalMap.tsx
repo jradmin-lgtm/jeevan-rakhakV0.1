@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useRef } from "react";
+import { useMapTiles } from "../useMapTiles";
 
 /**
  * Hospital-portal live map (CR#3, v1.2.0).
@@ -25,8 +26,9 @@ type Props = {
   height?: number;
 };
 
-const TILE_URL = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
-const TILE_ATTR = "© OpenStreetMap · © CARTO";
+// v2.2.0: tiles now come from the server (see app/api/map-config/route.ts).
+// They were hardcoded to CartoDB until 2026-09-09, when CARTO started
+// watermarking anonymous basemap requests and broke every map at once.
 
 export function HospitalMap({ ambulance, destination, routePath = null, height = 320 }: Props) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
@@ -41,7 +43,13 @@ export function HospitalMap({ ambulance, destination, routePath = null, height =
     routePath: routePath ?? null
   });
 
-  const srcDoc = useMemo(() => buildHtml(initialRef.current), []);
+  const tiles = useMapTiles();
+  // Keyed on the tile URL below, so the one-time rebuild when the server
+  // config lands is intentional and happens at most once per mount.
+  const srcDoc = useMemo(
+    () => buildHtml(initialRef.current, tiles.tileUrl, tiles.tileAttribution),
+    [tiles.tileUrl, tiles.tileAttribution]
+  );
 
   // Push updates into the iframe (animated, no reload).
   const routeKey = useMemo(() => {
@@ -76,11 +84,15 @@ export function HospitalMap({ ambulance, destination, routePath = null, height =
   );
 }
 
-function buildHtml(init: {
-  aLat: number | null; aLng: number | null;
-  dLat: number | null; dLng: number | null;
-  routePath: Array<[number, number]> | null;
-}): string {
+function buildHtml(
+  init: {
+    aLat: number | null; aLng: number | null;
+    dLat: number | null; dLng: number | null;
+    routePath: Array<[number, number]> | null;
+  },
+  tileUrl: string,
+  tileAttr: string
+): string {
   const initJson = JSON.stringify(init);
   return `<!doctype html>
 <html><head>
@@ -117,7 +129,7 @@ html,body,#map{height:100%;margin:0;padding:0;background:#eef2f7;font-family:-ap
   }
   var center = (INIT.aLat!=null)?[INIT.aLat,INIT.aLng]:(INIT.dLat!=null?[INIT.dLat,INIT.dLng]:[28.6139,77.2090]);
   var map=L.map('map',{zoomControl:true,attributionControl:true,scrollWheelZoom:true}).setView(center,13);
-  L.tileLayer('${TILE_URL}',{attribution:'${TILE_ATTR}',maxZoom:19,detectRetina:true}).addTo(map);
+  L.tileLayer(${JSON.stringify(tileUrl)},{attribution:${JSON.stringify(tileAttr)},maxZoom:19,detectRetina:true}).addTo(map);
   var ambMarker=(INIT.aLat!=null)?L.marker([INIT.aLat,INIT.aLng],{icon:makePin('Ambulance','')}).addTo(map):null;
   var destMarker=(INIT.dLat!=null)?L.marker([INIT.dLat,INIT.dLng],{icon:makePin('Hospital','dest')}).addTo(map):null;
   var navRoute=null, route=null;

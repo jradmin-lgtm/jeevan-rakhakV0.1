@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef } from "react";
 import "leaflet/dist/leaflet.css";
+import { useMapTiles } from "../../../useMapTiles";
 
 type Point = { lat: number; lng: number; label: string };
 
@@ -37,6 +38,12 @@ export function AdminLiveMap({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<import("leaflet").Map | null>(null);
   const markersRef = useRef<{ pickup?: import("leaflet").Marker; driver?: import("leaflet").Marker; drop?: import("leaflet").Marker }>({});
+  const tileLayerRef = useRef<import("leaflet").TileLayer | null>(null);
+  const tiles = useMapTiles();
+  // Read through a ref inside the create-once effect so resolving tiles
+  // never re-runs it; the effect below repoints the layer in place.
+  const tilesRef = useRef(tiles);
+  tilesRef.current = tiles;
 
   useEffect(() => {
     let cancelled = false;
@@ -44,7 +51,10 @@ export function AdminLiveMap({
       const L = await import("leaflet");
       if (cancelled || !containerRef.current || mapRef.current) return;
       const map = L.map(containerRef.current, { attributionControl: false }).setView([pickup.lat, pickup.lng], 13);
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", { maxZoom: 19 }).addTo(map);
+      tileLayerRef.current = L.tileLayer(tilesRef.current.tileUrl, {
+        maxZoom: 19,
+        attribution: tilesRef.current.tileAttribution
+      }).addTo(map);
       mapRef.current = map;
       markersRef.current.pickup = L.marker([pickup.lat, pickup.lng], { icon: pinIcon(L, pickup.label, "#E5322B") }).addTo(map);
       if (driver) markersRef.current.driver = L.marker([driver.lat, driver.lng], { icon: pinIcon(L, driver.label, "#1E5EFF") }).addTo(map);
@@ -85,6 +95,12 @@ export function AdminLiveMap({
       }
     })();
   }, [pickup.lat, pickup.lng, driver?.lat, driver?.lng, driver?.label, drop?.lat, drop?.lng]);
+
+  // v2.2.0: the tile source resolves asynchronously, so repoint the existing
+  // layer rather than rebuilding the map (which would drop pan/zoom state).
+  useEffect(() => {
+    tileLayerRef.current?.setUrl(tiles.tileUrl);
+  }, [tiles.tileUrl]);
 
   return <div ref={containerRef} style={{ height, borderRadius: 12, overflow: "hidden", background: "#EEF2F7" }} />;
 }

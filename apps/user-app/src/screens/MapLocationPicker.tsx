@@ -11,9 +11,10 @@ import {
 } from "react-native";
 import { WebView } from "react-native-webview";
 import * as Location from "expo-location";
-import { Button, Text, colors, radius, space } from "@jr/ui";
+import { Button, Text, buildPickerHtml, colors, radius, space } from "@jr/ui";
 import { useT } from "../i18n";
 import { places as placesApi } from "../api";
+import { useMapConfig } from "../useMapConfig";
 
 /**
  * v1.0.13 (revised): general-purpose map picker for both pickup and drop.
@@ -99,7 +100,11 @@ export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onCo
 
   // HTML is built ONCE per modal open. Subsequent coord changes go through
   // injectJavaScript(window.jrMap.flyTo) so the WebView never reloads.
-  const html = useMemo(() => buildHtml(startCenter, startZoom), [visible]);
+  const mapCfg = useMapConfig();
+  const html = useMemo(
+    () => buildPickerHtml(startCenter, startZoom, mapCfg),
+    [visible, mapCfg.provider, mapCfg.googleBrowserKey]
+  );
 
   // Reverse-geocode whatever's at the centre of the map. Debounced so a
   // long pan doesn't fire one request per frame.
@@ -431,52 +436,6 @@ export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onCo
   );
 }
 
-function buildHtml(initial: Coords, zoom: number): string {
-  // Same Leaflet stack as MapEmbed v1.0.12 — HTML built once, subsequent
-  // updates pushed in via injectJavaScript.
-  const tileUrl = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
-  const attr = "© OpenStreetMap · © CARTO";
-  return `<!doctype html>
-<html><head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" />
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
-<style>
-html,body,#map{height:100%;margin:0;padding:0;background:#eef2f7;font-family:-apple-system,Roboto,sans-serif}
-.leaflet-control-zoom,.leaflet-bottom.leaflet-right,.leaflet-control-attribution{display:none !important}
-</style>
-</head>
-<body>
-<div id="map"></div>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-<script>
-(function(){
-  var map = L.map('map', { zoomControl: false, attributionControl: false }).setView([${initial.lat}, ${initial.lng}], ${zoom});
-  L.tileLayer(${JSON.stringify(tileUrl)}, { attribution: ${JSON.stringify(attr)}, maxZoom: 19, detectRetina: true }).addTo(map);
-
-  var dt = null;
-  function postCenter() {
-    if (!window.ReactNativeWebView) return;
-    var c = map.getCenter();
-    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'center', lat: c.lat, lng: c.lng }));
-  }
-  map.on('move', function(){
-    if (dt) clearTimeout(dt);
-    dt = setTimeout(postCenter, 200);
-  });
-  setTimeout(postCenter, 50);
-
-  // Exposed so the React side can tell the map to fly to a search result
-  // or GPS fix without reloading the page.
-  window.jrMap = {
-    flyTo: function(lat, lng, zoomLevel) {
-      map.flyTo([lat, lng], zoomLevel || 17, { duration: 0.7 });
-    }
-  };
-})();
-</script>
-</body></html>`;
-}
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#EEF2F7" },

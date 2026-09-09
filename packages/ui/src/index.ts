@@ -15,6 +15,8 @@ export { IconBadge } from "./components/IconBadge";
 export { Skeleton } from "./components/Skeleton";
 export { MapPlaceholder } from "./components/MapPlaceholder";
 export { MapEmbed } from "./components/MapEmbed";
+export type { MapProviderConfig } from "./components/MapEmbed";
+export { buildPickerHtml } from "./maps/pickerHtml";
 export { fetchOsrmRoute } from "./maps/osrmRoute";
 export type { OsrmRoute } from "./maps/osrmRoute";
 export { ContactSupport, SUPPORT_EMAIL, SUPPORT_PHONE, SUPPORT_PHONE_DISPLAY } from "./components/ContactSupport";

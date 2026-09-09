@@ -31,6 +31,7 @@ import { LangToggle } from "../components/LangToggle";
 import { CancelRideSheet } from "../components/CancelRideSheet";
 import { WaitingRequestsPeek } from "../components/WaitingRequestsPeek";
 import { useT } from "../i18n";
+import { useMapConfig } from "../useMapConfig";
 
 type UserProfile = {
   id: string;
@@ -82,6 +83,7 @@ function statusToIndex(status: string): number {
 
 export function TripScreen({ booking: initial, onClose }: { booking: Booking; onClose: () => void }) {
   const { t } = useT();
+  const mapCfg = useMapConfig();
   const [booking, setBooking] = useState<Booking>(initial);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [busy, setBusy] = useState(false);
@@ -446,6 +448,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
             ? { lat: booking.dropLat, lng: booking.dropLng, label: booking.dropAddress ?? t("trip.pin_hospital_fallback") }
             : null}
           routePath={navRoute}
+          mapConfig={mapCfg}
           height={280}
         />
         {myPos && booking.status === "ACCEPTED" ? (

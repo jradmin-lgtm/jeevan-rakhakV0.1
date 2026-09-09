@@ -14,6 +14,7 @@ import { registerHospitalRoutes } from "./routes/hospital";
 import { registerSafetyRoutes } from "./routes/safety";
 import { registerDownloadRoutes } from "./routes/download";
 import { registerPlacesRoutes } from "./routes/places";
+import { registerMapConfigRoutes } from "./routes/map-config";
 import { emitEvent } from "./events";
 import { runDatabaseBackup } from "./backup";
 
@@ -131,6 +132,7 @@ async function bootstrap() {
   await registerSafetyRoutes(app);
   await registerDownloadRoutes(app);
   await registerPlacesRoutes(app);
+  await registerMapConfigRoutes(app);
 
   // Idempotent auto-migration so observability + per-ride OTP work on a
   // fresh Neon DB without an out-of-band step. Uses the raw postgres

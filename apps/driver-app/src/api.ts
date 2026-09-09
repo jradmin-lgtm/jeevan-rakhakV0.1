@@ -425,3 +425,34 @@ export const bookings = {
       body: { rating, feedback }
     })
 };
+
+// v2.2.0: server-driven map rendering config. Hardcoded CartoDB tile URLs used
+// to live in five places, two of them compiled into shipped APKs — when CARTO
+// began watermarking anonymous tiles on 2026-09-09 every map broke at once and
+// the only fix was a rebuild. The provider now comes from the server so the
+// next swap is an env var, not a redistribution cycle.
+export type MapConfig = {
+  provider: "google" | "osm";
+  googleBrowserKey: string;
+  tileUrl: string;
+  tileAttribution: string;
+};
+
+// Used until the fetch lands and whenever it fails. Deliberately NOT CartoDB.
+export const MAP_CONFIG_FALLBACK: MapConfig = {
+  provider: "osm",
+  googleBrowserKey: "",
+  tileUrl: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+  tileAttribution: "© OpenStreetMap contributors"
+};
+
+let mapConfigCache: Promise<MapConfig> | null = null;
+
+export const mapConfig = (): Promise<MapConfig> => {
+  if (!mapConfigCache) {
+    mapConfigCache = api<MapConfig>("/api/v1/map-config", { auth: false })
+      .then((c) => (c && c.provider ? c : MAP_CONFIG_FALLBACK))
+      .catch(() => MAP_CONFIG_FALLBACK);
+  }
+  return mapConfigCache;
+};

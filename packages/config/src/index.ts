@@ -120,7 +120,13 @@ export const config = {
   maps: {
     provider: optional("MAPS_PROVIDER", "mock") as "googlemaps" | "mapbox" | "mock",
     google: {
-      apiKey: process.env.GOOGLE_MAPS_API_KEY ?? ""
+      apiKey: process.env.GOOGLE_MAPS_API_KEY ?? "",
+      // v2.2.0: SEPARATE key for the client-side Maps JavaScript API. This one
+      // ships to every phone and browser that renders a map, so it MUST be a
+      // distinct, Maps-JS-only, quota-capped key — never `apiKey` above, which
+      // is server-side-only and can spend Directions/Places/Distance-Matrix
+      // quota. Empty = clients fall back to Leaflet + OSM (see routes/map-config.ts).
+      browserKey: process.env.GOOGLE_MAPS_BROWSER_KEY ?? ""
     },
     mapbox: {
       accessToken: process.env.MAPBOX_ACCESS_TOKEN ?? ""
