@@ -19,8 +19,6 @@ const API_BASE =
 
 // Matches the API's own fail-safe. Deliberately NOT CartoDB.
 const FALLBACK = {
-  provider: "osm" as const,
-  googleBrowserKey: "",
   tileUrl: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
   tileAttribution: "© OpenStreetMap contributors"
 };
@@ -34,7 +32,15 @@ export async function GET() {
     });
     if (!res.ok) return NextResponse.json(FALLBACK);
     const body = await res.json();
-    return NextResponse.json(body?.provider ? body : FALLBACK);
+    if (!body?.tileUrl) return NextResponse.json(FALLBACK);
+    // Tile fields ONLY. This route is public (middleware PUBLIC_PATHS) because
+    // both the admin and hospital-portal sessions read it, so it must never
+    // relay googleBrowserKey. admin-web renders with Leaflet and has no use
+    // for it; only the mobile apps consume the key, straight from the API.
+    return NextResponse.json({
+      tileUrl: body.tileUrl,
+      tileAttribution: body.tileAttribution ?? ""
+    });
   } catch {
     // A map that renders on free tiles beats a map that does not render.
     return NextResponse.json(FALLBACK);

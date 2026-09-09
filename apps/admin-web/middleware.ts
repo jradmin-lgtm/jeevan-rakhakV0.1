@@ -24,6 +24,12 @@ const PUBLIC_PATHS = [
   "/delete-account",
   "/download-apk",
   "/api/dl",
+  // v2.2.0: basemap provider for the Leaflet maps. Public because it is read
+  // by BOTH auth domains (admin session and hospital-portal session) and the
+  // upstream /api/v1/map-config is itself public. It exposes only the tile
+  // URL and attribution, never a credential: the Google browser key is used
+  // by the mobile apps, and admin-web reads only the tile fields.
+  "/api/map-config",
   "/user-app-icon.png",
   "/driver-app-icon.png",
   "/qr-download-apk.png",
