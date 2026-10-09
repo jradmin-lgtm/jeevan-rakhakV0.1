@@ -1,0 +1,11 @@
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),ts=require('typescript');
+const subject={};new Function('exports',ts.transpileModule(fs.readFileSync(require('node:path').join(__dirname,'../src/landmarks.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText)(subject);
+const {rankNearbyLandmarks}=subject;
+const place=(id,offset=0,name='Landmark '+id)=>({place_id:id,name,vicinity:'Bhojipura',types:['point_of_interest'],geometry:{location:{lat:28.48+offset,lng:79.44}}});
+test('nearest five real places are sorted within two kilometres',()=>{const result=rankNearbyLandmarks(Array.from({length:8},(_,i)=>place(String(i),i*.001)).reverse(),28.48,79.44);assert.deepEqual(result.map(p=>p.id),['0','1','2','3','4']);assert.equal(result[0].distanceMeters,0);assert.ok(result.every(p=>p.distanceMeters<=2000));});
+test('remote, malformed and unrecognised results are excluded',()=>{const result=rankNearbyLandmarks([null,{},place('far',1),{...place('bad'),geometry:{location:{lat:NaN,lng:79}}},{...place('type'),types:['postal_code']},place('ok')],28.48,79.44);assert.deepEqual(result.map(p=>p.id),['ok']);});
+test('duplicate ids and normalised names cannot occupy multiple choices',()=>{const result=rankNearbyLandmarks([place('a',0,'Temple'),place('b',.001,' TEMPLE '),place('a',.002,'Other'),place('c',.003,'School')],28.48,79.44);assert.deepEqual(result.map(p=>p.id),['a','c']);});
+test('saved labels stay inside the booking field limit',()=>{const result=rankNearbyLandmarks([{...place('x',0,'N'.repeat(300)),vicinity:'A'.repeat(300)}],28.48,79.44);assert.equal(result[0].name.length,160);assert.equal(result[0].label.length,240);});
+test('missing nearby places produces an empty list for manual entry',()=>assert.deepEqual(rankNearbyLandmarks([],28.48,79.44),[]));
+
+test('nearby listings for the same campus do not crowd out distinct landmarks',()=>{const result=rankNearbyLandmarks([place('hospital',0,'Hospital'),place('ward',.0001,'Hospital ward'),place('hospital-alias',.0002,'Hospital other name'),place('temple',.002,'Village temple'),place('school',.005,'Village school')],28.48,79.44);assert.deepEqual(result.map(p=>p.id),['hospital','temple','school']);assert.ok(result.every(p=>!('lat' in p)&&!('lng' in p)));});

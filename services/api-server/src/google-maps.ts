@@ -11,6 +11,7 @@
 import { sql } from "drizzle-orm";
 import { apiUsage, db } from "@jr/db";
 import { config } from "@jr/config";
+import { rankNearbyLandmarks, type NearbyLandmark } from "./landmarks";
 
 const FETCH_TIMEOUT_MS = 4000;
 
@@ -20,7 +21,7 @@ async function fetchWithTimeout(url: string): Promise<Response | null> {
   try {
     return await fetch(url, { signal: controller.signal });
   } catch (err) {
-    console.warn("[google-maps] request failed", err);
+    console.warn("[google-maps] request failed", err instanceof Error ? err.name : "UnknownError");
     return null;
   } finally {
     clearTimeout(timer);
@@ -375,4 +376,31 @@ async function resolveLocationUncached(lat: number, lng: number): Promise<Resolv
     }
     return { address: data.results[0].formatted_address, landmark };
   } catch (err) { console.warn("[google-maps] location resolution failed", err); return null; }
+}
+
+
+const nearbyLandmarkCache = new Map<string, { expires: number; value: Promise<NearbyLandmark[] | null> }>();
+export async function getNearbyLandmarks(lat: number, lng: number, language: "en" | "hi"): Promise<NearbyLandmark[] | null> {
+  if (!config.googlePlacesEnabled || !config.maps.google.apiKey) return null;
+  const cacheKey = `${lat.toFixed(5)},${lng.toFixed(5)},${language}`;
+  const cached = nearbyLandmarkCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) return cached.value;
+  const value = (async () => {
+    const response = await fetchWithTimeout(`https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=2000&language=${language}&key=${config.maps.google.apiKey}`);
+    if (!response?.ok) return null;
+    try {
+      const payload: any = await response.json();
+      const ok = payload.status === "OK" || payload.status === "ZERO_RESULTS";
+      void recordApiUsage("places_nearby", 1, ok, ok ? undefined : String(payload.status));
+      if (!ok || !Array.isArray(payload.results)) return null;
+      return rankNearbyLandmarks(payload.results, lat, lng);
+    } catch (error) {
+      console.warn("[landmarks] Provider response could not be read", error instanceof Error ? error.name : "UnknownError");
+      return null;
+    }
+  })();
+  if (nearbyLandmarkCache.size >= 256) nearbyLandmarkCache.delete(nearbyLandmarkCache.keys().next().value!);
+  nearbyLandmarkCache.set(cacheKey, { expires: Date.now() + 60_000, value });
+  if (await value === null) nearbyLandmarkCache.delete(cacheKey);
+  return value;
 }

@@ -7,6 +7,9 @@ const { io } = require(root + '/apps/driver-app/node_modules/socket.io-client');
 const base = env.TEST_API_BASE || 'http://127.0.0.1:4100', socketBase = env.TEST_SOCKET_BASE || 'http://127.0.0.1:4101';
 for (const url of [base, socketBase]) if (!['localhost', '127.0.0.1'].includes(new URL(url).hostname)) throw Error('Local endpoints required');
 const sign = claims => { const enc = x => Buffer.from(JSON.stringify(x)).toString('base64url'); const body=enc({alg:'HS256',typ:'JWT'})+'.'+enc({exp:Math.floor(Date.now()/1000)+3600,...claims});return body+'.'+crypto.createHmac('sha256',env.JWT_SECRET).update(body).digest('base64url'); };
+const cycles=Number(env.TEST_LOAD_CYCLES||3);
+const counts=(env.TEST_LOAD_COUNTS||'25,100,500').split(',').map(Number);
+if(!Number.isInteger(cycles)||cycles<3||cycles>720||counts.some(n=>!Number.isInteger(n)||n<1||n>500))throw Error('Load scope must be 1 to 500 rides and 3 to 720 cycles');
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const percentile=(xs,p)=>xs.length?Math.round([...xs].sort((a,b)=>a-b)[Math.min(xs.length-1,Math.floor(xs.length*p))]*10)/10:null;
 async function mapLimit(items,limit,fn){let cursor=0;await Promise.all(Array.from({length:Math.min(limit,items.length)},async()=>{for(;;){const i=cursor++;if(i>=items.length)return;await fn(items[i],i);}}));}
@@ -28,7 +31,7 @@ async function stage(count) {
   });
   await sleep(1000);
   const trafficStart=Date.now();
-  for(let cycle=0;cycle<3;cycle++){
+  for(let cycle=0;cycle<cycles;cycle++){
    const cycleStart=Date.now();
    await mapLimit(rides,100,async ride=>{
      const point={bookingId:ride.id,lat:28.4771+cycle*0.0001,lng:79.4381,ts:Date.now()};
@@ -36,6 +39,7 @@ async function stage(count) {
      await Promise.all([request('/api/v1/bookings/'+ride.id,ride.ut),request('/api/v1/driver/location-batch',ride.dt,{points:[point]})]);
    });
    await sleep(Math.max(0,5000-(Date.now()-cycleStart)));
+   if(cycles>12 && (cycle+1)%12===0)console.log(JSON.stringify({progress:true,rides:count,cycle:cycle+1,totalCycles:cycles,httpErrors,crossRide,gpsReceived}));
   }
   const trafficSeconds=(Date.now()-trafficStart)/1000;
   const sample=rides.slice(0,Math.min(25,count));
@@ -47,9 +51,9 @@ async function stage(count) {
   const batches=rides.map(ride=>({ride,points:Array.from({length:20},(_,i)=>({bookingId:ride.id,lat:28.4771+i*0.00001,lng:79.4381,ts:Date.now()-60000+i*1000}))}));
   const flushStart=Date.now();await mapLimit(batches,100,async({ride,points})=>{await request('/api/v1/driver/location-batch',ride.dt,{points});await request('/api/v1/driver/location-batch',ride.dt,{points});});
   const [duplicates]=await sql`SELECT count(*)::int AS n FROM (SELECT driver_id,recorded_at FROM driver_locations WHERE booking_id=ANY(${rides.map(r=>r.id)}::uuid[]) GROUP BY driver_id,recorded_at HAVING count(*)>1) d`;
-  const result={rides:count,connections:count*2,durationSeconds:Math.round((Date.now()-start)/100)/10,requests:httpTimes.length,responses,httpErrors,httpLatencyMs:{p50:percentile(httpTimes,.5),p95:percentile(httpTimes,.95),p99:percentile(httpTimes,.99),max:Math.round(Math.max(...httpTimes))},steadyRequestsPerSecond:Math.round(count*6/trafficSeconds*10)/10,connectErrors,connectP95Ms:percentile(connectTimes,.95),gpsExpected:count*3,gpsReceived,gpsDeliveryMs:{p95:percentile(deliveryTimes,.95),max:Math.max(...deliveryTimes)},crossRide,reconnectFailures,reconnectSample:sample.length,reconnectObservationMs:Date.now()-reconnectStart,offlinePoints:count*20,offlineFlushMs:Date.now()-flushStart,duplicateRows:duplicates.n};
+  const result={rides:count,connections:count*2,durationSeconds:Math.round((Date.now()-start)/100)/10,requests:httpTimes.length,responses,httpErrors,httpLatencyMs:{p50:percentile(httpTimes,.5),p95:percentile(httpTimes,.95),p99:percentile(httpTimes,.99),max:Math.round(Math.max(...httpTimes))},steadyRequestsPerSecond:Math.round(count*2*cycles/trafficSeconds*10)/10,connectErrors,connectP95Ms:percentile(connectTimes,.95),gpsExpected:count*cycles,gpsReceived,gpsDeliveryMs:{p95:percentile(deliveryTimes,.95),max:Math.max(...deliveryTimes)},crossRide,reconnectFailures,reconnectSample:sample.length,reconnectObservationMs:Date.now()-reconnectStart,offlinePoints:count*20,offlineFlushMs:Date.now()-flushStart,duplicateRows:duplicates.n};
   console.log(JSON.stringify(result));
-  assert.equal(httpErrors,0,'All expected local HTTP requests must succeed');assert.equal(connectErrors,0);assert.equal(crossRide,0);assert.equal(reconnectFailures,0);assert.equal(duplicates.n,0);assert.equal(gpsReceived,count*3,'No location updates lost in connected test');
+  assert.equal(httpErrors,0,'All expected local HTTP requests must succeed');assert.equal(connectErrors,0);assert.equal(crossRide,0);assert.equal(reconnectFailures,0);assert.equal(duplicates.n,0);assert.equal(gpsReceived,count*cycles,'No location updates lost in connected test');
   return result;
  } finally {
   sockets.forEach(s=>s.disconnect());
@@ -57,4 +61,4 @@ async function stage(count) {
   await sql`UPDATE drivers SET status='OFFLINE' WHERE id=ANY(${rides.map(r=>r.driverId)}::uuid[])`;
  }
 }
-(async()=>{const results=[];for(const n of [25,100,500])results.push(await stage(n));const report={environment:'Isolated local PostgreSQL 16, API and Socket.IO. Not a production hosting capacity guarantee.',scope:'Authenticated booking polls, GPS batch writes, per-ride socket delivery, 25-client reconnect and repeated offline batches. Public map providers, FCM, dispatch offers and cold hosting excluded.',results};if(env.TEST_RESULTS_FILE)fs.writeFileSync(env.TEST_RESULTS_FILE,JSON.stringify(report,null,2));})().catch(error=>{console.error(error);process.exitCode=1;}).finally(()=>sql.end());
+(async()=>{const results=[];for(const n of counts)results.push(await stage(n));const report={environment:'Isolated local PostgreSQL 16, API and Socket.IO. Not a production hosting capacity guarantee.',scope:'Authenticated booking polls, GPS batch writes, per-ride socket delivery, 25-client reconnect and repeated offline batches. Public map providers, FCM, dispatch offers and cold hosting excluded.',results};if(env.TEST_RESULTS_FILE)fs.writeFileSync(env.TEST_RESULTS_FILE,JSON.stringify(report,null,2));})().catch(error=>{console.error(error);process.exitCode=1;}).finally(()=>sql.end());

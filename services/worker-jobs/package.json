@@ -14,7 +14,7 @@
     "@jr/config": "workspace:*",
     "@jr/db": "workspace:*",
     "@types/node": "^25.6.0",
-    "drizzle-orm": "^0.36.4"
+    "drizzle-orm": "0.45.4"
   },
   "devDependencies": {
     "tsx": "^4.19.1",

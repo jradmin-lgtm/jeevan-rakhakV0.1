@@ -74,7 +74,7 @@ async function main() {
   check('Repeated complete rejected', (await request(`/api/v1/bookings/${winner.id}/complete`, drivers[0].token, {})).status === 409);
   const concurrent = await Promise.all(Array.from({ length: 8 }, () => request('/api/v1/bookings', users[2].token, input)));
   check('Concurrent create leaves one active user booking', concurrent.filter(r => r.status === 201).length === 1 && concurrent.every(r => [201, 409, 429].includes(r.status)), concurrent);
-  const sos = await request('/api/v1/bookings', users[3].token, { ...input, emergencyType: 'CARDIAC', isSos: true });
+  const sos = await request('/api/v1/bookings', users[3].token, { ...input, emergencyType: 'CARDIAC', isSos: true, pickupLandmark: 'Village temple north gate' });
   check('SOS created while no driver available', sos.status === 201, sos);
   const online = await request('/api/v1/driver/availability', drivers[2].token, { status: 'AVAILABLE', lat: input.pickupLat, lng: input.pickupLng });
   let queue;
@@ -85,6 +85,8 @@ async function main() {
   }
   check('Coming online recovers eligible pending SOS', online.status === 200 && queue.body.requests.some(r => r.id === sos.body.booking.id && r.is_sos), { online, queue });
   check('Incoming carries automated landmark field', queue.body.requests.every(r => 'pickup_landmark' in r));
+  const pending = await request('/api/v1/driver/sos-pending', drivers[2].token);
+  check('SOS polling preserves the confirmed landmark', pending.status === 200 && pending.body.sos.some(r => r.bookingId === sos.body.booking.id && r.pickupLandmark === 'Village temple north gate'), pending);
   if (process.env.TEST_IDENTITIES_FILE) fs.writeFileSync(process.env.TEST_IDENTITIES_FILE, JSON.stringify({ users, drivers, bookingIds: [b1.id,b2.id,sos.body.booking.id] }), { mode: 0o600 });
   if (process.env.TEST_RESULTS_FILE) fs.writeFileSync(process.env.TEST_RESULTS_FILE, JSON.stringify(results, null, 2));
   console.log(`${results.length} checks passed in isolated PostgreSQL.`);

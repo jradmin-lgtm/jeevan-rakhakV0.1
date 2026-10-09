@@ -211,6 +211,7 @@ export async function registerDriverRoutes(app: FastifyInstance) {
         pickupLat: r.booking.pickupLat,
         pickupLng: r.booking.pickupLng,
         pickupAddress: r.booking.pickupAddress,
+        pickupLandmark: r.booking.pickupLandmark,
         distanceKm: r.attempt.distanceKm,
         waveNumber: r.attempt.waveNumber
       }));

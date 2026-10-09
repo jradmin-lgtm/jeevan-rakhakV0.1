@@ -37,6 +37,7 @@ const bookingCreateSchema = z.object({
   pickupLat: z.number().finite().min(-90).max(90),
   pickupLng: z.number().finite().min(-180).max(180),
   pickupAddress: z.string().max(500).optional(),
+  pickupLandmark: z.string().trim().min(2).max(240).optional(),
   dropLat: z.number().finite().min(-90).max(90).optional(),
   dropLng: z.number().finite().min(-180).max(180).optional(),
   dropAddress: z.string().max(500).optional(),
@@ -261,7 +262,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
           pickupLat: data.pickupLat,
           pickupLng: data.pickupLng,
           pickupAddress: resolvedPickup?.address ?? data.pickupAddress ?? `${data.pickupLat}, ${data.pickupLng}`,
-          pickupLandmark: resolvedPickup?.landmark ?? null,
+          pickupLandmark: data.pickupLandmark ?? resolvedPickup?.landmark ?? null,
           dropLat: data.dropLat,
           dropLng: data.dropLng,
           dropAddress: data.dropAddress,
@@ -360,7 +361,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
             rating: d.rating,
             ratingCount: d.ratingCount
           };
-          if (d.lastLat != null && d.lastLng != null) {
+          if (["ACCEPTED", "ARRIVED", "PICKED_UP"].includes(b.status) && d.lastLat != null && d.lastLng != null) {
             driverPosition = {
               lat: d.lastLat,
               lng: d.lastLng,
@@ -409,6 +410,10 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       const [b] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
       if (!b) return reply.code(404).send({ error: "not_found" });
       if (!await canReadBooking(b, req.user)) return reply.code(403).send({ error: "forbidden" });
+
+      if (!["ACCEPTED", "ARRIVED", "PICKED_UP"].includes(b.status)) {
+        return reply.send({ available: false, reason: "ride_not_active" });
+      }
 
       if (!config.googleLiveEtaEnabled || !b.driverId) {
         return reply.send({ available: false });

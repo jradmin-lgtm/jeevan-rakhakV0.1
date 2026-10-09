@@ -32,7 +32,7 @@ declare module "@fastify/jwt" {
 }
 
 const app = Fastify({
-  logger: { level: process.env.LOG_LEVEL ?? "info" },
+  logger: { level: process.env.LOG_LEVEL ?? "info", redact: ["req.headers.authorization", "req.headers.cookie", "req.headers[\"x-admin-key\"]", "req.headers[\"x-internal-secret\"]", "res.headers[\"set-cookie\"]"] },
   bodyLimit: 256 * 1024,
   trustProxy: true
 });

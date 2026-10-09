@@ -53,6 +53,7 @@ type RunnerState = {
   userId: string;
   emergencyType: string;
   pickupAddress: string | null;
+  pickupLandmark: string | null;
   displayId: string | null;
   patientName: string | null;
   createdAt: string;
@@ -230,6 +231,7 @@ async function runWave(app: FastifyInstance, state: RunnerState): Promise<void> 
         pickupLat: state.pickupLat,
         pickupLng: state.pickupLng,
         pickupAddress: state.pickupAddress,
+        pickupLandmark: state.pickupLandmark,
         // v1.2.0 (CR#1): include displayId/patientName/createdAt so the driver's
         // unified-queue socket merge shows the correct id + request age
         // immediately, not just after the next /driver/incoming poll reconcile.
@@ -297,6 +299,7 @@ export async function startCascade(app: FastifyInstance, bookingId: string): Pro
     userId: b.userId,
     emergencyType: b.emergencyType,
     pickupAddress: b.pickupAddress,
+    pickupLandmark: b.pickupLandmark,
     displayId: b.displayId ?? null,
     patientName: b.patientName ?? null,
     createdAt: b.createdAt ? new Date(b.createdAt).toISOString() : new Date().toISOString(),

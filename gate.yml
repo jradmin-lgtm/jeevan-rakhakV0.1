@@ -1,0 +1,22 @@
+# Jeevan Rakshak build gate. Two standing rules live here as seams: DDL and startup hardening
+# must exit(1) and never catch-and-warn (v1.0.7 broke silently), and Render autodeploy is
+# unreliable so a push is not a deploy.
+
+loud:
+  paths:
+    - services/**/src/**/*.ts
+    - services/**/src/**/*.js
+    - packages/**/src/**/*.ts
+  watch: [services/**/*.ts, packages/**/*.ts]
+
+supplied:
+  sources: [services/**/src/**/*.ts, apps/**/src/**/*.ts]
+  providers: [.env*, services/**/.env*, apps/**/.env*]
+  declared: [NODE_ENV, PORT, RENDER_GIT_COMMIT, BUILD_SHA]
+  watch: [services/**/*.ts, apps/**/*.ts, .env*, gate.yml]
+
+# observed is the Render autodeploy check: after a push, the deployed commit must equal HEAD.
+# OFF until the api base_url is set here, because a red from an unreachable host is noise.
+observed:
+  off: true
+  health_path: /health

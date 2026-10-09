@@ -9,7 +9,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { config } from "@jr/config";
-import { getPlaceDetails, getPlacesAutocomplete, resolveLocation } from "../google-maps";
+import { getPlaceDetails, getPlacesAutocomplete, resolveLocation, getNearbyLandmarks } from "../google-maps";
 
 const autocompleteSchema = z.object({
   input: z.string().min(1).max(200),
@@ -22,6 +22,21 @@ const detailsSchema = z.object({
 });
 
 export async function registerPlacesRoutes(app: FastifyInstance) {
+  app.get("/api/v1/places/landmarks", {
+    preHandler: [(app as any).authenticate],
+    config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 20, timeWindow: "1 minute" } }
+  }, async (req: any, reply) => {
+    const parsed = z.object({
+      lat: z.coerce.number().finite().min(-90).max(90),
+      lng: z.coerce.number().finite().min(-180).max(180),
+      language: z.enum(["en", "hi"]).default("en")
+    }).safeParse(req.query);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_coordinates" });
+    const result = await getNearbyLandmarks(parsed.data.lat, parsed.data.lng, parsed.data.language);
+    if (result === null) return reply.code(503).send({ error: "landmark_suggestions_unavailable", manualEntryAvailable: true });
+    reply.header("Cache-Control", "private, no-store");
+    return reply.send({ landmarks: result, radiusMeters: 2000, provider: "google" });
+  });
   app.get("/api/v1/places/reverse", {
     preHandler: [(app as any).authenticate],
     config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 30, timeWindow: "1 minute" } }
