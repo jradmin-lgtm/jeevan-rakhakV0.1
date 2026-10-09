@@ -22,10 +22,11 @@
  * distinction only matters on iOS) — it can call the app's normal
  * getSocket()/API helpers directly, same as any other module.
  */
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
 import { getSocket } from "./socket";
-import { driver as driverApi } from "./api";
+import { queueLocation, flushLocationQueue } from "./locationQueue";
 
 export const LOCATION_TASK_NAME = "jr-driver-background-location";
 
@@ -37,35 +38,37 @@ let activeBookingId: string | null = null;
 // matching the previous foreground-only cadence — every fix still goes out
 // over the socket for the live map, just not every fix needs a DB write.
 let tickCount = 0;
-
-TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: { data?: any; error?: unknown }) => {
-  if (error || !data) return;
-  const locations = data.locations as Array<{ coords: { latitude: number; longitude: number; speed?: number | null; heading?: number | null } }> | undefined;
-  if (!locations || locations.length === 0) return;
-  const fix = locations[locations.length - 1]; // most recent, in case several queued up
-  const bookingId = activeBookingId;
-  if (!bookingId) return; // no active trip — drop the fix, don't guess a target
-
-  const lat = fix.coords.latitude;
-  const lng = fix.coords.longitude;
-  const speedKmh = fix.coords.speed != null && fix.coords.speed >= 0 ? fix.coords.speed * 3.6 : undefined;
-  const headingDeg = fix.coords.heading != null && fix.coords.heading >= 0 ? fix.coords.heading : undefined;
-
+let lastFixAt = 0;
+export async function publishTripFix(bookingId: string, fix: { coords: { latitude: number; longitude: number; speed?: number | null; heading?: number | null; accuracy?: number | null }; timestamp: number }) {
+  if (!Number.isFinite(fix.timestamp) || fix.timestamp <= lastFixAt || fix.timestamp > Date.now() + 10_000 || Date.now() - fix.timestamp > 24 * 60 * 60_000 || (fix.coords.accuracy != null && fix.coords.accuracy > 100)) return;
+  const lat = fix.coords.latitude, lng = fix.coords.longitude;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) throw new Error("GPS coordinates are out of range");
+  lastFixAt = fix.timestamp;
+  const speedKmh = fix.coords.speed != null && fix.coords.speed >= 0 && fix.coords.speed <= 300 / 3.6 ? fix.coords.speed * 3.6 : undefined;
+  const headingDeg = fix.coords.heading != null && fix.coords.heading >= 0 && fix.coords.heading <= 360 ? fix.coords.heading : undefined;
+  tickCount += 1;
+  if (tickCount === 1 || tickCount % 3 === 0) {
+    await queueLocation({ bookingId, lat, lng, speedKmh, headingDeg, ts: fix.timestamp });
+    void flushLocationQueue().catch(error => console.error("[gps] location saved for reconnect", error));
+  }
   try {
     const sock = await getSocket();
-    sock.emit("driver:location", { bookingId, lat, lng, speedKmh, headingDeg, ts: Date.now() });
-  } catch {
-    /* socket unavailable this tick — the 15s API persistence below is the fallback */
-  }
+    if (sock.connected && Date.now() - fix.timestamp <= 60_000) sock.volatile.emit("driver:location", { bookingId, lat, lng, speedKmh, headingDeg, ts: fix.timestamp });
+  } catch (error) { console.error("[gps] realtime unavailable; sampled fixes are saved in the queue", error); }
 
-  tickCount += 1;
-  if (tickCount % 3 === 0) {
-    try {
-      await driverApi.pushLocation(lat, lng, bookingId, speedKmh, headingDeg);
-    } catch {
-      /* best-effort — next persisted tick will catch up */
-    }
+}
+
+
+TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: { data?: any; error?: unknown }) => {
+  if (error) { console.error("[gps] background task failed", error); return; }
+  if (!data?.locations?.length) return;
+  try {
+    const bookingId = await AsyncStorage.getItem("jr_active_tracking_booking");
+    if (!bookingId) return;
+    const ordered = [...data.locations].sort((a, b) => a.timestamp - b.timestamp);
+    for (const fix of ordered) await publishTripFix(bookingId, fix);
   }
+  catch (err) { console.error("[gps] location delivery failed", err); }
 });
 
 /**
@@ -76,21 +79,23 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: { data?: any;
  * as before this feature existed — never crashes the trip flow over a
  * permission the driver declined.
  */
-export async function startBackgroundLocationTracking(bookingId: string): Promise<void> {
+export async function startBackgroundLocationTracking(bookingId: string): Promise<boolean> {
   activeBookingId = bookingId;
+  lastFixAt = 0;
   tickCount = 0;
   try {
+    await AsyncStorage.setItem("jr_active_tracking_booking", bookingId);
     const fg = await Location.getForegroundPermissionsAsync();
-    if (!fg.granted) return; // foreground must already be granted (TripScreen requests it separately)
+    if (!fg.granted) throw new Error("foreground_location_permission_required"); // foreground must already be granted (TripScreen requests it separately)
     const bg = await Location.getBackgroundPermissionsAsync();
     if (!bg.granted) {
       const req = await Location.requestBackgroundPermissionsAsync();
-      if (!req.granted) return;
+      if (!req.granted) return false;
     }
-    const already = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME).catch(() => false);
-    if (already) return;
+    const already = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+    if (already) return true;
     await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
-      accuracy: Location.Accuracy.Balanced,
+      accuracy: Location.Accuracy.High,
       timeInterval: 5000,
       distanceInterval: 0,
       showsBackgroundLocationIndicator: true,
@@ -100,7 +105,10 @@ export async function startBackgroundLocationTracking(bookingId: string): Promis
         notificationColor: "#E5322B"
       }
     });
-  } catch {
+    return true;
+  } catch (err) {
+    console.error("[gps] background tracking unavailable", err);
+    return false;
     /* best-effort — a permission/OS refusal here must never block starting the trip */
   }
 }
@@ -108,9 +116,8 @@ export async function startBackgroundLocationTracking(bookingId: string): Promis
 export async function stopBackgroundLocationTracking(): Promise<void> {
   activeBookingId = null;
   try {
-    const already = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME).catch(() => false);
+    await AsyncStorage.removeItem("jr_active_tracking_booking");
+    const already = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
     if (already) await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
-  } catch {
-    /* best-effort */
-  }
+  } catch (error) { console.error("[gps] could not stop background tracking", error); throw error; }
 }

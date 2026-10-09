@@ -38,6 +38,7 @@ type Driver = {
   vehicleNumber?: string | null;
   status: string;
   rating: number;
+  ratingCount?: number;
   lastSeenAt?: string | null;
   isDemo?: boolean;
   disabled?: boolean;
@@ -56,6 +57,7 @@ export function LiveDashboard({
   initialDrivers: Driver[];
   apiBase: string;
 }) {
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const [stats, setStats] = useState<Stats>(initialStats);
   const [bookings, setBookings] = useState<Booking[]>(initialBookings);
   const [drivers, setDrivers] = useState<Driver[]>(initialDrivers);
@@ -75,9 +77,10 @@ export function LiveDashboard({
         const [sRes, bRes, dRes] = await Promise.all([
           adminFetch(`${apiBase}/api/v1/admin/dashboard`),
           adminFetch(`${apiBase}/api/v1/admin/bookings`),
-          adminFetch(`${apiBase}/api/v1/admin/drivers`)
+          adminFetch(`${apiBase}/api/v1/admin/drivers?limit=6`)
         ]);
         if (!alive) return;
+        setRefreshError(sRes.ok && bRes.ok && dRes.ok ? null : "Some live data could not refresh. Showing the last received values.");
         if (sRes.ok) {
           const s = await sRes.json();
           if (alive) setStats(s);
@@ -93,7 +96,9 @@ export function LiveDashboard({
         // Only stamp "refreshed at" when something actually refreshed — a
         // fully-failed tick must not claim a fresh update over stale data.
         if (alive && (sRes.ok || bRes.ok || dRes.ok)) setUpdatedAt(formatTimeIST(new Date()));
-      } catch {
+      } catch (err) {
+        console.error("[ops] dashboard refresh failed", err);
+        if (alive) setRefreshError("Connection interrupted. Showing the last received values.");
         /* keep last good */
       }
     };
@@ -107,6 +112,7 @@ export function LiveDashboard({
 
   return (
     <>
+      {refreshError ? <div role="alert" className="card" style={{ color: "var(--danger)" }}>{refreshError}</div> : null}
       <div className="page-header">
         <div>
           <h1>Live operations</h1>
@@ -213,7 +219,7 @@ export function LiveDashboard({
                       <span className="muted" style={{ fontSize: 12 }}>{d.phone}</span>
                     </div>
                     <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                      {d.vehicleNumber ?? "Vehicle pending"} · ⭐ {d.rating?.toFixed(1) ?? "5.0"}
+                      {d.vehicleNumber ?? "Vehicle pending"} · {d.ratingCount ? `★ ${d.rating.toFixed(1)}` : "Not rated yet"}
                     </div>
                   </div>
                   {d.disabled ? (

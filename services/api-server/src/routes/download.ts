@@ -35,9 +35,7 @@ export async function registerDownloadRoutes(app: FastifyInstance) {
     try {
       await sql`INSERT INTO app_events (type, app, ip, user_agent)
                 VALUES ('visit', ${a}, ${clientIp(req)}, ${(req.headers["user-agent"] ?? "").toString().slice(0, 400)})`;
-    } catch {
-      /* analytics is best-effort — never block the page */
-    }
+    } catch (error) { console.warn("download.ts.registerDownloadRoutes failed"); }
     return { ok: true };
   });
 

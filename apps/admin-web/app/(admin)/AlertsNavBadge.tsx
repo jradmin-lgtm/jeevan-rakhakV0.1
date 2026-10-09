@@ -24,9 +24,7 @@ export function AlertsNavBadge() {
         const data = await res.json();
         if (!alive) return;
         setActive(Number(data?.active ?? 0));
-      } catch {
-        /* keep last good */
-      }
+      } catch (error) { console.warn("AlertsNavBadge.tsx.tick failed"); }
     };
     void tick();
     const id = setInterval(tick, POLL_MS);

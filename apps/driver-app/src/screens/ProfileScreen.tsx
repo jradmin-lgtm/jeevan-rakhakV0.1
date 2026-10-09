@@ -29,15 +29,17 @@ export function ProfileScreen({ initial, onBack, onUpdated, onManageDocuments }:
   const shareApp = async () => {
     try {
       await Share.share({ message: t("share.message").replace("{link}", SHARE_LINK) });
-    } catch {
-      /* user dismissed the share sheet — nothing to do */
+    } catch (error: any) {
+      console.warn("driver_profile_share_failed", error?.message);
+      void dialog.alert(lang === "hi" ? "शेयर नहीं हुआ" : "Could not share", lang === "hi" ? "फिर कोशिश करें।" : "Please try again.");
     }
   };
 
   const save = async () => {
+    if (busy || !name.trim()) return;
     setBusy(true);
     try {
-      const r = await me.update({ name });
+      const r = await me.update({ name: name.trim() });
       onUpdated(r.profile);
       void dialog.alert(t("profile.saved_title"), t("profile.saved_body"));
       onBack();
@@ -49,23 +51,24 @@ export function ProfileScreen({ initial, onBack, onUpdated, onManageDocuments }:
   };
 
   return (
-    <Screen>
-      <AppHeader title={t("profile.header_title")} subtitle={t("profile.header_subtitle")} onBack={onBack} right={<LangToggle />} />
+    <Screen
+      header={<AppHeader title={t("profile.header_title")} subtitle={t("profile.header_subtitle")} onBack={onBack} right={<LangToggle />} />}
+      footer={<Button label={t("profile.save_changes")} onPress={save} loading={busy} disabled={busy || !name.trim()} fullWidth size="lg" testID="save-profile" />}
+    >
 
       <Card>
         <View style={{ gap: space.md }}>
           <Text variant="label" tone="secondary">{t("profile.section_editable")}</Text>
           <Input label={t("profile_setup.name_label")} value={name} onChangeText={setName} placeholder={t("profile.name_placeholder_hint")} />
-          <Button label={t("profile.save_changes")} onPress={save} loading={busy} fullWidth testID="save-profile" />
         </View>
       </Card>
 
       <Card>
         <View style={{ gap: space.md }}>
           <Text variant="label" tone="secondary">{t("profile.section_account")}</Text>
-          <Row label={t("profile.row_phone")} value={initial?.phone ?? "-"} />
-          <Row label={t("profile.row_driver_id")} value={initial?.id ? `${initial.id.slice(0, 8)}…` : "-"} />
-          <Row label={t("profile.row_rating")} value={`⭐ ${(initial?.rating ?? 5).toFixed(1)}`} />
+          <Row label={t("profile.row_phone")} value={initial?.phone ?? "·"} />
+          <Row label={t("profile.row_driver_id")} value={initial?.id ? `${initial.id.slice(0, 8)}…` : "·"} />
+          <Row label={t("profile.row_rating")} value={initial?.ratingCount > 0 && Number.isFinite(initial?.rating) ? initial.rating.toFixed(1) : (lang === "hi" ? "अभी कोई रेटिंग नहीं" : "No ratings yet")} />
         </View>
       </Card>
 
@@ -80,7 +83,7 @@ export function ProfileScreen({ initial, onBack, onUpdated, onManageDocuments }:
             />
           </View>
           <Row label={t("profile.row_vehicle_number")} value={initial?.vehicleNumber ?? t("profile.not_on_file")} />
-          <Row label={t("kyc.field.vehicle_type")} value={initial?.vehicleType ?? "BLS"} />
+          <Row label={t("kyc.field.vehicle_type")} value={initial?.vehicleType ?? t("profile.not_on_file")} />
           <Row label={t("profile.row_licence")} value={initial?.licenseNumber ?? t("profile.not_on_file")} />
           <Text variant="tiny" tone="muted">
             {t("profile.vehicle_update_note")}
@@ -94,9 +97,10 @@ export function ProfileScreen({ initial, onBack, onUpdated, onManageDocuments }:
         * History / map picker rendered in Hindi (where strings are wired). */}
       <Card>
         <View style={{ gap: space.md }}>
-          <Text variant="label" tone="secondary">LANGUAGE</Text>
+          <Text variant="label" tone="secondary">{lang === "hi" ? "भाषा" : "Language"}</Text>
           <View style={{ flexDirection: "row", gap: space.sm }}>
             <Pressable
+              accessibilityRole="radio" accessibilityState={{ checked: lang === "en" }}
               onPress={() => switchLang("en")}
               style={[langStyles.pill, lang === "en" && langStyles.pillActive]}
               android_ripple={{ color: "rgba(229,50,43,0.1)" }}
@@ -106,6 +110,7 @@ export function ProfileScreen({ initial, onBack, onUpdated, onManageDocuments }:
               </Text>
             </Pressable>
             <Pressable
+              accessibilityRole="radio" accessibilityState={{ checked: lang === "hi" }}
               onPress={() => switchLang("hi")}
               style={[langStyles.pill, lang === "hi" && langStyles.pillActive]}
               android_ripple={{ color: "rgba(229,50,43,0.1)" }}
@@ -157,8 +162,8 @@ const langStyles = {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-      <Text variant="small" tone="secondary">{label}</Text>
-      <Text variant="body" weight="semi">{value}</Text>
+      <Text variant="small" tone="secondary" style={{ flex: 1, paddingRight: space.md }}>{label}</Text>
+      <Text variant="body" weight="semi" style={{ flex: 1, textAlign: "right" }}>{value}</Text>
     </View>
   );
 }

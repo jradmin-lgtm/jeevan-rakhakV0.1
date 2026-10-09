@@ -26,6 +26,54 @@ export const STORAGE_KEY = "jr.lang";
 type Dict = Record<string, string>;
 
 const en: Dict = {
+  "live.saved_eta": "Last estimated arrival",
+  "live.last_known_location": "Last known location",
+  "auth.google.app_role": "Patient app",
+  "auth.google.hero": "Book an ambulance. Stay connected.",
+  "auth.google.hero_hint": "Request help, share your pickup and follow the ambulance on its way.",
+  "auth.google.link_failed": "The privacy policy could not open. Check your internet connection and retry.",
+
+  "status.REQUESTED": "Searching",
+  "status.ACCEPTED": "Driver assigned",
+  "status.ARRIVED": "Driver arrived",
+  "status.PICKED_UP": "On the way to hospital",
+  "status.COMPLETED": "Completed",
+  "status.CANCELLED": "Cancelled",
+  "status.TIMED_OUT": "No driver found",
+  "history.load_failed": "Trip history could not refresh. Check your connection and retry.",
+  "history.retry": "Retry history",
+
+  "home.help_short": "Help",
+  "home.account_options": "Account and privacy",
+  "home.live_city": "Live in {city}",
+
+  "map_picker.renderer_failed": "The map could not load. Retry, or update Android System WebView in the Play Store.",
+  "map_picker.retry_map": "Retry map",
+  "map_picker.back": "Close map",
+  "map_picker.clear_search": "Clear search",
+
+  "offline.storage_error": "This ride could not be saved for offline use. Check device storage and retry.",
+  "offline.saved_ride": "Saved ride. Reconnecting to confirm the latest status. You can reopen the ride and view its saved details.",
+  "offline.refresh_failed": "Updates are unavailable. Saved ride details may be out of date. Reconnect to confirm changes.",
+  "live.route_cached": "Saved road route · distance and ETA may be out of date. Map tiles may be unavailable offline.",
+
+  "home.emergency_cta": "Emergency ambulance",
+  "home.book_services": "Pregnancy · Referral · OPD",
+  "home.refresh_failed": "Trip status could not refresh. Pull down to try again.",
+
+  "book.journey_title": "Where do you need to go?",
+  "book.journey_hint": "Set your pickup and choose an ambulance service.",
+  "book.current_location": "Current location",
+  "book.gps_ready": "GPS ready · tap to adjust pickup",
+  "book.pin_confirmed": "Map pin confirmed · tap to change",
+  "book.search_or_pin": "Search an address or choose on map",
+  "book.clear_drop": "Clear",
+  "book.estimate_label": "Estimated fare",
+  "book.estimate_pending": "Not available yet",
+  "book.request_ambulance": "Request ambulance",
+  "book.choose_type_hint": "Choose a request type to continue.",
+  "book.choose_pickup_hint": "Set a pickup location to continue.",
+
   // Greetings + home
   "home.greet.morning": "Good morning",
   "home.greet.afternoon": "Good afternoon",
@@ -110,7 +158,7 @@ const en: Dict = {
   "auth.google.subtitle": "Sign in with your Google account to continue",
   "auth.google.button": "Continue with Google",
   "auth.google.busy": "Signing in…",
-  "auth.google.why_google": "We use Google sign-in for your security. Your number is verified once and stays linked to your Google account.",
+  "auth.google.why_google": "Sign in securely with Google. Add a contact number so the care team can reach you.",
   "auth.google.error_cancelled": "Sign-in cancelled.",
   "auth.google.error_play_services": "Google Play Services isn't available on this device. Update it from the Play Store and try again.",
   "auth.google.error_email_used": "This Google account is already registered. If you don't recognise the account, contact support.",
@@ -186,6 +234,13 @@ const en: Dict = {
   "emergency.accident.sub": "Road accident, injury",
   "emergency.pregnancy.label": "Pregnancy",
   "emergency.pregnancy.sub": "Labour, neonatal",
+  "map_picker.address_unavailable": "Address lookup unavailable. The exact pin coordinates will be used.",
+  "map_picker.search_unavailable": "Search is unavailable. Move the map pin or try again.",
+  "map_picker.selection_failed": "This place could not be selected. Try again or move the map pin.",
+  "emergency.referral.label": "Referral Ambulance",
+  "emergency.referral.sub": "Hospital to hospital",
+  "emergency.opd.label": "OPD Ambulance",
+  "emergency.opd.sub": "Outpatient visit",
   "emergency.critical_transfer.label": "Critical transfer",
   "emergency.critical_transfer.sub": "Hospital to hospital",
   // CR3 (2026-08): separate from emergency.pregnancy.label above — that key's
@@ -254,7 +309,7 @@ const en: Dict = {
 
   "medical.saved_body": "Your medical profile has been updated.",
   "medical.save_error_title": "Could not save",
-  "medical.subtitle": "Shared with the ambulance crew during dispatch",
+  "medical.subtitle": "Care information for your ride",
   "medical.account_label": "ACCOUNT",
   "medical.edit_details_label": "EDIT MEDICAL DETAILS",
   "medical.name_placeholder": "As on hospital records",
@@ -264,7 +319,7 @@ const en: Dict = {
   "medical.allergies_placeholder": "Penicillin, asthma, etc.",
   "medical.emergency_contact_label": "Emergency contact",
   "medical.emergency_contact_placeholder": "Family or guardian phone",
-  "medical.privacy_note": "This information is only shared with the responding ambulance team.",
+  "medical.privacy_note": "Your care information is available to authorised operations staff and the receiving hospital supporting your ride.",
 
   "history.trips_count": "{count} trips so far",
   "history.empty_title": "No bookings yet",
@@ -297,7 +352,8 @@ const en: Dict = {
   "book.coupon_invalid": "That coupon isn't valid for this account.",
   "book.out_of_area_error": "Jeevan Rakshak is live in {city} only right now. We cannot dispatch to your location yet.",
   "book.create_error": "Could not create booking. Please try again.",
-  "book.emergency_type_label": "EMERGENCY TYPE",
+  "book.drop_pin_required": "Select the destination on the map to confirm its exact location.",
+  "book.emergency_type_label": "Request type",
   "book.pickup_location_label": "PICKUP LOCATION",
   "book.detecting_short": "Detecting…",
   "book.location_not_set": "Location not set",
@@ -385,6 +441,13 @@ const en: Dict = {
   "live.patient_save_error": "Could not save. Please try again.",
   "live.patient_details_label": "PATIENT DETAILS",
   "live.patient_details_note": "Helps our team prepare medical response. Only condition and notes go to the hospital · driver sees name only.",
+  "live.refresh_failed": "Connection interrupted. Showing the last received ride details.",
+  "live.location_stale": "Ambulance location is delayed. Contact the driver if needed.",
+  "live.route_traffic": "Traffic-aware route estimate",
+  "live.route_road": "Road estimate. Live traffic unavailable.",
+  "live.route_estimate": "Approximate estimate. Route unavailable.",
+  "live.attendant_name": "Attendant name",
+  "live.attendant_relation": "Relation with patient",
   "live.patient_name_label": "Patient name",
   "live.patient_name_placeholder": "Optional · helps the driver",
   "live.patient_age_label": "Age",
@@ -431,6 +494,54 @@ const en: Dict = {
 };
 
 const hi: Dict = {
+  "live.saved_eta": "पिछला अनुमानित समय",
+  "live.last_known_location": "आखिरी मिला स्थान",
+  "auth.google.app_role": "मरीज़ ऐप",
+  "auth.google.hero": "एम्बुलेंस बुलाएँ। जुड़े रहें।",
+  "auth.google.hero_hint": "मदद माँगें, पिकअप बताएँ और आती हुई एम्बुलेंस का स्थान देखें।",
+  "auth.google.link_failed": "गोपनीयता नीति नहीं खुल सकी। इंटरनेट कनेक्शन जाँचकर फिर प्रयास करें।",
+
+  "status.REQUESTED": "खोज जारी",
+  "status.ACCEPTED": "ड्राइवर मिला",
+  "status.ARRIVED": "ड्राइवर पहुँच गया",
+  "status.PICKED_UP": "अस्पताल जा रहे हैं",
+  "status.COMPLETED": "पूरा हुआ",
+  "status.CANCELLED": "रद्द हुआ",
+  "status.TIMED_OUT": "ड्राइवर नहीं मिला",
+  "history.load_failed": "राइड का इतिहास नहीं खुल सका। कनेक्शन जाँचकर फिर प्रयास करें।",
+  "history.retry": "फिर प्रयास करें",
+
+  "home.help_short": "सहायता",
+  "home.account_options": "खाता और गोपनीयता",
+  "home.live_city": "{city} में सेवा चालू",
+
+  "map_picker.renderer_failed": "नक्शा नहीं खुल सका। फिर प्रयास करें या Play Store में Android System WebView अपडेट करें।",
+  "map_picker.retry_map": "नक्शा फिर खोलें",
+  "map_picker.back": "नक्शा बंद करें",
+  "map_picker.clear_search": "खोज साफ़ करें",
+
+  "offline.storage_error": "राइड को ऑफलाइन उपयोग के लिए सहेजा नहीं जा सका। फोन में खाली जगह जाँचकर फिर प्रयास करें।",
+  "offline.saved_ride": "सहेजी गई राइड। नई स्थिति के लिए कनेक्शन की कोशिश जारी है। राइड खोलकर सहेजी गई जानकारी देख सकते हैं।",
+  "offline.refresh_failed": "नई जानकारी उपलब्ध नहीं है। सहेजी गई राइड की स्थिति पुरानी हो सकती है। बदलाव की पुष्टि के लिए दोबारा कनेक्ट करें।",
+  "live.route_cached": "सहेजा हुआ रास्ता · दूरी और समय पुराने हो सकते हैं। ऑफलाइन में नक्शे के कुछ हिस्से उपलब्ध नहीं हो सकते।",
+
+  "home.emergency_cta": "आपातकालीन एम्बुलेंस",
+  "home.book_services": "गर्भावस्था · रेफ़रल · OPD",
+  "home.refresh_failed": "यात्रा की स्थिति अपडेट नहीं हुई। दोबारा कोशिश करने के लिए नीचे खींचें।",
+
+  "book.journey_title": "आपको कहाँ जाना है?",
+  "book.journey_hint": "पिकअप तय करें और एम्बुलेंस सेवा चुनें।",
+  "book.current_location": "वर्तमान स्थान",
+  "book.gps_ready": "GPS तैयार · पिकअप बदलने के लिए टैप करें",
+  "book.pin_confirmed": "मैप पिन तय है · बदलने के लिए टैप करें",
+  "book.search_or_pin": "पता खोजें या मैप पर चुनें",
+  "book.clear_drop": "हटाएँ",
+  "book.estimate_label": "अनुमानित किराया",
+  "book.estimate_pending": "अभी उपलब्ध नहीं",
+  "book.request_ambulance": "एम्बुलेंस बुलाएँ",
+  "book.choose_type_hint": "आगे बढ़ने के लिए अनुरोध प्रकार चुनें।",
+  "book.choose_pickup_hint": "आगे बढ़ने के लिए पिकअप स्थान चुनें।",
+
   // From the team's feedback doc — authoritative
   "home.greet.evening": "शुभ संध्या",
   "home.subtitle": "आपको आज क्या चाहिए?",
@@ -516,7 +627,7 @@ const hi: Dict = {
   "auth.google.subtitle": "जारी रखने के लिए अपने Google खाते से साइन इन करें",
   "auth.google.button": "Google से जारी रखें",
   "auth.google.busy": "साइन इन हो रहा है…",
-  "auth.google.why_google": "आपकी सुरक्षा के लिए हम Google साइन-इन का उपयोग करते हैं। आपका नंबर एक बार सत्यापित होता है और आपके Google खाते से जुड़ा रहता है।",
+  "auth.google.why_google": "Google से सुरक्षित साइन-इन करें। संपर्क नंबर जोड़ें ताकि सहायता टीम आपसे बात कर सके।",
   "auth.google.error_cancelled": "साइन इन रद्द किया गया।",
   "auth.google.error_play_services": "इस डिवाइस पर Google Play Services उपलब्ध नहीं है। Play Store से अपडेट करके फिर से कोशिश करें।",
   "auth.google.error_email_used": "यह Google खाता पहले से पंजीकृत है। यदि आप इसे नहीं पहचानते, तो सहायता से संपर्क करें।",
@@ -589,6 +700,13 @@ const hi: Dict = {
   "emergency.pregnancy.label": "गर्भावस्था",
   "emergency.pregnancy.sub": "प्रसव, नवजात",
   "emergency.pregnancy_neonatal.pill_label": "गर्भावस्था / नवजात",
+  "map_picker.address_unavailable": "पता नहीं मिल सका। चुने गए पिन के सटीक निर्देशांक उपयोग होंगे।",
+  "map_picker.search_unavailable": "खोज उपलब्ध नहीं है। मानचित्र पर पिन चुनें या फिर कोशिश करें।",
+  "map_picker.selection_failed": "स्थान नहीं चुना जा सका। फिर कोशिश करें या मानचित्र पर पिन चुनें।",
+  "emergency.referral.label": "रेफरल एम्बुलेंस",
+  "emergency.referral.sub": "अस्पताल से अस्पताल",
+  "emergency.opd.label": "ओपीडी एम्बुलेंस",
+  "emergency.opd.sub": "बाह्य रोगी परामर्श",
   "emergency.critical_transfer.label": "अस्पताल स्थानांतरण",
   "emergency.critical_transfer.sub": "अस्पताल से अस्पताल",
   "emergency.disclaimer.title": "आपातकालीन सहायता के बारे में",
@@ -648,7 +766,7 @@ const hi: Dict = {
 
   "medical.saved_body": "आपकी मेडिकल प्रोफ़ाइल अपडेट कर दी गई है।",
   "medical.save_error_title": "सेव नहीं हो सका",
-  "medical.subtitle": "डिस्पैच के दौरान एम्बुलेंस टीम के साथ साझा किया जाता है",
+  "medical.subtitle": "आपकी यात्रा के लिए स्वास्थ्य जानकारी",
   "medical.account_label": "अकाउंट",
   "medical.edit_details_label": "मेडिकल विवरण संपादित करें",
   "medical.name_placeholder": "जैसा अस्पताल के रिकॉर्ड में है",
@@ -658,7 +776,7 @@ const hi: Dict = {
   "medical.allergies_placeholder": "पेनिसिलिन, अस्थमा, आदि",
   "medical.emergency_contact_label": "आपातकालीन संपर्क",
   "medical.emergency_contact_placeholder": "परिवार या अभिभावक का फ़ोन नंबर",
-  "medical.privacy_note": "यह जानकारी केवल प्रतिक्रिया देने वाली एम्बुलेंस टीम के साथ साझा की जाती है।",
+  "medical.privacy_note": "आपकी स्वास्थ्य जानकारी यात्रा में सहायता करने वाले अधिकृत संचालन कर्मियों और प्राप्तकर्ता अस्पताल को उपलब्ध होती है।",
 
   "history.trips_count": "अब तक {count} यात्राएँ",
   "history.empty_title": "अभी तक कोई बुकिंग नहीं",
@@ -691,7 +809,8 @@ const hi: Dict = {
   "book.coupon_invalid": "यह कूपन इस अकाउंट के लिए मान्य नहीं है।",
   "book.out_of_area_error": "Jeevan Rakshak अभी केवल {city} में उपलब्ध है। हम अभी आपके स्थान पर डिस्पैच नहीं कर सकते।",
   "book.create_error": "बुकिंग नहीं बन सकी। कृपया फिर से कोशिश करें।",
-  "book.emergency_type_label": "आपातकालीन प्रकार",
+  "book.drop_pin_required": "सटीक स्थान की पुष्टि के लिए मानचित्र पर गंतव्य चुनें।",
+  "book.emergency_type_label": "अनुरोध प्रकार",
   "book.pickup_location_label": "पिकअप स्थान",
   "book.detecting_short": "खोजा जा रहा है…",
   "book.location_not_set": "स्थान सेट नहीं है",
@@ -779,6 +898,13 @@ const hi: Dict = {
   "live.patient_save_error": "सेव नहीं हो सका। कृपया फिर से कोशिश करें।",
   "live.patient_details_label": "मरीज़ का विवरण",
   "live.patient_details_note": "हमारी टीम को मेडिकल प्रतिक्रिया तैयार करने में मदद करता है। केवल स्थिति और नोट्स अस्पताल को भेजे जाते हैं · ड्राइवर को केवल नाम दिखता है।",
+  "live.refresh_failed": "कनेक्शन बाधित है। अंतिम प्राप्त जानकारी दिखाई जा रही है।",
+  "live.location_stale": "एम्बुलेंस का स्थान देर से मिल रहा है। ज़रूरत हो तो चालक से संपर्क करें।",
+  "live.route_traffic": "यातायात के अनुसार मार्ग अनुमान",
+  "live.route_road": "सड़क मार्ग का अनुमान। लाइव यातायात उपलब्ध नहीं है।",
+  "live.route_estimate": "अनुमानित समय। मार्ग उपलब्ध नहीं है।",
+  "live.attendant_name": "साथ आए व्यक्ति का नाम",
+  "live.attendant_relation": "मरीज़ से संबंध",
   "live.patient_name_label": "मरीज़ का नाम",
   "live.patient_name_placeholder": "वैकल्पिक · ड्राइवर की मदद करता है",
   "live.patient_age_label": "उम्र",
@@ -822,24 +948,20 @@ export async function hydrateLang(): Promise<void> {
     if (stored === "en" || stored === "hi") {
       currentLang = stored;
     }
-  } catch {
-    /* fall back to default */
-  }
+  } catch (error) { console.warn("i18n.ts.hydrateLang failed", error instanceof Error ? error.message : String(error)); }
 }
 
 export async function setLang(next: Lang): Promise<void> {
   currentLang = next;
   try {
     await AsyncStorage.setItem(STORAGE_KEY, next);
-  } catch {
-    /* persistence best-effort */
-  }
+  } catch (error) { console.warn("i18n.ts.setLang failed", error instanceof Error ? error.message : String(error)); }
   listeners.forEach((fn) => fn());
   // CR3 (2026-08): sync to the server so push-notification templates
   // localize too (see services/api-server/src/push-i18n.ts). Best-effort —
   // silently no-ops pre-login (no token yet); the next toggle after login
   // (or the next natural profile update) catches it up.
-  me.update({ preferredLang: next }).catch(() => {});
+  me.update({ preferredLang: next }).catch((error) => { console.warn("i18n.ts.setLang failed", error instanceof Error ? error.message : String(error)); });
 }
 
 export function t(key: string): string {

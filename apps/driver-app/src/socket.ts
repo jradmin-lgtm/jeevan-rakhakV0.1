@@ -12,28 +12,32 @@ import { SOCKET_BASE, getToken } from "./api";
 type Socket = any;
 
 let socket: Socket | null = null;
+let connecting: Promise<Socket> | null = null;
+let generation = 0;
 
-export async function getSocket(): Promise<Socket> {
-  if (socket?.connected) return socket;
-  if (socket) {
-    socket.connect();
+export function getSocket(): Promise<Socket> {
+  if (connecting) return connecting;
+  const epoch = generation;
+  connecting = (async () => {
+    const token = await getToken();
+    if (!token || epoch !== generation) throw new Error("Realtime session unavailable");
+    if (socket?.auth?.token !== token) { socket?.disconnect(); socket = null; }
+    if (!socket) {
+      const { io } = require("socket.io-client");
+      socket = io(SOCKET_BASE, {
+        auth: { token }, transports: ["websocket"], reconnectionAttempts: Infinity,
+        reconnectionDelay: 1000, reconnectionDelayMax: 15000, autoConnect: false
+      });
+      socket.on("connect_error", (error: Error) => console.warn("[realtime] connection unavailable", error.message));
+      socket.on("session:error", (event: { error: string }) => console.warn("[realtime] session rejected", event.error));
+    }
+    if (!socket.connected) socket.connect();
     return socket;
-  }
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { io } = require("socket.io-client");
-  const token = await getToken();
-  socket = io(SOCKET_BASE, {
-    auth: token ? { token } : undefined,
-    transports: ["websocket"],
-    reconnectionAttempts: 5,
-    reconnectionDelay: 1000
-  });
-  return socket;
+  })().finally(() => { connecting = null; });
+  return connecting;
 }
 
 export function disconnectSocket() {
-  if (socket) {
-    socket.disconnect();
-    socket = null;
-  }
+  generation += 1;
+  if (socket) { socket.disconnect(); socket = null; }
 }

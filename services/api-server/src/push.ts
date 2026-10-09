@@ -58,7 +58,7 @@ export async function sendPush(
   try {
     const client = await a.auth.getClient();
     const accessToken = (await client.getAccessToken()).token;
-    if (!accessToken) return;
+    if (!accessToken) throw new Error("FCM access token unavailable");
     // v1.2.8: tag every ride/SOS push by bookingId so (a) successive pushes for
     // the SAME booking COLLAPSE in the tray instead of stacking and (b) a later
     // data-only dismiss can target this exact tray notification and clear it.
@@ -74,7 +74,7 @@ export async function sendPush(
     const android: Record<string, unknown> = {
       priority: "HIGH",
       notification: {
-        sound: "default",
+        sound: channelId === "sos_alerts_v2" ? "jr_sos_buzzer" : "default",
         ...(bookingId ? { tag: bookingId } : {}),
         ...(channelId ? { channel_id: channelId } : {})
       }
@@ -84,6 +84,7 @@ export async function sendPush(
       `https://fcm.googleapis.com/v1/projects/${a.projectId}/messages:send`,
       {
         method: "POST",
+        signal: AbortSignal.timeout(10_000),
         headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           message: {
@@ -123,11 +124,12 @@ export async function dismissPush(
   try {
     const client = await a.auth.getClient();
     const accessToken = (await client.getAccessToken()).token;
-    if (!accessToken) return;
+    if (!accessToken) throw new Error("FCM access token unavailable");
     const res = await fetch(
       `https://fcm.googleapis.com/v1/projects/${a.projectId}/messages:send`,
       {
         method: "POST",
+        signal: AbortSignal.timeout(10_000),
         headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           message: {
@@ -179,8 +181,8 @@ export async function pushToUser(
       .limit(1);
     const { title, body } = renderPushTemplate(key, u?.lang, vars);
     await sendPush(u?.t, title, body, data);
-  } catch {
-    /* swallow */
+  } catch (error) {
+    console.error("Push notification operation failed", error);
   }
 }
 
@@ -200,8 +202,8 @@ export async function pushToDriver(
       .limit(1);
     const { title, body } = renderPushTemplate(key, d?.lang, vars);
     await sendPush(d?.t, title, body, data, channelId);
-  } catch {
-    /* swallow */
+  } catch (error) {
+    console.error("Push notification operation failed", error);
   }
 }
 
@@ -213,8 +215,8 @@ export async function dismissPushToUser(userId: string, bookingId: string): Prom
   try {
     const [u] = await db.select({ t: users.pushToken }).from(users).where(eq(users.id, userId)).limit(1);
     await dismissPush(u?.t, bookingId);
-  } catch {
-    /* swallow */
+  } catch (error) {
+    console.error("Push notification operation failed", error);
   }
 }
 
@@ -226,7 +228,7 @@ export async function dismissPushToDriver(driverId: string, bookingId: string): 
   try {
     const [d] = await db.select({ t: drivers.pushToken }).from(drivers).where(eq(drivers.id, driverId)).limit(1);
     await dismissPush(d?.t, bookingId);
-  } catch {
-    /* swallow */
+  } catch (error) {
+    console.error("Push notification operation failed", error);
   }
 }

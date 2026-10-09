@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { ActivityIndicator, Animated, Image, Linking, Pressable, View } from "react-native";
-import { AppHeader, Button, Card, IconBadge, Screen, Text, colors, radius, space, useFadeIn, signInWithGoogle, switchGoogleAccount, JrGoogleSignInError } from "@jr/ui";
+import { GoogleSignInButton, AppHeader, Button, Card, IconBadge, Screen, Text, colors, radius, space, useFadeIn, signInWithGoogle, switchGoogleAccount, JrGoogleSignInError } from "@jr/ui";
 import { auth as authApi, setToken } from "../api";
 import { useT } from "../i18n";
 
@@ -58,7 +58,7 @@ export function GoogleLoginScreen({ onAuthenticated, onProfileSetupRequired }: P
       if (r.accessToken) {
         await setToken(r.accessToken);
         onAuthenticated(r.profile);
-      }
+      } else { throw new Error("Sign-in response is missing the access token"); }
     } catch (e) {
       const code = e instanceof JrGoogleSignInError ? e.code : null;
       if (code === "cancelled") {
@@ -90,10 +90,10 @@ export function GoogleLoginScreen({ onAuthenticated, onProfileSetupRequired }: P
   const busy = stage.kind === "google_busy";
 
   return (
-    <Screen>
+    <Screen bg={colors.surface} style={{ flexGrow: 1 }}>
       <AppHeader
-        title={t("auth.google.title")}
-        subtitle={t("auth.google.subtitle")}
+        title="Jeevan Rakshak"
+        subtitle={t("auth.google.app_role")}
         right={
           <Pressable
             onPress={() => void setLang(lang === "en" ? "hi" : "en")}
@@ -103,23 +103,28 @@ export function GoogleLoginScreen({ onAuthenticated, onProfileSetupRequired }: P
               alignItems: "center",
               gap: 4,
               paddingHorizontal: 12,
-              paddingVertical: 6,
-              backgroundColor: "rgba(30,94,255,0.10)",
+              paddingVertical: 8,
+              minHeight: 44,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.surface,
               borderRadius: 999
             }}
           >
-            <Text variant="small" weight="bold" style={{ color: lang === "en" ? colors.accent : "#94A3B8" }}>EN</Text>
+            <Text variant="small" weight="bold" style={{ color: lang === "en" ? colors.accent : colors.textMuted }}>EN</Text>
             <Text variant="small" tone="muted">|</Text>
-            <Text variant="small" weight="bold" style={{ color: lang === "hi" ? colors.accent : "#94A3B8" }}>हि</Text>
+            <Text variant="small" weight="bold" style={{ color: lang === "hi" ? colors.accent : colors.textMuted }}>हि</Text>
           </Pressable>
         }
       />
 
-      <Animated.View style={[fade, { alignItems: "center", paddingVertical: space.md }]}>
-        <IconBadge glyph="✚" size={84} bg={colors.primaryFaint} color={colors.primary} />
+      <Animated.View style={[fade, { alignItems: "flex-start", paddingVertical: space.xl, gap: space.lg }]}>
+        <IconBadge glyph="+" size={48} bg={colors.primaryFaint} color={colors.primary} />
+        <Text variant="title" style={{ maxWidth: 320 }}>{t("auth.google.hero")}</Text>
+        <Text variant="body" tone="secondary">{t("auth.google.hero_hint")}</Text>
       </Animated.View>
 
-      <Card>
+      <View style={{ gap: space.lg }}>
         <View style={{ gap: space.lg, alignItems: "stretch" }}>
           <Text variant="small" tone="secondary" align="center">
             {t("auth.google.why_google")}
@@ -127,8 +132,8 @@ export function GoogleLoginScreen({ onAuthenticated, onProfileSetupRequired }: P
 
           <GoogleSignInButton onPress={onPressSignIn} busy={busy} label={busy ? t("auth.google.busy") : t("auth.google.button")} />
 
-          <Pressable onPress={onPressSwitch} disabled={busy} hitSlop={8}>
-            <Text variant="small" weight="bold" align="center" style={{ color: busy ? "#94A3B8" : colors.accent }}>
+          <Pressable onPress={onPressSwitch} disabled={busy} accessibilityRole="button" style={{ minHeight: 48, justifyContent: "center" }}>
+            <Text variant="small" weight="bold" align="center" style={{ color: busy ? colors.textMuted : colors.accent }}>
               {t("auth.google.switch_account")}
             </Text>
           </Pressable>
@@ -139,82 +144,19 @@ export function GoogleLoginScreen({ onAuthenticated, onProfileSetupRequired }: P
             </View>
           ) : null}
 
-          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 4 }}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: 4 }}>
             <Text variant="tiny" tone="muted" align="center">{t("login.agree")}</Text>
-            <Pressable onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>
+            <Pressable accessibilityRole="link" onPress={() => Linking.openURL(PRIVACY_POLICY_URL).catch(error => { console.error("Privacy policy could not open", error); setErr(t("auth.google.link_failed")); })} style={{ minHeight: 44, justifyContent: "center" }}>
               <Text variant="tiny" weight="bold" style={{ color: colors.primary }}>{t("login.privacy")}</Text>
             </Pressable>
           </View>
         </View>
-      </Card>
+      </View>
 
       <View style={{ marginTop: space.xl, gap: space.xs, alignItems: "center" }}>
         <Text variant="tiny" tone="muted" align="center">{t("login.footer_care")}</Text>
         <Text variant="tiny" tone="muted" align="center">{t("login.driver_hint")}</Text>
       </View>
     </Screen>
-  );
-}
-
-/**
- * Google's brand guidelines say their "G" mark on a white-background button
- * with a 1px outline is the canonical CTA. We mirror that here so the button
- * is instantly recognisable and stays accessible (high contrast, large hit
- * target). All visual properties are inline — no theming — because changing
- * Google's brand colours violates their terms.
- */
-function GoogleSignInButton({ onPress, busy, label }: { onPress: () => void; busy: boolean; label: string }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={busy}
-      android_ripple={{ color: "rgba(0,0,0,0.06)" }}
-      style={({ pressed }) => ({
-        backgroundColor: "#fff",
-        borderColor: "#DADCE0",
-        borderWidth: 1,
-        borderRadius: radius.md,
-        paddingVertical: 14,
-        paddingHorizontal: space.lg,
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: space.md,
-        opacity: pressed || busy ? 0.85 : 1,
-        shadowColor: "#000",
-        shadowOpacity: 0.06,
-        shadowRadius: 4,
-        shadowOffset: { width: 0, height: 1 },
-        elevation: 1
-      })}
-    >
-      {busy ? <ActivityIndicator size="small" color="#4285F4" /> : <GoogleGlyph size={22} />}
-      <Text variant="body" weight="bold" style={{ color: "#3C4043", letterSpacing: 0.2 }}>{label}</Text>
-    </Pressable>
-  );
-}
-
-/**
- * Inline Google "G" glyph — uses Text glyphs so we don't ship a binary asset
- * for this single icon. The exact pixel art doesn't have to match Google's
- * SVG; the four-colour ring around the "G" is the recognisable cue.
- */
-function GoogleGlyph({ size }: { size: number }) {
-  return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        backgroundColor: "#fff",
-        alignItems: "center",
-        justifyContent: "center"
-      }}
-    >
-      {/* Layered border arcs — approximates the multicoloured G mark.
-        * Subtle and recognisable without infringing trademark precision. */}
-      <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: size / 2, borderWidth: 2, borderColor: "#4285F4", borderRightColor: "#34A853", borderBottomColor: "#FBBC05", borderLeftColor: "#EA4335" }} />
-      <Text style={{ fontSize: size * 0.62, fontWeight: "700", color: "#4285F4", lineHeight: size * 0.8 }}>G</Text>
-    </View>
   );
 }

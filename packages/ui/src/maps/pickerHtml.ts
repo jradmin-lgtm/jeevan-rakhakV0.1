@@ -1,3 +1,4 @@
+import { LEAFLET_JS, LEAFLET_CSS } from "./leafletAssets";
 import type { MapProviderConfig } from "../components/MapEmbed";
 
 /**
@@ -29,7 +30,7 @@ export function buildPickerHtml(
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" />
 <style>
 html,body,#map{height:100%;margin:0;padding:0;background:#eef2f7;font-family:-apple-system,Roboto,sans-serif}
-.leaflet-control-zoom,.leaflet-bottom.leaflet-right,.leaflet-control-attribution{display:none !important}
+.leaflet-control-attribution{font-size:9px;background:rgba(255,255,255,.9)}
 </style>
 </head>
 <body>
@@ -39,6 +40,7 @@ html,body,#map{height:100%;margin:0;padding:0;background:#eef2f7;font-family:-ap
   // drift between them.
   const emitJs = `
 var jrDt = null;
+function jrReady(){ window.__jrMapReady = true; if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'jr:map:ready', provider: window.__jrMapProvider })); }
 function jrPostCenter(lat, lng){
   if (!window.ReactNativeWebView) return;
   window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'center', lat: lat, lng: lng }));
@@ -54,34 +56,26 @@ window.__jrBootLeafletPicker = function(){
   // recovery, and the picker only ever boots Leaflet deliberately.
   if (window.__jrLeafletPickerBooting) return;
   window.__jrLeafletPickerBooting = true;
+  window.__jrMapProvider = "osm";
   function start(){
-    var map = L.map('map', { zoomControl: false, attributionControl: false }).setView([${initial.lat}, ${initial.lng}], ${zoom});
-    L.tileLayer(${JSON.stringify(tileUrl)}, { attribution: ${JSON.stringify(attr)}, maxZoom: 19, detectRetina: true }).addTo(map);
+    var map = L.map('map', { zoomControl: true, attributionControl: true }).setView([${initial.lat}, ${initial.lng}], ${zoom});
+    L.tileLayer(${JSON.stringify(tileUrl).replace(/</g, "\\u003c")}, { attribution: ${JSON.stringify(attr).replace(/</g, "\\u003c")}, maxZoom: 19, detectRetina: true }).addTo(map);
     map.on('move', function(){ jrOnMove(function(){ var c = map.getCenter(); return { lat: c.lat, lng: c.lng }; }); });
     setTimeout(function(){ var c = map.getCenter(); jrPostCenter(c.lat, c.lng); }, 50);
     window.jrMap = {
-      flyTo: function(lat, lng, zoomLevel){ map.flyTo([lat, lng], zoomLevel || 17, { duration: 0.7 }); }
+      flyTo: function(lat, lng, zoomLevel){ map.flyTo([lat, lng], zoomLevel || 17, { duration: 0.7, animate: !window.matchMedia("(prefers-reduced-motion: reduce)").matches }); }
     };
     window.__jrLeafletPickerBooting = false;
+    jrReady();
   }
   if (window.L) { start(); return; }
-  // Pinned leaflet@1.9.4 digests. Do not drop these when bumping the version.
-  var css = document.createElement('link');
-  css.rel = 'stylesheet';
-  css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-  css.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
-  css.crossOrigin = 'anonymous';
+  var css = document.createElement('style');
+  css.textContent = ${JSON.stringify(LEAFLET_CSS).replace(/</g, "\\u003c")};
   document.head.appendChild(css);
-  var s = document.createElement('script');
-  s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-  s.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
-  s.crossOrigin = 'anonymous';
-  s.onload = start;
-  s.onerror = function(){
-    var el = document.getElementById('map');
-    if (el) el.innerHTML = '<div style="display:flex;height:100%;align-items:center;justify-content:center;color:#64748B;font-size:13px">Map unavailable</div>';
-  };
-  document.body.appendChild(s);
+  var script = document.createElement('script');
+  script.textContent = ${JSON.stringify(LEAFLET_JS).replace(/</g, "\\u003c")};
+  document.body.appendChild(script);
+  start();
 };`;
 
   if (!useGoogle) {
@@ -103,6 +97,7 @@ ${leafletJs}
 window.jrGooglePickerInit = function(){
   try {
     if (window.jrMap) return;
+    window.__jrMapProvider = 'google';
     var map = new google.maps.Map(document.getElementById('map'), {
       center: { lat: ${initial.lat}, lng: ${initial.lng} },
       zoom: ${zoom},
@@ -113,12 +108,15 @@ window.jrGooglePickerInit = function(){
       clickableIcons: false,
       gestureHandling: 'greedy'
     });
+    window.__jrGooglePickerMap = map;
+    google.maps.event.addListenerOnce(map, "tilesloaded", function(){ window.__jrGooglePickerTilesReady = true; });
     map.addListener('center_changed', function(){
       jrOnMove(function(){ var c = map.getCenter(); return { lat: c.lat(), lng: c.lng() }; });
     });
     google.maps.event.addListenerOnce(map, 'idle', function(){
       var c = map.getCenter();
       jrPostCenter(c.lat(), c.lng());
+      jrReady();
     });
     window.jrMap = {
       flyTo: function(lat, lng, zoomLevel){
@@ -126,7 +124,7 @@ window.jrGooglePickerInit = function(){
         map.panTo({ lat: lat, lng: lng });
       }
     };
-  } catch (e) { window.__jrBootLeafletPicker(); }
+  } catch (e) { console.error("Google picker initialization failed; using backup map"); jrPickerFallback(); }
 };
 
 // Any Google failure degrades to Leaflet + OSM rather than leaving the picker
@@ -136,21 +134,23 @@ window.jrGooglePickerInit = function(){
 // key and only reports InvalidKeyMapError afterwards, so a "already built"
 // check would skip the recovery and strand the picker on a blank canvas.
 function jrPickerFallback(){
+  if (window.__jrMapProvider === "osm" && window.jrMap) return;
+  if (window.__jrGooglePickerMap && window.google && google.maps) google.maps.event.clearInstanceListeners(window.__jrGooglePickerMap);
   window.jrMap = null;
   var el = document.getElementById('map');
   if (el) el.innerHTML = '';
   window.__jrBootLeafletPicker();
 }
 function jrPickerRendered(){
-  return !!(document.querySelector('.gm-style') || document.querySelector('.leaflet-tile-pane'));
+  return !!(window.__jrGooglePickerTilesReady || document.querySelector('.leaflet-tile-pane'));
 }
 window.gm_authFailure = jrPickerFallback;
-setTimeout(function(){ if (!jrPickerRendered()) jrPickerFallback(); }, 6000);
+setTimeout(function(){ if (!jrPickerRendered()) jrPickerFallback(); }, 12000);
 </script>
 <!-- No SRI: the Maps JS bootstrap is generated per request and Google
      publishes no stable digest. The Leaflet fallback above IS pinned. -->
 <script async
   src="https://maps.googleapis.com/maps/api/js?key=${keyParam}&callback=jrGooglePickerInit&loading=async&v=weekly"
-  onerror="window.__jrBootLeafletPicker()"></script>
+  onerror="jrPickerFallback()"></script>
 </body></html>`;
 }

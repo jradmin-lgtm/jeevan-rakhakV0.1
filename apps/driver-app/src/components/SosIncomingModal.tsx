@@ -76,9 +76,7 @@ export function SosIncomingModal({ onAccept }: Props) {
           sock.off("sos:incoming", onIncoming);
           sock.off("sos:cancelled", onCancelled);
         };
-      } catch {
-        /* socket bootstrap failed — Dashboard will retry on next refresh */
-      }
+      } catch (error) { console.warn("SosIncomingModal.tsx.SosIncomingModal failed", error instanceof Error ? error.message : String(error)); }
     })();
     return () => {
       mounted = false;
@@ -113,9 +111,7 @@ export function SosIncomingModal({ onAccept }: Props) {
                 waveNumber: next.waveNumber
               }
         );
-      } catch {
-        /* keep last state — next tick retries */
-      }
+      } catch (error) { console.warn("SosIncomingModal.tsx.poll failed", error instanceof Error ? error.message : String(error)); }
     };
     void poll();
     const id = setInterval(poll, 8000);

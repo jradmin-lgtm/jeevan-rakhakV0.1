@@ -53,9 +53,7 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
             { status: res.status }
           );
         }
-      } catch {
-        /* fall through to passthrough */
-      }
+      } catch (error) { console.warn("route.ts.handle failed"); }
     }
 
     const out = new NextResponse(text, { status: res.status });

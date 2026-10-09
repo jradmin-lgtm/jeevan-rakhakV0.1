@@ -107,7 +107,7 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
           {/* Hospital assignment moved to the dedicated multi-select card
             * (DriverHospitals) — replaces the old free-text fields. */}
           <Field label="Primary hospital" value={driver.hospitalName ?? <span style={{ color: "var(--muted)" }}>- unassigned</span>} />
-          <Field label="Rating" value={`⭐ ${(driver.rating ?? 5).toFixed(1)}`} />
+          <Field label="Rating" value={(driver.ratingCount ?? 0) > 0 && driver.rating != null ? `★ ${driver.rating.toFixed(1)}` : "Not rated"} />
           <Field label="Last seen" value={driver.lastSeenAt ? formatIST(driver.lastSeenAt) : "-"} />
           <Field label="Joined" value={formatIST(driver.createdAt)} />
         </div>
@@ -189,7 +189,7 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
 
       <div className="card" style={{ marginTop: 16, padding: 0 }}>
         <div style={{ padding: 16, borderBottom: "1px solid var(--border)" }}>
-          <h3 style={{ margin: 0 }}>Trip history</h3>
+          <h3 style={{ margin: 0 }}>Recent trip history · latest 100</h3>
         </div>
         <div style={{ overflowX: "auto" }}>
           <table className="table">

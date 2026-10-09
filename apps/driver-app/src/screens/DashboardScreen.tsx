@@ -1,5 +1,12 @@
+import { PushStatusNotice } from "../components/PushStatusNotice";
+import { prettyEmergency } from "../formatEmergency";
+import { useFocusEffect } from "@react-navigation/native";
+import { stopBackgroundLocationTracking } from "../backgroundLocation";
+import { rideCache } from "../rideCache";
+import { PriorityAlertSettings } from "../components/PriorityAlertSettings";
+import { LocationSyncNotice } from "../components/LocationSyncNotice";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Animated, RefreshControl, View } from "react-native";
+import { Animated, Pressable, RefreshControl, View } from "react-native";
 import * as Location from "expo-location";
 import {
   AppHeader,
@@ -68,10 +75,17 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
   // v1.0.15: emit a "I'm online" heartbeat to the SOS cascade engine every
   // 60s while the toggle is on and the app is foregrounded. Pauses
   // automatically when backgrounded.
-  useDriverHeartbeat(available);
+  const heartbeatError = useDriverHeartbeat(available);
+  const [accountOpen, setAccountOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [activeTrip, setActiveTrip] = useState<Booking | null>(null);
+  const refreshingRef = useRef(false);
+  const focusedRef = useRef(false);
+  const cacheLoaded = useRef(false);
+  const [savedRide, setSavedRide] = useState(false);
+  const [cacheError, setCacheError] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const [todayCompleted, setTodayCompleted] = useState(0);
   const [myPos, setMyPos] = useState<{ lat: number; lng: number } | null>(null);
   // v1.4.0 (geofence): slim "Live in <city>" launch banner. Best-effort fetch of
@@ -123,31 +137,30 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
   const safetyDismissed = useRef<Set<string>>(new Set());
   const fade = useFadeIn();
 
-  // Get driver location once on mount + every 20s so dashboard ETA stays fresh
-  // without burning battery. Foreground permission only.
+  // Keep dispatch coordinates recent and avoid overlapping GPS requests.
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        await Location.requestForegroundPermissionsAsync();
-      } catch {
-        /* ignored */
-      }
-    })();
+    let mounted = true, busy = false;
     const tick = async () => {
+      if (busy) return;
+      busy = true;
+      let timeout: ReturnType<typeof setTimeout> | undefined;
       try {
-        const fix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        if (mounted) setMyPos({ lat: fix.coords.latitude, lng: fix.coords.longitude });
-      } catch {
-        /* keep prior fix */
-      }
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (!permission.granted) throw new Error("Location permission denied");
+        const fix = await Promise.race([
+          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+          new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("Location timed out")), 15_000); })
+        ]);
+        if (mounted && Date.now() - fix.timestamp < 60_000) setMyPos({ lat: fix.coords.latitude, lng: fix.coords.longitude });
+        else if (mounted) setMyPos(null);
+      } catch (error) {
+        console.warn("[dashboard] location unavailable", error);
+        if (mounted) setMyPos(null);
+      } finally { if (timeout) clearTimeout(timeout); busy = false; }
     };
     void tick();
-    const id = setInterval(tick, 20_000);
-    return () => {
-      mounted = false;
-      clearInterval(id);
-    };
+    const id = setInterval(() => void tick(), 20_000);
+    return () => { mounted = false; clearInterval(id); };
   }, []);
 
   // v1.4.0 (geofence): fetch the public service-area config once on mount for
@@ -160,9 +173,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
       .then((a) => {
         if (mounted && a) setArea(a);
       })
-      .catch(() => {
-        /* keep last good (seeded Bareilly default) */
-      });
+      .catch((error) => { console.warn("DashboardScreen.tsx.DashboardScreen failed", error instanceof Error ? error.message : String(error)); });
     return () => {
       mounted = false;
     };
@@ -177,7 +188,14 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
   }, [onProfileRefresh]);
 
   const refresh = useCallback(async () => {
+    if (refreshingRef.current || !focusedRef.current) return;
+    refreshingRef.current = true;
     setRefreshing(true);
+    if (!cacheLoaded.current) {
+      cacheLoaded.current = true;
+      try { const snapshot = await rideCache.load(); if (snapshot) { setActiveTrip(snapshot.booking); setSavedRide(true); } }
+      catch (error) { console.error("[dashboard] offline ride restore failed", error); setCacheError(true); }
+    }
     try {
       const [incRes, myRes, safetyRes] = await Promise.all([
         incomingApi
@@ -201,6 +219,8 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
       // whole 20s cascade until it's truly resolved (accept / reject / expire /
       // reassign / backend-cancel). Reconciling against an empty error-result
       // was why a still-active SOS vanished after a few seconds.
+      if (!focusedRef.current) return;
+      setRefreshFailed(!incRes.ok || !myRes.ok || !safetyRes.ok);
       if (incRes.ok) {
         const next: Record<string, IncomingRequest> = {};
         for (const r of incRes.requests) {
@@ -218,8 +238,13 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
           ["ACCEPTED", "ARRIVED", "PICKED_UP"].includes(b.status)
         );
         setActiveTrip(live ?? null);
+        if (!live) await stopBackgroundLocationTracking();
+        setSavedRide(false);
+        try { await rideCache.saveBooking(live ?? null); setCacheError(false); }
+        catch (error) { console.error("[dashboard] offline ride save failed", error); setCacheError(true); }
         setTodayCompleted(myRes.bookings.filter((b) => b.status === "COMPLETED").length);
       }
+      if (!myRes.ok) setSavedRide(true);
       // v1.3.0 (safety): reconcile the safetyAlerts map ONLY on a SUCCESSFUL
       // poll — same keep-last-good discipline as the requests map. A transient
       // failure must not wipe a live safety card. Session-dismissed ids are
@@ -233,17 +258,21 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
         }
         setSafetyAlerts(next);
       }
+    } catch (error) {
+      console.error("[dashboard] refresh failed", error); setRefreshFailed(true);
     } finally {
+      refreshingRef.current = false;
       setRefreshing(false);
       setLoaded(true);
     }
   }, []);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
+    focusedRef.current = true;
     void refresh();
-    const id = setInterval(refresh, 8000);
-    return () => clearInterval(id);
-  }, [refresh]);
+    const id = setInterval(() => void refresh(), 8000);
+    return () => { focusedRef.current = false; clearInterval(id); };
+  }, [refresh]));
 
   // v1.2.0 (CR#1): subscribe to live offers via socket and MERGE them into the
   // keyed `requests` map (instant surfacing), never replacing the whole map —
@@ -266,6 +295,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
       }
       sock.emit("driver:availability", payload);
 
+
       const mergeNormal = (msg: { bookingId?: string }) => {
         if (cancel || !msg?.bookingId) return;
         if (dismissed.current.has(msg.bookingId)) return; // honour session dismiss
@@ -286,6 +316,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
                       pickup_lat: b.pickupLat,
                       pickup_lng: b.pickupLng,
                       pickup_address: b.pickupAddress ?? null,
+                      pickup_landmark: b.pickupLandmark ?? null,
                       patient_name: b.patientName ?? null,
                       created_at: b.createdAt ?? new Date().toISOString(),
                       is_sos: !!b.isSos
@@ -293,7 +324,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
                   }
             );
           })
-          .catch(() => {});
+          .catch((error) => { console.warn("DashboardScreen.tsx.mergeNormal failed", error instanceof Error ? error.message : String(error)); });
       };
 
       const mergeSos = (p: any) => {
@@ -311,6 +342,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
                   pickup_lat: p.pickupLat,
                   pickup_lng: p.pickupLng,
                   pickup_address: p.pickupAddress ?? null,
+                  pickup_landmark: p.pickupLandmark ?? null,
                   patient_name: p.patientName ?? null,
                   created_at: p.createdAt ?? new Date().toISOString(),
                   is_sos: true
@@ -356,11 +388,14 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
         });
       };
 
+      const onConnect = () => { void refresh(); };
+      sock.on("connect", onConnect);
       sock.on("booking:offered", mergeNormal);
       sock.on("sos:incoming", mergeSos);
       sock.on("safety:alert", mergeSafety);
       sock.on("safety:cleared", clearSafety);
       cleanup = () => {
+        sock.off("connect", onConnect);
         sock.off("booking:offered", mergeNormal);
         sock.off("sos:incoming", mergeSos);
         sock.off("safety:alert", mergeSafety);
@@ -385,6 +420,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
         payload.lng = myPos.lng;
       }
       sock.emit("driver:availability", payload);
+      if (next) await refresh();
     } catch (e: any) {
       void dialog.alert(t("dashboard.availability_error_title"), e?.message ?? t("dashboard.availability_error_body"));
       setAvailable(!next);
@@ -447,9 +483,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
     if (req.is_sos) {
       try {
         await bookingsApi.reject(req.id);
-      } catch {
-        /* row already gone locally + dismissed; next poll reconciles */
-      }
+      } catch (error) { console.warn("DashboardScreen.tsx.rejectRequest failed", error instanceof Error ? error.message : String(error)); }
     }
   };
 
@@ -480,7 +514,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
   };
 
   return (
-    <Screen refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}>
+    <Screen bg={colors.surface} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}>
       <AppHeader
         title={`${t("dashboard.hi")}${profile?.name ? `, ${String(profile.name).split(" ")[0]}` : ""}`}
         subtitle={[profile?.vehicleNumber, profile?.hospitalName].filter(Boolean).join(" · ") || t("dashboard.welcome_sub")}
@@ -489,7 +523,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
             <LangToggle />
             {available ? <PulseDot size={8} color={colors.success} rings={1} /> : null}
             <Pill
-              label={available ? t("dashboard.online") : t("dashboard.offline")}
+              label={activeTrip ? t("dashboard.on_trip") : available ? t("dashboard.online") : t("dashboard.offline")}
               color={available ? colors.success : colors.textMuted}
               bg={available ? "rgba(16,185,129,0.12)" : "rgba(148,163,184,0.16)"}
             />
@@ -497,18 +531,45 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
         }
       />
 
+      {activeTrip ? (
+        <Animated.View style={fade}>
+          <Card style={{ borderColor: colors.border, borderWidth: 1, borderRadius: 16 }} onPress={() => onTrip(activeTrip)}>
+            <View style={{ gap: space.sm }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+                  <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: colors.success }} />
+                  <Text variant="label" tone="secondary">{t("dashboard.active_trip")}</Text>
+                </View>
+                <StatusBadge label={t(`status.${activeTrip.status}`)} status={activeTrip.status} />
+              </View>
+              <Text variant="heading">{prettyEmergency(activeTrip.emergencyType, t)}</Text>
+              <Text variant="small" tone="secondary">{activeTrip.pickupAddress ?? `${activeTrip.pickupLat.toFixed(4)}, ${activeTrip.pickupLng.toFixed(4)}`}</Text>
+              <Button style={{ backgroundColor: colors.textPrimary }} label={t("dashboard.open_trip")} onPress={() => onTrip(activeTrip)} fullWidth />
+            </View>
+          </Card>
+        </Animated.View>
+      ) : null}
+
+
+      <LocationSyncNotice />
+      {heartbeatError && !activeTrip ? <Text variant="small" tone="danger" accessibilityRole="alert">{t("dashboard.location_delayed")}</Text> : null}
+      {savedRide && activeTrip ? <Text variant="small" tone="secondary">{t("offline.saved_ride")}</Text> : null}
+      {refreshFailed && !(savedRide && activeTrip) ? <Text variant="small" tone="danger" accessibilityRole="alert">{t("offline.refresh_failed")}</Text> : null}
+      {cacheError ? <Text variant="small" tone="danger">{t("offline.storage_error")}</Text> : null}
+
       {/* v1.4.0 (geofence): slim, non-blocking launch ribbon at the top of the
         * dashboard content. Sits in the flow (not an overlay), so it never gates
         * the incoming-request list, the SOS modal, or anything below. */}
-      <LaunchBanner
+      {!activeTrip ? <LaunchBanner
+        title={t("dashboard.live_city").replace("{city}", area.cityName)}
         cityName={area.cityName}
         subtitle={t("dashboard.launch_banner_subtitle")
           .replace("{city}", area.cityName)
           .replace("{km}", String(area.radiusKm))
           .replace("{hospital}", area.hospitalName)}
-      />
+      /> : null}
 
-      <Card>
+      {!activeTrip ? <Card flat style={{ borderRadius: 20 }}>
         <View style={{ gap: space.md }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
             <IconBadge
@@ -532,10 +593,11 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
             variant={available ? "outline" : "primary"}
             fullWidth
             size="lg"
+            style={available ? undefined : { backgroundColor: colors.textPrimary }}
             testID="availability-toggle"
           />
         </View>
-      </Card>
+      </Card> : null}
 
       {/* v1.3.0 (safety): responder-side safety alert cards. A safety alert is
         * an "all hands near here" event, so it surfaces high on the dashboard
@@ -564,43 +626,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
             ))
         : null}
 
-      {activeTrip ? (
-        <Animated.View style={fade}>
-          <Card style={{ borderColor: colors.primary, borderWidth: 1.5 }} onPress={() => onTrip(activeTrip)}>
-            <View style={{ gap: space.sm }}>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-                  <PulseDot size={10} color={colors.primary} />
-                  <Text variant="label" tone="secondary">ACTIVE TRIP</Text>
-                </View>
-                <StatusBadge status={activeTrip.status} />
-              </View>
-              <Text variant="heading">{prettyEmergency(activeTrip.emergencyType, t)}</Text>
-              <Text variant="small" tone="secondary">{activeTrip.pickupAddress ?? `${activeTrip.pickupLat.toFixed(4)}, ${activeTrip.pickupLng.toFixed(4)}`}</Text>
-              <Button label="Open trip" onPress={() => onTrip(activeTrip)} fullWidth />
-            </View>
-          </Card>
-        </Animated.View>
-      ) : null}
 
-      <Card flat>
-        <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
-            <IconBadge glyph="✓" size={36} bg="rgba(16,185,129,0.10)" color={colors.success} />
-            <View>
-              <Text variant="label" tone="secondary">{t("dashboard.trips_today")}</Text>
-              <Text variant="title">{todayCompleted}</Text>
-            </View>
-          </View>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
-            <View style={{ alignItems: "flex-end" }}>
-              <Text variant="label" tone="secondary">{t("dashboard.rating")}</Text>
-              <Text variant="title">{(profile?.rating ?? 5).toFixed(1)}</Text>
-            </View>
-            <IconBadge glyph="★" size={36} bg="rgba(245,158,11,0.10)" color={colors.warning} />
-          </View>
-        </View>
-      </Card>
 
       {/* Hide the entire INCOMING REQUESTS section while the driver is on
         * an active trip — a one-at-a-time policy. Pending requests stay in
@@ -645,24 +671,49 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
       ) : null}
 
       <Card flat>
-        <View style={{ gap: space.md }}>
-          <Text variant="label" tone="secondary">QUICK ACTIONS</Text>
-          <View style={{ flexDirection: "row", gap: space.md }}>
-            <View style={{ flex: 1 }}>
-              <Button label={t("dashboard.profile_cta")} variant="outline" onPress={onProfile} fullWidth testID="profile-cta" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Button label={t("dashboard.trip_history")} variant="outline" onPress={onEarnings} fullWidth testID="trip-history-cta" />
+        <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
+            <View>
+              <Text variant="label" tone="secondary">{t("dashboard.trips_today")}</Text>
+              <Text variant="title">{todayCompleted}</Text>
             </View>
           </View>
-          <Button label={t("support.dashboard_cta")} variant="outline" onPress={onSupport} fullWidth testID="support-cta" />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
+            <View style={{ alignItems: "flex-end" }}>
+              <Text variant="label" tone="secondary">{t("dashboard.rating")}</Text>
+              <Text variant="title">{profile?.ratingCount > 0 && profile?.rating != null ? Number(profile.rating).toFixed(1) : "·"}</Text>
+            </View>
+          </View>
+        </View>
+      </Card>
+
+      <PriorityAlertSettings />
+      <PushStatusNotice />
+
+      <Card flat>
+        <View style={{ gap: space.md }}>
+          <Text variant="label" tone="secondary">{t("dashboard.quick_actions")}</Text>
+          <View style={{ flexDirection: "row", gap: space.md }}>
+            <View style={{ flex: 1 }}>
+              <Button label={t("dashboard.profile_cta")} variant="neutral" onPress={onProfile} fullWidth testID="profile-cta" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Button label={t("dashboard.trip_history")} variant="neutral" onPress={onEarnings} fullWidth testID="trip-history-cta" />
+            </View>
+          </View>
+          <Button label={t("support.dashboard_cta")} variant="neutral" onPress={onSupport} fullWidth testID="support-cta" />
+          <Pressable accessibilityRole="button" accessibilityState={{ expanded: accountOpen }} onPress={() => setAccountOpen(value => !value)} style={{ minHeight: 48, justifyContent: "center" }}><Text variant="small" weight="medium">{t("dashboard.account_options")} {accountOpen ? "⌃" : "⌄"}</Text></Pressable>
+          {accountOpen ? <View style={{ gap: space.sm }}>
           <Button
             label={t("dashboard.sign_out")}
             variant="ghost"
             onPress={async () => {
-              await clearToken();
-              disconnectSocket();
-              onLogout();
+              try {
+                await clearToken(); disconnectSocket(); onLogout();
+              } catch (error) {
+                console.error("[session] sign out failed", error);
+                void dialog.alert(t("dashboard.sign_out"), t("dashboard.sign_out_failed"));
+              }
             }}
           />
           <Button
@@ -697,6 +748,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
               }
             }}
           />
+          </View> : null}
         </View>
       </Card>
       {/* v1.0.15: SOS cascade modal — fullscreen overlay that pops in when
@@ -714,15 +766,4 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
       {!activeTrip ? <SosIncomingModal onAccept={(b) => onTrip(b)} /> : null}
     </Screen>
   );
-}
-
-export function prettyEmergency(emergencyType: string, translate: (key: string) => string): string {
-  switch (emergencyType) {
-    case "ACCIDENT_TRAUMA": return translate("emergency.accident_trauma");
-    case "CARDIAC": return translate("emergency.cardiac");
-    case "BREATHING_DISTRESS": return translate("emergency.breathing_distress");
-    case "PREGNANCY_NEONATAL": return translate("emergency.pregnancy_neonatal");
-    case "GENERAL_CRITICAL_TRANSFER": return translate("emergency.critical_transfer");
-    default: return emergencyType;
-  }
 }

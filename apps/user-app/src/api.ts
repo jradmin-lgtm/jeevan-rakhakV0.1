@@ -5,7 +5,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
  * not used — set EXPO_PUBLIC_API_BASE_URL / EXPO_PUBLIC_SOCKET_BASE_URL (see .env.production).
  */
 declare const __DEV__: boolean;
-// Metro's static-analysis inliner only matches the literal `process.env.EXPO_PUBLIC_*`
+// Metro's static-analysis inliner only matches the literal public environment access
 // pattern. Indirect access (e.g. via globalThis) bypasses inlining and leaves
 // the value `undefined` on native Android — which falls through to the localhost
 // default and crashes the env-check at startup. Declare `process` locally so
@@ -38,17 +38,25 @@ export async function setToken(token: string) {
 }
 
 export async function clearToken() {
+  const previousSession = await getToken();
   inMemoryToken = null;
   await AsyncStorage.removeItem(TOKEN_KEY);
   await AsyncStorage.removeItem(PROFILE_KEY);
+  await AsyncStorage.removeItem("jr.user.active-ride");
+  const push = await import("./push");
+  try { await push.revokePushSession(previousSession); }
+  catch (error) {
+    console.error("Logout completed, but notification cleanup failed", error);
+    const { dialog } = await import("@jr/ui");
+    void dialog.alert("Signed out / साइन आउट", "Notification access could not be cleared. Turn off this app’s notifications in device settings until you sign in again. / सूचना की अनुमति साफ़ नहीं हो सकी। दोबारा साइन इन करने तक डिवाइस सेटिंग में इस ऐप की सूचनाएँ बंद करें।");
+  }
+
 }
 
 export async function setCachedProfile(profile: unknown) {
   try {
     await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
-  } catch {
-    /* best-effort cache */
-  }
+  } catch (error) { console.warn("api.ts.setCachedProfile failed", error instanceof Error ? error.message : String(error)); }
 }
 
 export async function getCachedProfile(): Promise<any | null> {
@@ -68,12 +76,22 @@ export async function api<T = any>(path: string, opts: RequestOpts = {}): Promis
     const t = await getToken();
     if (t) headers.Authorization = `Bearer ${t}`;
   }
-  const res = await fetch(`${API_BASE}${path}`, {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
+  let res: Response;
+  let text: string;
+  try {
+  res = await fetch(`${API_BASE}${path}`, {
+    signal: controller.signal,
     method: opts.method ?? "GET",
     headers,
     body: opts.body ? JSON.stringify(opts.body) : undefined
   });
-  const text = await res.text();
+  text = await res.text();
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error("Connection timed out. Please retry.");
+    throw error;
+  } finally { clearTimeout(timeout); }
   const json = text ? JSON.parse(text) : {};
   if (!res.ok) {
     const err = new Error(json?.error ?? `request_failed_${res.status}`);
@@ -91,7 +109,9 @@ export type EmergencyType =
   | "CARDIAC"
   | "BREATHING_DISTRESS"
   | "PREGNANCY_NEONATAL"
-  | "GENERAL_CRITICAL_TRANSFER";
+  | "GENERAL_CRITICAL_TRANSFER"
+  | "REFERRAL_AMBULANCE"
+  | "OPD_AMBULANCE";
 
 export type BookingStatus =
   | "REQUESTED"
@@ -126,6 +146,9 @@ export type Booking = {
   payableInr?: number | null;
   patientName?: string | null;
   patientAge?: number | null;
+  attendantName?: string | null;
+  attendantRelation?: string | null;
+  pickupLandmark?: string | null;
   patientGender?: "M" | "F" | "O" | null;
   patientCondition?: string | null;
   patientConditions?: string[] | null;
@@ -257,6 +280,7 @@ export const serviceArea = () =>
 // falls back to the existing free Nominatim search. Key never reaches the
 // client; these just proxy through the authenticated backend.
 export const places = {
+  reverse: (lat: number, lng: number) => api<{ address: string; landmark: string | null }>(`/api/v1/places/reverse?lat=${lat}&lng=${lng}`),
   autocomplete: (input: string, sessionToken: string) =>
     api<{ available: boolean; predictions: { placeId: string; description: string }[] }>(
       `/api/v1/places/autocomplete?input=${encodeURIComponent(input)}&sessionToken=${encodeURIComponent(sessionToken)}`
@@ -283,6 +307,10 @@ export const bookings = {
   }) => api<{ booking: Booking }>("/api/v1/bookings", { method: "POST", body: input }),
   // v1.0.15: post-completion payment for SOS rides. Idempotent — re-calling
   // with the same booking returns the existing payment shape.
+  paymentPreview: (id: string, couponCode: string | null) =>
+    api<{ booking: Booking; alreadyPaid: boolean; couponValid: boolean;
+      breakdown: { finalFare: number; couponCode: string | null; discountInr: number; payableInr: number };
+    }>(`/api/v1/bookings/${id}/payment-preview`, { method: "POST", body: { couponCode } }),
   markPaid: (id: string, couponCode?: string | null) =>
     api<{
       booking: Booking;
@@ -315,6 +343,8 @@ export const bookings = {
   cancel: (id: string, reason?: string) =>
     api<{ booking: Booking }>(`/api/v1/bookings/${id}/cancel`, { method: "POST", body: { reason } }),
   patientInfo: (id: string, info: {
+    attendantName?: string;
+    attendantRelation?: string;
     patientName?: string;
     patientAge?: number;
     patientGender?: "M" | "F" | "O";

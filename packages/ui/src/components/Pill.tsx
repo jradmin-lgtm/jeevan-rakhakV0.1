@@ -12,8 +12,8 @@ type Props = {
 
 function PillInner({ label, color, bg, style }: Props) {
   return (
-    <View style={[styles.pill, { backgroundColor: bg ?? colors.primaryFaint }, style]}>
-      <Text variant="tiny" weight="semi" style={{ color: color ?? colors.primary, letterSpacing: 0.4 }}>
+    <View style={[styles.pill, { backgroundColor: bg ?? colors.bg }, style]}>
+      <Text variant="tiny" weight="semi" style={{ color: color ?? colors.textSecondary, letterSpacing: 0.4 }}>
         {label}
       </Text>
     </View>
@@ -23,6 +23,8 @@ function PillInner({ label, color, bg, style }: Props) {
 const styles = StyleSheet.create({
   pill: {
     alignSelf: "flex-start",
+    flexShrink: 1,
+    maxWidth: "100%",
     paddingVertical: 4,
     paddingHorizontal: space.sm,
     borderRadius: radius.pill

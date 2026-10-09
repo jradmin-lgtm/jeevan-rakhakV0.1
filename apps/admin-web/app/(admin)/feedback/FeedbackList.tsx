@@ -48,9 +48,7 @@ export function FeedbackList({ initialBookings, apiBase }: { initialBookings: Bo
         const data = await res.json();
         if (!alive) return;
         setRows(data.bookings ?? []);
-      } catch {
-        /* keep last good */
-      }
+      } catch (error) { console.warn("FeedbackList.tsx.tick failed"); }
     };
     void tick();
     const id = setInterval(tick, 10000);

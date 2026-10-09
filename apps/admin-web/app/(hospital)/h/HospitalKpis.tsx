@@ -1,5 +1,7 @@
 "use client";
 
+import { prettyEmergency } from "../../../lib/status";
+
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { formatTimeIST } from "../../../lib/dates";
 import { useHospitalSocket } from "../HospitalSocketProvider";
@@ -34,16 +36,6 @@ type Analytics = {
 
 const POLL_MS = 10000;
 
-function prettyEmergency(t: string): string {
-  switch (t) {
-    case "ACCIDENT_TRAUMA": return "Accident / Trauma";
-    case "CARDIAC": return "Cardiac";
-    case "BREATHING_DISTRESS": return "Breathing distress";
-    case "PREGNANCY_NEONATAL": return "Pregnancy / Neonatal";
-    case "GENERAL_CRITICAL_TRANSFER": return "Critical transfer";
-    default: return t;
-  }
-}
 
 // Avg pickup→hospital minutes → "12m" / "1h 4m" / "-".
 function fmtMinutes(min: number | null): string {
@@ -67,6 +59,7 @@ function weekdayShort(isoDay: string): string {
 export function HospitalKpis() {
   const [data, setData] = useState<Analytics | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<number>(Date.now());
   const { subscribe } = useHospitalSocket();
   const aliveRef = useRef(true);
@@ -74,14 +67,15 @@ export function HospitalKpis() {
   const fetchAnalytics = useCallback(async () => {
     try {
       const res = await fetch("/api/hospital-proxy/api/v1/hospital/analytics", { cache: "no-store" });
-      if (!res.ok) return;
+      if (!res.ok) throw new Error(`Refresh failed (${res.status})`);
       const json = await res.json();
       if (!aliveRef.current) return;
       setData(json as Analytics);
+      setRefreshError(null);
       setUpdatedAt(Date.now());
       setLoaded(true);
     } catch {
-      /* keep last good */
+      if (aliveRef.current) setRefreshError("Connection interrupted. Displayed records may be out of date. Retrying automatically.");
     }
   }, []);
 
@@ -101,18 +95,19 @@ export function HospitalKpis() {
   }, [fetchAnalytics, subscribe]);
 
   if (!loaded || !data) {
-    return <div className="card muted">Loading dashboard analytics…</div>;
+    return <div className="card muted">{refreshError || "Loading dashboard analytics…"}</div>;
   }
 
   const a = data;
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
+      {refreshError && <div role="alert" className="card" style={{ color: "var(--danger)" }}>{refreshError}</div>}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
         <h3 style={{ margin: 0, fontSize: 15 }}>Today at a glance</h3>
         <span className="muted" style={{ fontSize: 12 }}>
-          <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "var(--success)", marginRight: 6 }} />
-          Live · refreshed {formatTimeIST(updatedAt)}
+          <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: refreshError || !loaded ? "var(--warning)" : "var(--success)", marginRight: 6 }} />
+          {refreshError ? "Updates interrupted" : loaded ? "Live" : "Connecting"} · last refresh {formatTimeIST(updatedAt)}
         </span>
       </div>
 

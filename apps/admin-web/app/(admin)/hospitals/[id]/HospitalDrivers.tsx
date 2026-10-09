@@ -33,48 +33,61 @@ export function HospitalDrivers({
   const [allDrivers, setAllDrivers] = useState<Driver[] | null>(null);
   const [pick, setPick] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
-  // Lazy-load the full driver list for the assign dropdown.
   useEffect(() => {
+    let alive = true;
+    const controller = new AbortController();
     (async () => {
       try {
-        const res = await adminFetch(`${apiBase}/api/v1/admin/drivers`);
-        if (res.ok) setAllDrivers((await res.json()).drivers ?? []);
-      } catch {
-        setAllDrivers([]);
+        const rows: Driver[] = [];
+        let cursor = "";
+        do {
+          const params = new URLSearchParams({ limit: "500" });
+          if (cursor) params.set("cursor", cursor);
+          const res = await adminFetch(`${apiBase}/api/v1/admin/drivers?${params}`, { signal: controller.signal });
+          if (!res.ok) throw new Error("Drivers could not be loaded. Reload this page to retry.");
+          const data = await res.json();
+          rows.push(...data.drivers);
+          cursor = data.nextCursor ?? "";
+        } while (cursor);
+        if (alive) setAllDrivers(rows);
+      } catch (error) {
+        if (alive) setError(error instanceof Error ? error.message : "Drivers could not be loaded.");
       }
     })();
+    return () => { alive = false; controller.abort(); };
   }, [apiBase]);
 
   const refresh = async () => {
     const res = await adminFetch(`${apiBase}/api/v1/admin/hospitals/${hospitalId}`);
-    if (res.ok) setDrivers((await res.json()).drivers ?? []);
+    if (!res.ok) throw new Error("Assignments could not refresh. Reload this page to check the current assignments.");
+    setDrivers((await res.json()).drivers);
   };
 
   const assign = async () => {
-    if (!pick) return;
-    setBusy(true);
+    if (!pick || busy) return;
+    setBusy(true); setError("");
     try {
-      await adminFetch(`${apiBase}/api/v1/admin/hospitals/${hospitalId}/drivers`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ driverId: pick })
+      const res = await adminFetch(`${apiBase}/api/v1/admin/hospitals/${hospitalId}/drivers`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ driverId: pick })
       });
+      if (!res.ok) throw new Error(`Driver assignment failed (${res.status}). Please retry.`);
       setPick("");
       await refresh();
-    } finally {
-      setBusy(false);
-    }
+    } catch (error) { setError(error instanceof Error ? error.message : "Driver assignment failed."); }
+    finally { setBusy(false); }
   };
 
   const remove = async (driverId: string) => {
-    setBusy(true);
+    if (busy) return;
+    setBusy(true); setError("");
     try {
-      await adminFetch(`${apiBase}/api/v1/admin/hospitals/${hospitalId}/drivers/${driverId}`, { method: "DELETE" });
+      const res = await adminFetch(`${apiBase}/api/v1/admin/hospitals/${hospitalId}/drivers/${driverId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`Driver removal failed (${res.status}). Please retry.`);
       await refresh();
-    } finally {
-      setBusy(false);
-    }
+    } catch (error) { setError(error instanceof Error ? error.message : "Driver removal failed."); }
+    finally { setBusy(false); }
   };
 
   const assignedIds = new Set(drivers.map((d) => d.id));
@@ -96,6 +109,7 @@ export function HospitalDrivers({
           </button>
         </div>
       </div>
+      {error ? <p role="alert" style={{ color: "var(--danger)" }}>{error}</p> : null}
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginTop: 8 }}>
         <thead>
           <tr style={{ textAlign: "left", color: "var(--muted)" }}>

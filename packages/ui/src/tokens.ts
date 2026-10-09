@@ -3,12 +3,12 @@
  * Tuned for high-contrast emergency UI on low-end Android (no gradients, flat colors).
  */
 export const colors = {
-  primary: "#E5322B",        // emergency red
-  primaryDark: "#B92520",
+  primary: "#C62828",        // emergency red
+  primaryDark: "#A91F24",
   primaryFaint: "#FCE9E8",
   accent: "#1E5EFF",
-  success: "#10B981",
-  warning: "#F59E0B",
+  success: "#087F5B",
+  warning: "#A85D08",
   danger: "#DC2626",
 
   bg: "#F7F8FB",
@@ -19,17 +19,17 @@ export const colors = {
 
   textPrimary: "#0F172A",
   textSecondary: "#475569",
-  textMuted: "#94A3B8",
+  textMuted: "#64748B",
   textInverse: "#FFFFFF",
 
   // Status pills
-  statusRequested: "#F59E0B",
-  statusAccepted: "#3B82F6",
-  statusArrived: "#8B5CF6",
-  statusPickedUp: "#06B6D4",
-  statusCompleted: "#10B981",
-  statusCancelled: "#94A3B8",
-  statusTimedOut: "#94A3B8"
+  statusRequested: "#A85D08",
+  statusAccepted: "#1D4ED8",
+  statusArrived: "#6D28D9",
+  statusPickedUp: "#0E7490",
+  statusCompleted: "#087F5B",
+  statusCancelled: "#475569",
+  statusTimedOut: "#475569"
 };
 
 export const space = {
@@ -83,6 +83,6 @@ export const shadow = {
 
 export const animation = {
   fast: 160,
-  normal: 240,
+  normal: 180,
   slow: 380
 };

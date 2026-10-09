@@ -56,13 +56,25 @@ export async function registerMeRoutes(app: FastifyInstance) {
       }
       const table = role === "driver" ? drivers : role === "user" ? users : null;
       if (!table) return reply.code(403).send({ error: "forbidden" });
-      await db
-        .update(table as any)
-        .set({ pushToken: parsed.data.token, updatedAt: new Date() })
-        .where(eq((table as any).id, sub));
+      await pgClient.begin(async tx => {
+        // One physical app token belongs to its current account only.
+        await tx`SELECT pg_advisory_xact_lock(hashtextextended(${parsed.data.token}, 0))`;
+        await tx`UPDATE users SET push_token = NULL WHERE push_token = ${parsed.data.token}`;
+        await tx`UPDATE drivers SET push_token = NULL WHERE push_token = ${parsed.data.token}`;
+        if (role === "user") await tx`UPDATE users SET push_token = ${parsed.data.token}, updated_at = now() WHERE id = ${sub}`;
+        else await tx`UPDATE drivers SET push_token = ${parsed.data.token}, updated_at = now() WHERE id = ${sub}`;
+      });
       return reply.send({ ok: true });
     }
   );
+
+  app.delete("/api/v1/me/push-token", { preHandler: [(app as any).authenticate] }, async (req: any, reply) => {
+    const { sub, role } = req.user;
+    if (role === "user") await db.update(users).set({ pushToken: null }).where(eq(users.id, sub));
+    else if (role === "driver") await db.update(drivers).set({ pushToken: null }).where(eq(drivers.id, sub));
+    else return reply.code(403).send({ error: "forbidden" });
+    return reply.send({ ok: true });
+  });
 
   app.patch(
     "/api/v1/me",
@@ -236,6 +248,7 @@ export async function registerMeRoutes(app: FastifyInstance) {
       // omitted/unknown lands in the actionable ISSUE bucket.
       const category =
         String(req.body?.category ?? "ISSUE").trim().toUpperCase() === "FEEDBACK" ? "FEEDBACK" : "ISSUE";
+      if (message.length > 4000) return reply.code(400).send({ error: "message_too_long" });
       if (message.length < 5) return reply.code(400).send({ error: "message_too_short" });
 
       let bookingId: string | null = null;
@@ -256,15 +269,18 @@ export async function registerMeRoutes(app: FastifyInstance) {
       const [{ name: userName = null } = {}] = await pgClient<any[]>`
         SELECT name FROM users WHERE id = ${sub} LIMIT 1`;
 
-      const [{ id } = {}] = await pgClient`
+      const id = await pgClient.begin(async tx => {
+      const [{ id } = {}] = await tx`
         INSERT INTO support_tickets (subject_type, category, source, raiser_user_id, booking_id, message, status)
         VALUES (${subjectType}, ${category}, 'USER', ${sub}, ${bookingId}, ${message}, 'OPEN')
         RETURNING id`;
       // Seed the first thread row so the card reads as one conversation.
-      await pgClient`
+      await tx`
         INSERT INTO support_ticket_messages (ticket_id, author_role, author_name, body)
         VALUES (${id}, 'USER', ${userName}, ${message})`;
-      return reply.send({ ok: true, id });
+      return id;
+    });
+    return reply.send({ ok: true, id });
     }
   );
 
@@ -330,6 +346,7 @@ export async function registerMeRoutes(app: FastifyInstance) {
       const id = String(req.params.id);
       if (!/^[0-9a-f-]{36}$/i.test(id)) return reply.code(404).send({ error: "not_found" });
       const body = String(req.body?.body ?? "").trim();
+      if (body.length > 4000) return reply.code(400).send({ error: "message_too_long" });
       if (body.length < 2) return reply.code(400).send({ error: "message_too_short" });
 
       // Ownership check — the ticket must belong to THIS user.
@@ -340,16 +357,19 @@ export async function registerMeRoutes(app: FastifyInstance) {
       const [{ name: userName = null } = {}] = await pgClient<any[]>`
         SELECT name FROM users WHERE id = ${sub} LIMIT 1`;
 
-      const [message] = await pgClient`
+      const message = await pgClient.begin(async tx => {
+      const [message] = await tx`
         INSERT INTO support_ticket_messages (ticket_id, author_role, author_name, body)
         VALUES (${id}, 'USER', ${userName}, ${body})
         RETURNING id, ticket_id, author_role, author_name, body, created_at`;
       // v1.2.4 fix: a raiser reply REOPENS a resolved ticket (honours the
       // "reply to reopen the conversation" promise shown in the app).
-      await pgClient`
+      await tx`
         UPDATE support_tickets SET status = 'OPEN', resolved_at = NULL, resolved_by = NULL
         WHERE id = ${id} AND status = 'RESOLVED'`;
-      return reply.send({ message });
+      return message;
+    });
+    return reply.send({ message });
     }
   );
 }

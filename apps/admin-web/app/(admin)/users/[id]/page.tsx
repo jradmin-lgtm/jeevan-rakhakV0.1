@@ -80,7 +80,7 @@ export default async function UserDetail({ params }: { params: Promise<{ id: str
 
       <div className="card" style={{ marginTop: 16, padding: 0 }}>
         <div style={{ padding: 16, borderBottom: "1px solid var(--border)" }}>
-          <h3 style={{ margin: 0 }}>Booking history</h3>
+          <h3 style={{ margin: 0 }}>Recent booking history · latest 100</h3>
         </div>
         <div style={{ overflowX: "auto" }}>
           <table className="table">

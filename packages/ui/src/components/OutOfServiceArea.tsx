@@ -47,10 +47,10 @@ function OutOfServiceAreaInner({
   emergency = false
 }: Props) {
   const call108 = () => {
-    Linking.openURL("tel:108").catch(() => {});
+    Linking.openURL("tel:108").catch((error) => { console.warn("OutOfServiceArea.tsx.call108 failed", error instanceof Error ? error.message : String(error)); });
   };
   const callSupport = () => {
-    Linking.openURL("tel:" + SUPPORT_PHONE).catch(() => {});
+    Linking.openURL("tel:" + SUPPORT_PHONE).catch((error) => { console.warn("OutOfServiceArea.tsx.callSupport failed", error instanceof Error ? error.message : String(error)); });
   };
 
   const title = emergency ? "Outside our service area" : "We are not in your area yet";

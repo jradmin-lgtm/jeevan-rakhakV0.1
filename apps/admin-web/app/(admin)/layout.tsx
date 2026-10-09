@@ -8,6 +8,7 @@
 // collapsible icon rail, live Alerts/Support badges). The shell + SafetyBanner
 // wiring is unchanged.
 import { Sidebar } from "./Sidebar";
+import { RequestStatusBanner } from "./RequestStatusBanner";
 import { SafetyBanner } from "./SafetyBanner";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -17,6 +18,7 @@ export default function AdminLayout({ children }: any) {
       <Sidebar />
       <main className="content">
         <SafetyBanner />
+        <RequestStatusBanner />
         {children}
       </main>
     </div>

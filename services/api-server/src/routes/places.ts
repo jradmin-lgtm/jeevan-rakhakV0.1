@@ -9,7 +9,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { config } from "@jr/config";
-import { getPlaceDetails, getPlacesAutocomplete } from "../google-maps";
+import { getPlaceDetails, getPlacesAutocomplete, resolveLocation } from "../google-maps";
 
 const autocompleteSchema = z.object({
   input: z.string().min(1).max(200),
@@ -22,9 +22,19 @@ const detailsSchema = z.object({
 });
 
 export async function registerPlacesRoutes(app: FastifyInstance) {
+  app.get("/api/v1/places/reverse", {
+    preHandler: [(app as any).authenticate],
+    config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 30, timeWindow: "1 minute" } }
+  }, async (req: any, reply) => {
+    const parsed = z.object({ lat: z.coerce.number().finite().min(-90).max(90), lng: z.coerce.number().finite().min(-180).max(180) }).safeParse(req.query);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_coordinates" });
+    const result = await resolveLocation(parsed.data.lat, parsed.data.lng);
+    if (!result) return reply.code(503).send({ error: "location_resolution_unavailable" });
+    return reply.send(result);
+  });
   app.get(
     "/api/v1/places/autocomplete",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate], config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 60, timeWindow: "1 minute" } } },
     async (req: any, reply) => {
       if (!config.googlePlacesEnabled) return reply.send({ available: false, predictions: [] });
       const parsed = autocompleteSchema.safeParse(req.query);
@@ -38,7 +48,7 @@ export async function registerPlacesRoutes(app: FastifyInstance) {
 
   app.get(
     "/api/v1/places/details",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate], config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 60, timeWindow: "1 minute" } } },
     async (req: any, reply) => {
       if (!config.googlePlacesEnabled) return reply.send({ available: false });
       const parsed = detailsSchema.safeParse(req.query);

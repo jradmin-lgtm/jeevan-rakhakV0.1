@@ -75,9 +75,7 @@ export function AlertsHubClient({
           const h = (await hRes.json()) as Health;
           if (alive) setHealth(h);
         }
-      } catch {
-        /* keep last good */
-      }
+      } catch (error) { console.warn("AlertsHubClient.tsx.tick failed"); }
     };
     void tick();
     const id = setInterval(tick, API_POLL_MS);

@@ -1,14 +1,15 @@
 import { createServer, IncomingMessage, ServerResponse } from "http";
 import { Server, Socket } from "socket.io";
 import jwt from "jsonwebtoken";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { config } from "@jr/config";
-import { bookings, db, drivers } from "@jr/db";
+import { bookings, db, drivers, users, hospitals } from "@jr/db";
 
 type JwtPayload = {
   sub: string;
   role: "user" | "driver" | "admin" | "hospital";
   phone: string;
+  exp: number;
   hospitalId?: string;
 };
 
@@ -29,9 +30,11 @@ const hospitalRoom = (hospitalId: string) => `hospital:${hospitalId}`;
 const httpServer = createServer(async (req, res) => {
   if (req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", service: "socket-server" }));
+    res.end(JSON.stringify({ status: "ok", service: "socket-server", build: process.env.RENDER_GIT_COMMIT ?? process.env.BUILD_SHA ?? "local" }));
     return;
   }
+
+  if (req.url?.startsWith("/internal/") && req.headers["x-internal"] !== config.internalApiSecret) return send(res, 401, { error: "unauthorized" });
 
   // Internal endpoints used by api-server fan-out (auth via shared secret).
   if (req.url === "/internal/booking-created" && req.method === "POST") {
@@ -106,12 +109,18 @@ function send(res: ServerResponse, status: number, body: unknown) {
   res.end(body == null ? "" : JSON.stringify(body));
 }
 
-function readJson(req: IncomingMessage, res: ServerResponse, fn: (body: any) => void) {
+function readJson(req: IncomingMessage, res: ServerResponse, fn: (body: any) => void | Promise<void>) {
   let buf = "";
-  req.on("data", (c) => (buf += c));
+  let tooLarge = false;
+  req.on("data", (c) => {
+    if (tooLarge) return;
+    buf += c;
+    if (Buffer.byteLength(buf) > 64 * 1024) { tooLarge = true; send(res, 413, { error: "payload_too_large" }); }
+  });
   req.on("end", () => {
+    if (tooLarge) return;
     try {
-      fn(buf ? JSON.parse(buf) : {});
+      Promise.resolve(fn(buf ? JSON.parse(buf) : {})).catch((err) => { console.error("[socket] internal handler failed", err); if (!res.writableEnded) send(res, 500, { error: "internal_error" }); });
     } catch {
       send(res, 400, { error: "bad_json" });
     }
@@ -120,26 +129,70 @@ function readJson(req: IncomingMessage, res: ServerResponse, fn: (body: any) => 
 
 const io = new Server(httpServer, {
   cors: { origin: "*" },
+  maxHttpBufferSize: 16 * 1024,
   pingInterval: 25000,
   pingTimeout: 60000
 });
 
-// JWT auth on the handshake. Tokens come from /api/v1/auth/verify-otp on api-server.
-io.use((socket, next) => {
-  const auth = (socket.handshake.auth?.token ??
-    socket.handshake.headers.authorization?.replace(/^Bearer\s+/i, "")) as string | undefined;
-  if (!auth) return next(new Error("missing_token"));
+const validId = (value: unknown): value is string => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(value);
+async function verifyAccount(user: JwtPayload) {
+  if (!validId(user.sub) || !Number.isFinite(user.exp) || user.exp * 1000 <= Date.now()) throw new Error("invalid_identity");
+  if (user.role === "user") {
+    const [row] = await db.select({ disabled: users.disabled }).from(users).where(eq(users.id, user.sub)).limit(1);
+    if (!row || row.disabled) throw new Error("account_unavailable");
+    return false;
+  }
+  if (user.role === "driver") {
+    const [row] = await db.select({ disabled: drivers.disabled, verified: drivers.kycVerified, status: drivers.status }).from(drivers).where(eq(drivers.id, user.sub)).limit(1);
+    if (!row || row.disabled) throw new Error("account_unavailable");
+    return row.verified && row.status === "AVAILABLE";
+  }
+  if (user.role === "hospital" && user.hospitalId === user.sub) {
+    const [row] = await db.select({ enabled: hospitals.portalEnabled, password: hospitals.portalPasswordHash }).from(hospitals).where(eq(hospitals.id, user.sub)).limit(1);
+    if (!row?.enabled || !row.password) throw new Error("portal_disabled");
+    return false;
+  }
+  throw new Error("unsupported_role");
+}
+
+io.use(async (socket, next) => {
+  const auth = socket.handshake.auth?.token ?? socket.handshake.headers.authorization?.replace(/^Bearer\s+/i, "");
+  if (typeof auth !== "string") return next(new Error("missing_token"));
   try {
-    const decoded = jwt.verify(auth, config.jwtSecret) as JwtPayload;
-    (socket as any).user = decoded;
+    const decoded = jwt.verify(auth, config.jwtSecret, { algorithms: ["HS256"] }) as JwtPayload;
+    socket.data.available = await verifyAccount(decoded);
+    socket.data.user = decoded;
     next();
-  } catch {
-    next(new Error("invalid_token"));
+  } catch (error) {
+    console.warn("[socket] account authentication rejected", error instanceof Error ? error.message : "unknown error");
+    next(new Error("account_authentication_failed"));
   }
 });
 
 io.on("connection", async (socket: Socket) => {
-  const user = (socket as any).user as JwtPayload;
+  const user = socket.data.user as JwtPayload;
+  let windowStart = Date.now(), packets = 0;
+  socket.use((_packet, next) => {
+    if (Date.now() - windowStart > 10_000) { windowStart = Date.now(); packets = 0; }
+    if (++packets > 60) { socket.emit("session:error", { error: "rate_limit" }); socket.disconnect(true); return; }
+    next();
+  });
+  const expiry = setTimeout(() => { socket.emit("session:error", { error: "token_expired" }); socket.disconnect(true); }, Math.min(user.exp * 1000 - Date.now(), 2_147_000_000));
+  let checking = false;
+  const access = setInterval(async () => {
+    if (checking) return;
+    checking = true;
+    try {
+      const available = await verifyAccount(user);
+      if (user.role === "driver") {
+        if (available) socket.join(drivers_room); else socket.leave(drivers_room);
+      }
+    } catch (error) {
+      console.warn("[socket] session access revoked", error instanceof Error ? error.message : "unknown error");
+      socket.emit("session:error", { error: "account_unavailable" }); socket.disconnect(true);
+    } finally { checking = false; }
+  }, 60_000);
+  let lastLocation = 0, lastAvailability = 0;
   console.log(`[socket] ${user.role}:${user.sub} connected (${socket.id})`);
 
   if (user.role === "user") {
@@ -148,7 +201,7 @@ io.on("connection", async (socket: Socket) => {
 
   if (user.role === "driver") {
     // Drivers default to listening for offered bookings; they can opt out via availability event.
-    socket.join(drivers_room);
+    if (socket.data.available) socket.join(drivers_room);
     // v1.0.15: per-driver room for targeted SOS cascade pushes from api-server.
     // Cascade engine emits 'sos:incoming' here when this driver's wave fires.
     socket.join(driverRoom(user.sub));
@@ -163,25 +216,15 @@ io.on("connection", async (socket: Socket) => {
   }
 
   socket.on("driver:availability", async (payload: { available: boolean; lat?: number; lng?: number }) => {
-    if (user.role !== "driver") return;
-    if (payload.available) {
-      socket.join(drivers_room);
-    } else {
-      socket.leave(drivers_room);
-    }
+    if (user.role !== "driver" || Date.now() - lastAvailability < 1000) return;
+    lastAvailability = Date.now();
     try {
-      await db
-        .update(drivers)
-        .set({
-          status: payload.available ? "AVAILABLE" : "OFFLINE",
-          lastLat: payload.lat,
-          lastLng: payload.lng,
-          lastSeenAt: new Date(),
-          updatedAt: new Date()
-        })
-        .where(eq(drivers.id, user.sub));
+      const available = await verifyAccount(user);
+      if (available && payload?.available) socket.join(drivers_room);
+      else socket.leave(drivers_room);
     } catch (err) {
-      console.warn("[socket] availability persist failed", err);
+      socket.leave(drivers_room);
+      console.error("[socket] availability validation failed", err);
     }
   });
 
@@ -191,7 +234,7 @@ io.on("connection", async (socket: Socket) => {
   // location + status updates for a stranger's trip. (Security audit
   // finding #3, v1.0.11.4.)
   socket.on("booking:subscribe", async (payload: { bookingId: string }) => {
-    if (!payload?.bookingId) return;
+    if (!validId(payload?.bookingId)) return;
     try {
       const [b] = await db
         .select({ userId: bookings.userId, driverId: bookings.driverId })
@@ -205,6 +248,7 @@ io.on("connection", async (socket: Socket) => {
         console.warn(`[socket] ${user.role}:${user.sub} denied booking:subscribe on ${payload.bookingId}`);
         return;
       }
+      if (socket.rooms.size >= 20) return;
       socket.join(bookingRoom(payload.bookingId));
     } catch (err) {
       console.warn("[socket] booking:subscribe lookup failed", err);
@@ -212,7 +256,7 @@ io.on("connection", async (socket: Socket) => {
   });
 
   socket.on("booking:unsubscribe", (payload: { bookingId: string }) => {
-    if (!payload?.bookingId) return;
+    if (!validId(payload?.bookingId)) return;
     socket.leave(bookingRoom(payload.bookingId));
   });
 
@@ -224,18 +268,21 @@ io.on("connection", async (socket: Socket) => {
       lng: number;
       speedKmh?: number;
       headingDeg?: number;
+      ts?: number;
     }) => {
       if (user.role !== "driver") return;
       // Live relay to the user listening on the booking room — but only
       // if THIS driver is actually assigned to THIS booking. Without the
       // check, driver A could spoof location updates on driver B's
       // bookings. (Security audit finding #6, v1.0.11.4.)
-      if (!payload.bookingId) return;
+      if (!validId(payload?.bookingId) || Date.now() - lastLocation < 1000) return;
+      lastLocation = Date.now();
+      if (![payload.lat, payload.lng, payload.ts].every(Number.isFinite) || Math.abs(payload.lat) > 90 || Math.abs(payload.lng) > 180 || !payload.ts || Date.now() - payload.ts > 120_000 || payload.ts > Date.now() + 10_000) return;
       try {
         const [b] = await db
           .select({ driverId: bookings.driverId })
           .from(bookings)
-          .where(and(eq(bookings.id, payload.bookingId), eq(bookings.driverId, user.sub)))
+          .where(and(eq(bookings.id, payload.bookingId), eq(bookings.driverId, user.sub), inArray(bookings.status, ["ACCEPTED", "ARRIVED", "PICKED_UP"])))
           .limit(1);
         if (!b) {
           console.warn(`[socket] driver:${user.sub} denied driver:location on ${payload.bookingId} (not assigned)`);
@@ -251,12 +298,13 @@ io.on("connection", async (socket: Socket) => {
         lng: payload.lng,
         speedKmh: payload.speedKmh,
         headingDeg: payload.headingDeg,
-        ts: Date.now()
+        ts: payload.ts
       });
     }
   );
 
   socket.on("disconnect", () => {
+    clearTimeout(expiry); clearInterval(access);
     console.log(`[socket] ${user.role}:${user.sub} disconnected`);
   });
 });

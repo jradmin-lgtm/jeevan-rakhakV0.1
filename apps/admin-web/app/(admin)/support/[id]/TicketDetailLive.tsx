@@ -88,6 +88,7 @@ function sourceBadge(t: Ticket): { label: string; bg: string; fg: string } {
 }
 
 function categoryBadge(t: Ticket): { label: string; bg: string; fg: string } {
+  if (t.category === "DOC_UPDATE") return { label: "Document update", bg: "rgba(13,148,136,0.12)", fg: "#0F766E" };
   if (t.category === "FEEDBACK") return { label: "Feedback", bg: "rgba(245,158,11,0.14)", fg: "#B45309" };
   return { label: "Issue", bg: "rgba(99,102,241,0.12)", fg: "#4F46E5" };
 }
@@ -191,9 +192,7 @@ export function TicketDetailLive({
     try {
       const saved = window.localStorage.getItem(OPERATOR_KEY) ?? "";
       if (saved) setOperator(saved);
-    } catch {
-      /* localStorage unavailable — operator just types each time */
-    }
+    } catch (error) { console.warn("TicketDetailLive.tsx.TicketDetailLive failed"); }
   }, []);
 
   const refetch = async () => {
@@ -218,9 +217,7 @@ export function TicketDetailLive({
         if (!alive || mutatingRef.current) return;
         setData(next);
         setLastFetch(Date.now());
-      } catch {
-        /* keep last good */
-      }
+      } catch (error) { console.warn("TicketDetailLive.tsx.tick failed"); }
     };
     void tick();
     const id = setInterval(tick, POLL_MS);
@@ -261,9 +258,7 @@ export function TicketDetailLive({
   const rememberOperator = (name: string) => {
     try {
       if (name.trim()) window.localStorage.setItem(OPERATOR_KEY, name.trim());
-    } catch {
-      /* best-effort */
-    }
+    } catch (error) { console.warn("TicketDetailLive.tsx.rememberOperator failed"); }
   };
 
   async function patchFlag(field: "priority" | "severity", value: Priority | Severity) {
@@ -372,6 +367,7 @@ export function TicketDetailLive({
   }
 
   async function reopen() {
+    setReplyErr(null);
     setReopenBusy(true);
     mutatingRef.current = true;
     try {
@@ -383,7 +379,7 @@ export function TicketDetailLive({
       if (!res.ok) throw new Error("reopen");
       await refetch();
     } catch {
-      /* keep last good; the poll will reconcile */
+      setReplyErr("Could not reopen this ticket. Please retry.");
     } finally {
       mutatingRef.current = false;
       setReopenBusy(false);
@@ -432,6 +428,10 @@ export function TicketDetailLive({
           <Field label="Source" value={src.label} />
           <Field label="Raised by" value={raiserLabel(data)} />
           <Field label="Category" value={cat.label} />
+          {ticket.category === "DOC_UPDATE" && ticket.raiser_driver_id ? <p>
+            <Link href={`/drivers/${ticket.raiser_driver_id}`} style={{ display: "inline-flex", minHeight: 44, alignItems: "center", fontWeight: 700 }}>Review driver documents →</Link>
+            <small style={{ display: "block", color: "var(--muted)" }}>Approve or reject the pending photo on the driver page.</small>
+          </p> : null}
           <Field label="Subject" value={subjectRef(ticket)} />
           <Field label="Created" value={formatIST(ticket.created_at)} />
           {isResolved ? (

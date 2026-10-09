@@ -27,6 +27,7 @@ export function HospitalDriversLive() {
   const [counts, setCounts] = useState<Counts>({ total: 0, online: 0, onTrip: 0 });
   const [drivers, setDrivers] = useState<DriverRow[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<number>(Date.now());
   const { subscribe } = useHospitalSocket();
   const aliveRef = useRef(true);
@@ -37,19 +38,17 @@ export function HospitalDriversLive() {
         fetch("/api/hospital-proxy/api/v1/hospital/me", { cache: "no-store" }),
         fetch("/api/hospital-proxy/api/v1/hospital/drivers", { cache: "no-store" })
       ]);
+      if (!meRes.ok || !drvRes.ok) throw new Error("Driver refresh failed");
+      const [me, json] = await Promise.all([meRes.json(), drvRes.json()]);
+      if (!me?.counts || !Array.isArray(json.drivers)) throw new Error("Driver response incomplete");
       if (!aliveRef.current) return;
-      if (meRes.ok) {
-        const me = await meRes.json();
-        if (me?.counts) setCounts(me.counts);
-      }
-      if (drvRes.ok) {
-        const json = await drvRes.json();
-        setDrivers(Array.isArray(json.drivers) ? json.drivers : []);
-      }
+      setCounts(me.counts);
+      setDrivers(json.drivers);
+      setRefreshError(null);
       setUpdatedAt(Date.now());
       setLoaded(true);
     } catch {
-      /* keep last good */
+      if (aliveRef.current) setRefreshError("Connection interrupted. Displayed records may be out of date. Retrying automatically.");
     }
   }, []);
 
@@ -70,18 +69,19 @@ export function HospitalDriversLive() {
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
+      {refreshError && <div role="alert" className="card" style={{ color: "var(--danger)" }}>{refreshError}</div>}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}>
-        <Kpi label="Total drivers" value={counts.total} />
-        <Kpi label="Online now" value={counts.online} tone="var(--success)" />
-        <Kpi label="On trip" value={counts.onTrip} tone="#0E7490" />
+        <Kpi label="Total drivers" value={loaded ? counts.total : "·"} />
+        <Kpi label="Online now" value={loaded ? counts.online : "·"} tone="var(--success)" />
+        <Kpi label="On trip" value={loaded ? counts.onTrip : "·"} tone="#0E7490" />
       </div>
 
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <h3 style={{ margin: 0 }}>Drivers · {drivers.length}</h3>
           <span className="muted" style={{ fontSize: 12 }}>
-            <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "var(--success)", marginRight: 6 }} />
-            Live · refreshed {formatTimeIST(updatedAt)}
+            <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: refreshError || !loaded ? "var(--warning)" : "var(--success)", marginRight: 6 }} />
+            {refreshError ? "Updates interrupted" : loaded ? "Live" : "Connecting"} · last refresh {formatTimeIST(updatedAt)}
           </span>
         </div>
         {!loaded ? (
@@ -124,7 +124,7 @@ export function HospitalDriversLive() {
   );
 }
 
-function Kpi({ label, value, tone }: { label: string; value: number; tone?: string }) {
+function Kpi({ label, value, tone }: { label: string; value: number | string; tone?: string }) {
   return (
     <div className="card" style={{ textAlign: "left" }}>
       <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 600 }}>{label}</div>

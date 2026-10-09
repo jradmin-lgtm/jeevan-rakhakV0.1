@@ -34,14 +34,16 @@ export function shortStatus(s: string): string {
   }
 }
 
-export function prettyEmergency(t: string): string {
+export function prettyEmergency(t?: string | null): string {
   switch (t) {
     case "ACCIDENT_TRAUMA": return "Accident / Trauma";
     case "CARDIAC": return "Cardiac";
     case "BREATHING_DISTRESS": return "Breathing distress";
     case "PREGNANCY_NEONATAL": return "Pregnancy / Neonatal";
+    case "REFERRAL_AMBULANCE": return "Referral Ambulance";
+    case "OPD_AMBULANCE": return "OPD Ambulance";
     case "GENERAL_CRITICAL_TRANSFER": return "Critical transfer";
-    default: return t;
+    default: return t ?? "Not recorded";
   }
 }
 

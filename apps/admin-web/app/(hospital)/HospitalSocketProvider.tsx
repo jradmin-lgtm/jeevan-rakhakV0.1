@@ -105,9 +105,7 @@ export function HospitalSocketProvider({ token, children }: { token: string | nu
         try {
           socket.removeAllListeners();
           socket.disconnect();
-        } catch {
-          /* best-effort teardown */
-        }
+        } catch (error) { console.warn("HospitalSocketProvider.tsx.HospitalSocketProvider failed"); }
       }
     };
   }, [token]);

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { and, count, desc, eq, gte, inArray, lte, sql as drizzleSql } from "drizzle-orm";
+import { timingSafeEqual } from "node:crypto";
+import { and, count, desc, eq, gte, inArray, lte, getTableColumns, sql as drizzleSql } from "drizzle-orm";
 import { apiUsage, bookingEvents, bookings, drivers, driverDocuments, driverDocumentUpdates, db, driverHospitals, driverLocations, hospitals, supportTickets, supportTicketMessages, users, systemEvents, sql as pgClient } from "@jr/db";
 import { config } from "@jr/config";
 import { hashPassword } from "../password";
@@ -176,20 +177,34 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const source = pickSource(req);
     const status = String((req as any)?.query?.status ?? "all").toUpperCase();
     const range = pickDateRange(req);
+    const query = z.object({
+      q: z.string().max(120).optional(),
+      cursor: z.string().max(100).optional(),
+      limit: z.coerce.number().int().min(1).max(500).default(100)
+    }).safeParse((req as any).query);
+    if (!query.success) return reply.code(400).send({ error: "invalid_booking_query" });
+    const search = query.data.q?.trim().replace(/^#/, "");
+    let cursor: { at: string; id: string } | null = null;
+    if (query.data.cursor) {
+      const [at, id] = query.data.cursor.split("|");
+      if (!at || !Number.isFinite(Date.parse(at)) || !z.string().uuid().safeParse(id).success) return reply.code(400).send({ error: "invalid_booking_cursor" });
+      cursor = { at, id };
+    }
     const filter = and(
       sourceClause(source, bookings.isDemo),
-      status !== "ALL"
-        ? drizzleSql`${bookings.status}::text = ${status}`
-        : undefined,
-      dateRangeClause(bookings.createdAt, range)
+      status !== "ALL" ? drizzleSql`${bookings.status}::text = ${status}` : undefined,
+      dateRangeClause(bookings.createdAt, range),
+      search ? drizzleSql`(strpos(lower(coalesce(${bookings.pickupAddress}, '')), lower(${search})) > 0 OR strpos(lower(coalesce(${bookings.dropAddress}, '')), lower(${search})) > 0 OR strpos(${bookings.id}::text, lower(${search})) > 0 OR ${bookings.displayId}::text = ${search})` : undefined
     );
-
-    const rows = await db
-      .select()
-      .from(bookings)
-      .where(filter)
-      .orderBy(desc(bookings.createdAt))
-      .limit(500);
+    const pageFilter = and(filter, cursor ? drizzleSql`(${bookings.createdAt}, ${bookings.id}) < (${cursor.at}::timestamptz, ${cursor.id}::uuid)` : undefined);
+    const [pageRows, totals] = await Promise.all([
+      db.select({ ...getTableColumns(bookings), cursorCreatedAt: drizzleSql<string>`${bookings.createdAt}::text` }).from(bookings).where(pageFilter).orderBy(desc(bookings.createdAt), desc(bookings.id)).limit(query.data.limit + 1),
+      db.select({ count: count() }).from(bookings).where(filter)
+    ]);
+    const hasMore = pageRows.length > query.data.limit;
+    const rows = pageRows.slice(0, query.data.limit);
+    const last = rows[rows.length - 1];
+    const nextCursor = hasMore && last ? `${last.cursorCreatedAt}|${last.id}` : null;
 
     // v1.2.2 — surface the latest cancellation reason/remarks/outcome inline so
     // the admin bookings list can fold in the standalone Cancellations view.
@@ -226,7 +241,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       };
     });
 
-    return reply.send({ source, status, bookings: enriched });
+    return reply.send({ source, status, bookings: enriched, total: totals[0].count, nextCursor });
   });
 
   app.get("/api/v1/admin/bookings/:id", adminGuard, async (req, reply) => {
@@ -321,18 +336,36 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   app.get("/api/v1/admin/drivers", adminGuard, async (req, reply) => {
     const source = pickSource(req);
     const range = pickDateRange(req);
+    const query = z.object({
+      q: z.string().max(120).optional(),
+      status: z.enum(["all", "AVAILABLE", "ON_TRIP", "OFFLINE"]).default("all"),
+      cursor: z.string().max(100).optional(),
+      limit: z.coerce.number().int().min(1).max(500).default(500)
+    }).safeParse(req.query);
+    if (!query.success) return reply.code(400).send({ error: "invalid_driver_query" });
+    const search = query.data.q?.trim();
+    let cursor: { at: string; id: string } | null = null;
+    if (query.data.cursor) {
+      const parts = query.data.cursor.split("|");
+      const [at, id] = parts;
+      if (parts.length !== 2 || !at || !Number.isFinite(Date.parse(at)) || !z.string().uuid().safeParse(id).success) return reply.code(400).send({ error: "invalid_driver_cursor" });
+      cursor = { at, id };
+    }
+    const rangeFilter = and(sourceClause(source, drivers.isDemo), dateRangeClause(drivers.createdAt, range));
     const filter = and(
-      sourceClause(source, drivers.isDemo),
-      dateRangeClause(drivers.createdAt, range)
+      rangeFilter,
+      query.data.status !== "all" ? drizzleSql`${drivers.status}::text = ${query.data.status}` : undefined,
+      search ? drizzleSql`(strpos(lower(coalesce(${drivers.name}, '')), lower(${search})) > 0 OR strpos(${drivers.phone}, ${search}) > 0 OR strpos(lower(coalesce(${drivers.vehicleNumber}, '')), lower(${search})) > 0 OR strpos(lower(coalesce(${drivers.email}, '')), lower(${search})) > 0)` : undefined
     );
-
-    const rows = await db
-      .select()
-      .from(drivers)
-      .where(filter)
-      .orderBy(desc(drivers.createdAt))
-      .limit(500);
-    return reply.send({ source, drivers: rows });
+    const pageFilter = and(filter, cursor ? drizzleSql`(${drivers.createdAt}, ${drivers.id}) < (${cursor.at}::timestamptz, ${cursor.id}::uuid)` : undefined);
+    const [pageRows, totals, summary] = await Promise.all([
+      db.select({ ...getTableColumns(drivers), cursorCreatedAt: drizzleSql<string>`${drivers.createdAt}::text` }).from(drivers).where(pageFilter).orderBy(desc(drivers.createdAt), desc(drivers.id)).limit(query.data.limit + 1),
+      db.select({ count: count() }).from(drivers).where(filter),
+      db.select({ total: count(), online: drizzleSql<number>`count(*) filter (where ${drivers.status} <> 'OFFLINE')::int`, onTrip: drizzleSql<number>`count(*) filter (where ${drivers.status} = 'ON_TRIP')::int` }).from(drivers).where(rangeFilter)
+    ]);
+    const rows = pageRows.slice(0, query.data.limit);
+    const last = rows[rows.length - 1];
+    return reply.send({ source, drivers: rows, total: totals[0].count, summary: summary[0], nextCursor: pageRows.length > query.data.limit && last ? `${last.cursorCreatedAt}|${last.id}` : null });
   });
 
   // 2026-08-10 fix: previously filtered by ACTIVITY (booked at least once
@@ -345,18 +378,34 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const source = pickSource(req);
     const range = pickDateRange(req);
 
+    const query = z.object({
+      q: z.string().max(120).optional(),
+      cursor: z.string().max(100).optional(),
+      limit: z.coerce.number().int().min(1).max(500).default(500)
+    }).safeParse(req.query);
+    if (!query.success) return reply.code(400).send({ error: "invalid_user_query" });
+    const search = query.data.q?.trim();
+    let cursor: { at: string; id: string } | null = null;
+    if (query.data.cursor) {
+      const parts = query.data.cursor.split("|");
+      const [at, id] = parts;
+      if (parts.length !== 2 || !at || !Number.isFinite(Date.parse(at)) || !z.string().uuid().safeParse(id).success) return reply.code(400).send({ error: "invalid_user_cursor" });
+      cursor = { at, id };
+    }
+    const rangeFilter = and(sourceClause(source, users.isDemo), dateRangeClause(users.createdAt, range));
     const filter = and(
-      sourceClause(source, users.isDemo),
-      dateRangeClause(users.createdAt, range)
+      rangeFilter,
+      search ? drizzleSql`(strpos(lower(coalesce(${users.name}, '')), lower(${search})) > 0 OR strpos(${users.phone}, ${search}) > 0 OR strpos(lower(coalesce(${users.email}, '')), lower(${search})) > 0)` : undefined
     );
-
-    const rows = await db
-      .select()
-      .from(users)
-      .where(filter)
-      .orderBy(desc(users.createdAt))
-      .limit(500);
-    return reply.send({ source, users: rows });
+    const pageFilter = and(filter, cursor ? drizzleSql`(${users.createdAt}, ${users.id}) < (${cursor.at}::timestamptz, ${cursor.id}::uuid)` : undefined);
+    const [pageRows, totals, summary] = await Promise.all([
+      db.select({ ...getTableColumns(users), cursorCreatedAt: drizzleSql<string>`${users.createdAt}::text` }).from(users).where(pageFilter).orderBy(desc(users.createdAt), desc(users.id)).limit(query.data.limit + 1),
+      db.select({ count: count() }).from(users).where(filter),
+      db.select({ total: count(), disabled: drizzleSql<number>`count(*) filter (where ${users.disabled} = true)::int` }).from(users).where(rangeFilter)
+    ]);
+    const rows = pageRows.slice(0, query.data.limit);
+    const last = rows[rows.length - 1];
+    return reply.send({ source, users: rows, total: totals[0].count, summary: summary[0], nextCursor: pageRows.length > query.data.limit && last ? `${last.cursorCreatedAt}|${last.id}` : null });
   });
 
   // Per-user detail: profile + last 100 bookings + lifetime totals.
@@ -372,16 +421,12 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       .orderBy(desc(bookings.createdAt))
       .limit(100);
 
-    const totals = {
-      total: history.length,
-      completed: history.filter((b) => b.status === "COMPLETED").length,
-      cancelled: history.filter((b) => b.status === "CANCELLED").length,
-      // Sum of payable across completed trips. Falls back to fareFinalInr if
-      // payable hasn't been backfilled on old rows.
-      lifetimePayableInr: history
-        .filter((b) => b.status === "COMPLETED")
-        .reduce((s, b) => s + (b.payableInr ?? b.fareFinalInr ?? 0), 0)
-    };
+    const [totals] = await db.select({
+      total: count(),
+      completed: drizzleSql<number>`count(*) filter (where ${bookings.status} = 'COMPLETED')::int`,
+      cancelled: drizzleSql<number>`count(*) filter (where ${bookings.status} = 'CANCELLED')::int`,
+      lifetimePayableInr: drizzleSql<number>`coalesce(sum(coalesce(${bookings.payableInr}, ${bookings.fareFinalInr}, 0)) filter (where ${bookings.status} = 'COMPLETED'), 0)::float8`
+    }).from(bookings).where(eq(bookings.userId, id));
 
     return reply.send({ user: u, bookings: history, totals });
   });
@@ -451,17 +496,12 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       .orderBy(desc(bookings.createdAt))
       .limit(100);
 
-    const totals = {
-      total: history.length,
-      completed: history.filter((b) => b.status === "COMPLETED").length,
-      cancelled: history.filter((b) => b.status === "CANCELLED").length,
-      // Lifetime earnings = sum of payable across completed trips. Coupon-discounted
-      // rides earn the driver whatever the patient actually paid (pilot rule —
-      // payout reconciliation against promo budget happens out-of-band).
-      lifetimeEarningsInr: history
-        .filter((b) => b.status === "COMPLETED")
-        .reduce((s, b) => s + (b.payableInr ?? b.fareFinalInr ?? 0), 0)
-    };
+    const [totals] = await db.select({
+      total: count(),
+      completed: drizzleSql<number>`count(*) filter (where ${bookings.status} = 'COMPLETED')::int`,
+      cancelled: drizzleSql<number>`count(*) filter (where ${bookings.status} = 'CANCELLED')::int`,
+      lifetimeEarningsInr: drizzleSql<number>`coalesce(sum(coalesce(${bookings.payableInr}, ${bookings.fareFinalInr}, 0)) filter (where ${bookings.status} = 'COMPLETED'), 0)::float8`
+    }).from(bookings).where(eq(bookings.driverId, id));
 
     // v1.1.2: the driver's hospital assignments (many-to-many) for the
     // detail page's multi-select + the full hospital list to pick from.
@@ -562,72 +602,34 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     note: z.string().trim().max(500).optional()
   });
 
-  // 2026-08: approve a reissue request — copies the pending photo into
-  // driver_documents at page 1 (upsert, same target the normal upload path
-  // uses) so it becomes the live doc, marks the request APPROVED, and closes
-  // out the linked ticket with an admin reply (required by the ticket's own
-  // resolve gate — see PATCH /admin/tickets/:id).
-  app.post("/api/v1/admin/document-updates/:id/approve", adminGuard, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const parsed = resolveDocUpdateSchema.safeParse(req.body);
-    if (!parsed.success) return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
-    const [pending] = await db
-      .select()
-      .from(driverDocumentUpdates)
-      .where(and(eq(driverDocumentUpdates.id, id), eq(driverDocumentUpdates.status, "PENDING")))
-      .limit(1);
-    if (!pending) return reply.code(404).send({ error: "not_found_or_already_resolved" });
-    await db
-      .insert(driverDocuments)
-      .values({
-        driverId: pending.driverId,
-        docType: pending.docType,
-        page: 1,
-        contentType: pending.contentType,
-        data: pending.data
-      })
-      .onConflictDoUpdate({
-        target: [driverDocuments.driverId, driverDocuments.docType, driverDocuments.page],
-        set: { contentType: pending.contentType, data: pending.data, uploadedAt: new Date() }
+  for (const [action, status] of [["approve", "APPROVED"], ["reject", "REJECTED"]] as const) {
+    app.post(`/api/v1/admin/document-updates/:id/${action}`, adminGuard, async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const parsed = resolveDocUpdateSchema.safeParse(req.body);
+      if (!parsed.success) return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+      const resolved = await pgClient.begin(async (tx) => {
+        const [pending] = await tx`SELECT * FROM driver_document_updates WHERE id=${id} AND status='PENDING' FOR UPDATE`;
+        if (!pending) return false;
+        if (status === "APPROVED") {
+          await tx`INSERT INTO driver_documents (driver_id, doc_type, page, content_type, data)
+            VALUES (${pending.driver_id}, ${pending.doc_type}, 1, ${pending.content_type}, ${pending.data})
+            ON CONFLICT (driver_id, doc_type, page) DO UPDATE SET content_type=EXCLUDED.content_type, data=EXCLUDED.data, uploaded_at=now()`;
+        }
+        await tx`UPDATE driver_document_updates SET status=${status}, resolved_by=${parsed.data.resolvedBy}, resolved_at=now() WHERE id=${id}`;
+        if (pending.ticket_id) {
+          const note = parsed.data.note?.trim() || (status === "APPROVED"
+            ? "Approved. The new document has replaced the one on file."
+            : "Rejected. Please raise a new request with a clearer photo.");
+          await tx`INSERT INTO support_ticket_messages (ticket_id, author_role, author_name, body)
+            VALUES (${pending.ticket_id}, 'ADMIN', ${parsed.data.resolvedBy}, ${note})`;
+          await tx`UPDATE support_tickets SET status='RESOLVED', resolved_by=${parsed.data.resolvedBy}, resolved_at=now() WHERE id=${pending.ticket_id}`;
+        }
+        return true;
       });
-    const now = new Date();
-    await db
-      .update(driverDocumentUpdates)
-      .set({ status: "APPROVED", resolvedBy: parsed.data.resolvedBy, resolvedAt: now })
-      .where(eq(driverDocumentUpdates.id, id));
-    if (pending.ticketId) {
-      const note = parsed.data.note?.trim() || "Approved. The new document has replaced the one on file.";
-      await db.insert(supportTicketMessages).values({ ticketId: pending.ticketId, authorRole: "ADMIN", authorName: parsed.data.resolvedBy, body: note });
-      await db.update(supportTickets).set({ status: "RESOLVED", resolvedBy: parsed.data.resolvedBy, resolvedAt: now }).where(eq(supportTickets.id, pending.ticketId));
-    }
-    return reply.send({ ok: true });
-  });
-
-  // 2026-08: reject a reissue request — leaves the current live document
-  // untouched, marks the request REJECTED, and closes the ticket with the
-  // admin's note (e.g. "photo is blurry, please retake").
-  app.post("/api/v1/admin/document-updates/:id/reject", adminGuard, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const parsed = resolveDocUpdateSchema.safeParse(req.body);
-    if (!parsed.success) return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
-    const [pending] = await db
-      .select()
-      .from(driverDocumentUpdates)
-      .where(and(eq(driverDocumentUpdates.id, id), eq(driverDocumentUpdates.status, "PENDING")))
-      .limit(1);
-    if (!pending) return reply.code(404).send({ error: "not_found_or_already_resolved" });
-    const now = new Date();
-    await db
-      .update(driverDocumentUpdates)
-      .set({ status: "REJECTED", resolvedBy: parsed.data.resolvedBy, resolvedAt: now })
-      .where(eq(driverDocumentUpdates.id, id));
-    if (pending.ticketId) {
-      const note = parsed.data.note?.trim() || "Rejected. Please raise a new request with a clearer photo.";
-      await db.insert(supportTicketMessages).values({ ticketId: pending.ticketId, authorRole: "ADMIN", authorName: parsed.data.resolvedBy, body: note });
-      await db.update(supportTickets).set({ status: "RESOLVED", resolvedBy: parsed.data.resolvedBy, resolvedAt: now }).where(eq(supportTickets.id, pending.ticketId));
-    }
-    return reply.send({ ok: true });
-  });
+      if (!resolved) return reply.code(404).send({ error: "not_found_or_already_resolved" });
+      return reply.send({ ok: true });
+    });
+  }
 
   // v1.2.0 CR#2: paginated driver-cancellation audit log, joined to the
   // booking (displayId) + driver (name, ambulance) for a human-readable view.
@@ -1136,7 +1138,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         if (r.level === "warn") result.events.warn24h = c;
       }
     } catch {
-      /* leave zeros */
+      app.log.error("Health check failed: system event counts unavailable");
+      return reply.code(503).send({ error: "event_counts_unavailable" });
     }
 
     try {
@@ -1166,7 +1169,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         };
       });
     } catch {
-      /* leave empty — health check must never 500 on this being new/absent */
+      app.log.error("Health check failed: map usage unavailable");
+      return reply.code(503).send({ error: "map_usage_unavailable" });
     }
 
     reply.header("x-server-time-ms", String(Date.now() - start));
@@ -1237,8 +1241,14 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   app.post("/api/v1/admin/bookings/:id/delete", adminGuard, async (req, reply) => {
     const id = (req.params as any).id as string;
     const body = (req as any).body ?? {};
-    const expected = process.env.JR_BOOKING_DELETE_PASSWORD ?? "dev-delete-password-change-in-prod";
-    if (body.password !== expected) {
+    const expected = process.env.JR_BOOKING_DELETE_PASSWORD;
+    if (!expected || expected === "dev-delete-password-change-in-prod") {
+      req.log.error("JR_BOOKING_DELETE_PASSWORD is missing or insecure; booking deletion refused");
+      return reply.code(503).send({ error: "booking_deletion_not_configured" });
+    }
+    const supplied = typeof body.password === "string" ? Buffer.from(body.password) : Buffer.alloc(0);
+    const required = Buffer.from(expected);
+    if (supplied.length !== required.length || !timingSafeEqual(supplied, required)) {
       return reply.code(401).send({ error: "delete_password_required" });
     }
     // CASCADE on the FK means booking_events go with the row; driver_locations
@@ -1714,6 +1724,8 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     if (parsed.data.severity !== undefined) patch.severity = parsed.data.severity;
 
     if (parsed.data.status === "RESOLVED") {
+      const [pendingDocument] = await pgClient`SELECT id FROM driver_document_updates WHERE ticket_id=${id} AND status='PENDING' LIMIT 1`;
+      if (pendingDocument) return reply.code(409).send({ error: "document_review_required", message: "Review the pending document on the driver page before resolving this ticket." });
       // Resolve gate: capture the closer's name + require ≥1 admin reply first.
       const resolvedBy = (parsed.data.resolvedBy ?? "").trim();
       if (!resolvedBy) return reply.code(400).send({ error: "resolver_name_required" });
@@ -1751,7 +1763,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const rows = await db
       .select({ status: supportTickets.status, c: count() })
       .from(supportTickets)
-      .where(eq(supportTickets.category, "ISSUE"))
+      .where(inArray(supportTickets.category, ["ISSUE", "DOC_UPDATE"]))
       .groupBy(supportTickets.status);
     let open = 0;
     let resolved = 0;
@@ -1802,6 +1814,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       ride: {
         displayId: b.displayId,
         emergencyType: b.emergencyType,
+        isSos: b.isSos,
         createdAt: b.createdAt,
         pickupAddress: b.pickupAddress,
         destHospitalId: b.destHospitalId,
@@ -1810,7 +1823,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       },
       // Section A — patient-submitted
       patient: {
-        name: b.patientName ?? u?.name ?? null,
+        name: b.patientName ?? null,
         age: b.patientAge,
         gender: b.patientGender,
         // 2026-08-12: multi-select — fall back to wrapping the old
@@ -1820,6 +1833,9 @@ export async function registerAdminRoutes(app: FastifyInstance) {
           : b.patientCondition
             ? [b.patientCondition]
             : [],
+        attendantName: b.attendantName,
+        attendantRelation: b.attendantRelation,
+        source: "user",
         notes: b.patientNotes,
         phone: u?.phone ?? null,
         bloodGroup: u?.bloodGroup ?? null,
@@ -1841,12 +1857,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const source = String(body.source ?? "client").slice(0, 50);
     const message = String(body.message ?? "(no message)").slice(0, 500);
     const context = typeof body.context === "object" && body.context !== null ? body.context : undefined;
-    // Best-effort; never reject the client.
+    // The reporting endpoint must confirm persistence before acknowledging.
     try {
       const { emitEvent } = await import("../events.js");
-      await emitEvent({ level, source, message, context });
+      await emitEvent({ level, source, message, context }, { required: true });
     } catch {
-      /* swallow */
+      app.log.error("Client event report could not be persisted");
+      return reply.code(503).send({ error: "event_write_failed" });
     }
     return reply.send({ ok: true });
   });

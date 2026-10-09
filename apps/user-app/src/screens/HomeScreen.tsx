@@ -1,5 +1,7 @@
+import { PushStatusNotice } from "../components/PushStatusNotice";
+import { rideCache } from "../rideCache";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Animated, Pressable, RefreshControl, StyleSheet, View } from "react-native";
+import { Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   AppHeader,
@@ -8,7 +10,7 @@ import {
   IconBadge,
   ContactSupport,
   LaunchBanner,
-  PulseDot,
+  MotionView,
   Screen,
   StatusBadge,
   Text,
@@ -38,17 +40,22 @@ const MAX_ACTIVE_BOOKINGS = 1;
 // v1.3.x (geofence): the home banner copy. Falls back to this static default
 // if /service-area can't be reached on a cold start, so the ribbon always
 // renders something honest (we are live in Bareilly during the pilot).
-const DEFAULT_BANNER = { cityName: "Bareilly", hospitalName: "SRMS IMS Hospital", radiusKm: 1000 };
+const DEFAULT_BANNER = { cityName: "Bareilly", hospitalName: "SRMS IMS Hospital", radiusKm: 100 };
 
 export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfile, onHistory, onSupport }: Props) {
   const { t, lang, setLang } = useT();
+  const [accountOpen, setAccountOpen] = useState(false);
   const [active, setActive] = useState<Booking | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [name, setName] = useState<string | null>(profile?.name ?? null);
   // v1.3.x (geofence): banner copy. Best-effort fetch, keep-last-good — we
   // never blank an already-shown banner if a later refresh fails.
   const [banner, setBanner] = useState<{ cityName: string; hospitalName: string; radiusKm: number }>(DEFAULT_BANNER);
-  const breathe = useRef(new Animated.Value(1)).current;
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const refreshingRef = useRef(false);
+  const cacheLoaded = useRef(false);
+  const [savedRide, setSavedRide] = useState(false);
+  const [cacheError, setCacheError] = useState(false);
 
   // Slim, non-blocking pull of the public service-area config. Guarded with a
   // mounted flag so we don't setState after the screen unmounts; on failure we
@@ -58,30 +65,21 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
     serviceAreaApi()
       .then((sa) => {
         if (!mounted) return;
-        setBanner({ cityName: sa.cityName, hospitalName: sa.hospitalName, radiusKm: sa.radiusKm });
+        setBanner({ cityName: sa.cityName, hospitalName: sa.hospitalName, radiusKm: 100 });
       })
-      .catch(() => {
-        /* keep-last-good — banner already shows the default */
-      });
+      .catch((error) => { console.warn("HomeScreen.tsx.HomeScreen failed", error instanceof Error ? error.message : String(error)); });
     return () => { mounted = false; };
   }, []);
 
-  // Subtle breathing animation on the central SOS button. Drives "this is
-  // alive, tap me" affordance during an emergency without being so loud it
-  // looks broken when the user is just looking at the home screen calmly.
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(breathe, { toValue: 1.04, duration: 1200, useNativeDriver: true }),
-        Animated.timing(breathe, { toValue: 1, duration: 1200, useNativeDriver: true })
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [breathe]);
-
   const refresh = useCallback(async () => {
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
     setRefreshing(true);
+    if (!cacheLoaded.current) {
+      cacheLoaded.current = true;
+      try { const snapshot = await rideCache.load(); if (snapshot) { setActive(snapshot.booking); setSavedRide(true); } }
+      catch (error) { console.error("[home] offline ride restore failed", error); setCacheError(true); }
+    }
     try {
       const [m, b] = await Promise.all([me.get().catch(() => null), bookingsApi.mine()]);
       if (m?.profile?.name) setName(m.profile.name);
@@ -89,10 +87,19 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
         ["REQUESTED", "ACCEPTED", "ARRIVED", "PICKED_UP"].includes(x.status)
       );
       setActive(liveList[0] ?? null);
+      setSavedRide(false);
+      try { await rideCache.saveBooking(liveList[0] ?? null); setCacheError(false); }
+      catch (error) { console.error("[home] offline ride save failed", error); setCacheError(true); }
+      setRefreshError(null);
+    } catch (error) {
+      console.warn("Home trip refresh failed", error);
+      setRefreshError(t("home.refresh_failed"));
+      setSavedRide(true);
     } finally {
+      refreshingRef.current = false;
       setRefreshing(false);
     }
-  }, []);
+  }, [t]);
 
   // 2026-08-12: was a plain mount-only useEffect, so returning to Home via
   // navigation.popToTop() after a ride (LiveTrackingScreen's onClose) reused
@@ -114,7 +121,19 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
   })();
 
   return (
-    <Screen refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}>
+    <Screen bg={colors.surface} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
+      footer={<View style={{ flexDirection: "row", gap: space.sm }}>
+        {[
+          { label: t("home.trip_history"), glyph: "◷", action: onHistory, id: "home-history" },
+          { label: t("home.medical_profile"), glyph: "◎", action: onProfile, id: "home-profile" },
+          { label: t("home.help_short"), glyph: "?", action: onSupport, id: "home-support" }
+        ].map(item => <Pressable key={item.id} testID={item.id} accessibilityRole="button" onPress={item.action}
+          style={({ pressed }) => ({ flex: 1, minWidth: 0, minHeight: 52, paddingVertical: 4, alignItems: "center", justifyContent: "center", gap: 4, opacity: pressed ? 0.6 : 1 })}>
+          <Text variant="heading" weight="semi">{item.glyph}</Text>
+          <Text variant="tiny" align="center" weight="medium">{item.label}</Text>
+        </Pressable>)}
+      </View>}>
+
       <AppHeader
         title={`${greet}${name ? `, ${name.split(" ")[0]}` : ""}`}
         subtitle={t("home.subtitle")}
@@ -122,11 +141,12 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
           <Pressable
             onPress={() => void setLang(lang === "en" ? "hi" : "en")}
             accessibilityLabel={t("common.switch_language")}
-            style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "rgba(30,94,255,0.10)", borderRadius: 999 }}
+            accessibilityRole="button"
+            style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, minHeight: 44, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 999 }}
           >
-            <Text variant="small" weight="bold" style={{ color: lang === "en" ? colors.accent : "#94A3B8" }}>EN</Text>
+            <Text variant="small" weight="bold" style={{ color: lang === "en" ? colors.accent : colors.textMuted }}>EN</Text>
             <Text variant="small" tone="muted">|</Text>
-            <Text variant="small" weight="bold" style={{ color: lang === "hi" ? colors.accent : "#94A3B8" }}>हि</Text>
+            <Text variant="small" weight="bold" style={{ color: lang === "hi" ? colors.accent : colors.textMuted }}>हि</Text>
           </Pressable>
         }
       />
@@ -135,97 +155,66 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
         * content, above the SOS hero. Non-blocking — it never gates the
         * emergency action. */}
       <LaunchBanner
+        title={t("home.live_city").replace("{city}", banner.cityName)}
         cityName={banner.cityName}
         subtitle={t("home.banner_serving").replace("{city}", banner.cityName).replace("{radius}", String(banner.radiusKm)).replace("{hospital}", banner.hospitalName)}
       />
 
+      {refreshError && !(savedRide && active) ? <Text variant="small" tone="danger" accessibilityRole="alert">{refreshError}</Text> : null}
+
+      {savedRide && active ? <Text variant="small" tone="secondary">{t("offline.saved_ride")}</Text> : null}
+      {cacheError ? <Text variant="small" tone="danger">{t("offline.storage_error")}</Text> : null}
       {active ? (
-        <Card style={{ borderColor: colors.primary, borderWidth: 1.5 }} onPress={() => onTrack(active)}>
+        <Card style={{ borderColor: colors.borderStrong, borderWidth: 1 }} onPress={() => onTrack(active)}>
           <View style={{ gap: space.sm }}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
               <Text variant="label" tone="secondary">{t("home.active_trip")}</Text>
-              <StatusBadge status={active.status} />
+              <StatusBadge label={t(`status.${active.status}`)} status={active.status} />
             </View>
             <Text variant="heading">{prettyEmergency(active.emergencyType, t)}</Text>
             <Text variant="small" tone="secondary">
               {t("home.pickup_prefix").replace("{address}", String(active.pickupAddress ?? `${active.pickupLat.toFixed(4)}, ${active.pickupLng.toFixed(4)}`))}
             </Text>
-            <Button label={t("home.open_tracking")} onPress={() => onTrack(active)} fullWidth />
+            <Button label={t("home.open_tracking")} style={{ backgroundColor: colors.textPrimary }} onPress={() => onTrack(active)} fullWidth />
           </View>
         </Card>
       ) : (
         <>
-          {/* v1.0.11 redesign — the SOS button is the primary visual focus.
-            * Pilot testers reported the previous two-button layout buried the
-            * emergency action. The big circle is unmistakable and works for
-            * elderly / panicked / unfamiliar users. */}
-          <View style={sosStyles.heroWrap}>
-            <Text variant="title" weight="bold" align="center">{t("home.need_ambulance")}</Text>
-            <Text variant="small" tone="secondary" align="center" style={{ marginTop: 4 }}>
-              {t("home.need_ambulance.sub")}
-            </Text>
-            <Pressable
-              onPress={() => dialog.alert(t("emergency.disclaimer.title"), t("emergency.disclaimer.body"))}
-              accessibilityRole="button"
-              accessibilityLabel={t("emergency.disclaimer.title")}
-              hitSlop={8}
-              style={{ marginTop: 8, alignSelf: "center" }}
-            >
-              <IconBadge glyph="i" size={26} bg={colors.primaryFaint} color={colors.primary} />
-            </Pressable>
-
-            <View style={sosStyles.ringWrap}>
-              <PulseDot size={120} color={colors.danger} rings={3} />
-              <Animated.View style={[sosStyles.bigButton, { transform: [{ scale: breathe }] }]}>
-                <Pressable
-                  onPress={onSos}
-                  android_ripple={{ color: "rgba(255,255,255,0.2)", borderless: true }}
-                  style={sosStyles.bigButtonInner}
-                  testID="sos-cta"
-                  accessibilityRole="button"
-                  accessibilityLabel={t("home.sos_a11y")}
-                >
-                  {/* v1.0.14: dropped letterSpacing 3 → 1 to fix the "O
-                    * off-centre" artifact. Earlier draft also set
-                    * includeFontPadding:false which removed Android's
-                    * baseline padding and shifted the whole text block
-                    * upward inside the circle — leaving empty red space
-                    * below. Reverted; just the letterSpacing fix is enough. */}
-                  <Text
-                    variant="title"
-                    tone="inverse"
-                    weight="bold"
-                    style={{ fontSize: 52, lineHeight: 60, letterSpacing: 1, textAlign: "center" }}
-                  >
-                    {t("home.sos_short")}
-                  </Text>
-                  <Text variant="small" tone="inverse" style={{ opacity: 0.95, marginTop: 2 }}>{t("home.sos.tap")}</Text>
-                </Pressable>
-              </Animated.View>
-            </View>
-
-            <Pressable onPress={onBook} style={sosStyles.bookTile} testID="book-cta" android_ripple={{ color: "rgba(0,0,0,0.04)" }}>
-              <View style={{ flex: 1 }}>
-                <Text variant="body" weight="semi">{t("home.book_card.title")}</Text>
-                <Text variant="tiny" tone="secondary">{t("home.book_card.sub")}</Text>
+          <MotionView style={sosStyles.heroWrap}>
+            <Text variant="title" weight="bold">{t("home.need_ambulance")}</Text>
+            <Text variant="small" tone="secondary">{t("home.need_ambulance.sub")}</Text>
+            <Pressable onPress={onSos} style={({ pressed }) => [sosStyles.emergencyTile, pressed ? { opacity: 0.85 } : null]}
+              testID="sos-cta" accessibilityRole="button" accessibilityLabel={t("home.sos_a11y")}>
+              <View style={sosStyles.sosMark}><Text variant="heading" weight="bold" tone="inverse">{t("home.sos_short")}</Text></View>
+              <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+                <Text variant="heading" weight="bold" tone="inverse">{t("home.emergency_cta")}</Text>
+                <Text variant="small" tone="inverse">{t("home.sos.tap")}</Text>
               </View>
-              <Text variant="heading" tone="primary" weight="bold">→</Text>
+              <Text variant="heading" tone="inverse">›</Text>
             </Pressable>
-          </View>
+            <Pressable onPress={onBook} style={({ pressed }) => [sosStyles.bookPrimary, pressed ? { opacity: 0.85 } : null]}
+              testID="book-cta" accessibilityRole="button">
+              <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+                <Text variant="heading" weight="bold" tone="inverse">{t("home.book_card.title")}</Text>
+                <Text variant="small" tone="inverse">{t("home.book_services")}</Text>
+              </View>
+              <Text variant="heading" tone="inverse">›</Text>
+            </Pressable>
+            <Pressable onPress={() => dialog.alert(t("emergency.disclaimer.title"), t("emergency.disclaimer.body"))}
+              accessibilityRole="button" style={sosStyles.disclaimer}>
+              <IconBadge glyph="i" size={24} bg={colors.bg} color={colors.textSecondary} />
+              <Text variant="small" tone="secondary" style={{ flex: 1 }}>{t("emergency.disclaimer.title")}</Text>
+              <Text variant="body" tone="secondary">›</Text>
+            </Pressable>
+          </MotionView>
         </>
       )}
 
-      <Card flat>
-        <View style={{ gap: space.md }}>
-          <Text variant="label" tone="secondary">{t("home.quick_actions")}</Text>
-          <View style={{ flexDirection: "row", gap: space.md }}>
-            <View style={{ flex: 1 }}>
-              <Button label={t("home.trip_history")} variant="outline" onPress={onHistory} fullWidth />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Button label={t("home.medical_profile")} variant="outline" onPress={onProfile} fullWidth />
-            </View>
-          </View>
+      <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: space.sm }}>
+        <Pressable accessibilityRole="button" accessibilityState={{ expanded: accountOpen }} onPress={() => setAccountOpen(value => !value)} style={{ minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <Text variant="small" weight="medium">{t("home.account_options")}</Text><Text>{accountOpen ? "⌃" : "⌄"}</Text>
+        </Pressable>
+        {accountOpen ? <View style={{ gap: space.sm }}>
           <Button label={t("home.sign_out")} variant="ghost" onPress={async () => { await clearToken(); onLogout(); }} />
           <Button
             label={t("delete.button")}
@@ -257,12 +246,13 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
               }
             }}
           />
-        </View>
-      </Card>
+        </View> : null}
+      </View>
 
       {/* v1.2.4 (helpdesk): a tap-through into the two-way Help & Support
         * screen (raise a request + chat with the team). The static
-        * <ContactSupport /> card below is kept as-is — it still carries the
+        * <PushStatusNotice />
+      <ContactSupport lang={lang} /> card below is kept as-is : it still carries the
         * call/email lines + the "Available daily, 8 AM – 11 PM IST" hours
         * text — so users who just want to phone in are unaffected. */}
       <Pressable
@@ -278,7 +268,8 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
         <Text variant="heading" tone="primary" weight="bold">→</Text>
       </Pressable>
 
-      <ContactSupport />
+      <PushStatusNotice />
+      <ContactSupport lang={lang} />
 
       <Text variant="tiny" tone="muted" align="center">
         {t("home.made_with_care")}
@@ -288,43 +279,12 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
 }
 
 const sosStyles = StyleSheet.create({
-  heroWrap: { gap: space.lg, paddingVertical: space.md, alignItems: "center" },
-  ringWrap: {
-    width: 240,
-    height: 240,
-    alignItems: "center",
-    justifyContent: "center",
-    marginVertical: space.sm
-  },
-  bigButton: {
-    position: "absolute",
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    backgroundColor: colors.danger,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 4,
-    borderColor: "rgba(255,255,255,0.85)",
-    shadowColor: colors.danger,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 16,
-    elevation: 8
-  },
-  bigButtonInner: { width: "100%", height: "100%", alignItems: "center", justifyContent: "center" },
-  bookTile: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.md,
-    width: "100%",
-    paddingVertical: space.md,
-    paddingHorizontal: space.lg,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    backgroundColor: colors.surface
-  }
+  heroWrap: { gap: space.md, paddingVertical: space.sm },
+  emergencyTile: { flexDirection: "row", alignItems: "center", gap: 16, minHeight: 96, padding: 18, borderRadius: 16, backgroundColor: colors.primaryDark },
+  sosMark: { width: 56, height: 56, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.14)", alignItems: "center", justifyContent: "center" },
+  bookPrimary: { flexDirection: "row", alignItems: "center", gap: 16, minHeight: 88, padding: 18, borderRadius: 16, backgroundColor: colors.textPrimary },
+  disclaimer: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 },
+  bookTile: { flexDirection: "row", alignItems: "center", gap: space.md, width: "100%", paddingVertical: space.md, paddingHorizontal: space.lg, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }
 });
 
 // CR3 (2026-08): now takes the caller's translate fn so this pill label
@@ -336,6 +296,8 @@ export function prettyEmergency(emergencyType: string, translate: (key: string) 
     case "CARDIAC": return translate("emergency.cardiac.label");
     case "BREATHING_DISTRESS": return translate("emergency.breathing.label");
     case "PREGNANCY_NEONATAL": return translate("emergency.pregnancy_neonatal.pill_label");
+    case "REFERRAL_AMBULANCE": return translate("emergency.referral.label");
+    case "OPD_AMBULANCE": return translate("emergency.opd.label");
     case "GENERAL_CRITICAL_TRANSFER": return translate("emergency.critical_transfer.label");
     default: return emergencyType;
   }

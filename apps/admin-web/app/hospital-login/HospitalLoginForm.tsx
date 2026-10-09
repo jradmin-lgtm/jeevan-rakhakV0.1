@@ -34,9 +34,7 @@ export function HospitalLoginForm() {
     try {
       const params = new URLSearchParams(window.location.search);
       if (params.get("disabled") === "1") setNotice(PORTAL_DISABLED_MSG);
-    } catch {
-      /* no-op */
-    }
+    } catch (error) { console.warn("HospitalLoginForm.tsx.HospitalLoginForm failed"); }
   }, []);
 
   const submit = async (e: React.FormEvent) => {

@@ -26,7 +26,9 @@ export const emergencyTypeEnum = pgEnum("emergency_type", [
   "CARDIAC",
   "BREATHING_DISTRESS",
   "PREGNANCY_NEONATAL",
-  "GENERAL_CRITICAL_TRANSFER"
+  "GENERAL_CRITICAL_TRANSFER",
+  "REFERRAL_AMBULANCE",
+  "OPD_AMBULANCE"
 ]);
 
 export const bookingStatusEnum = pgEnum("booking_status", [
@@ -265,6 +267,9 @@ export const bookings = pgTable(
     patientName: text("patient_name"),
     patientAge: integer("patient_age"),
     patientGender: text("patient_gender"),
+    attendantName: text("attendant_name"),
+    attendantRelation: text("attendant_relation"),
+    pickupLandmark: text("pickup_landmark"),
     patientCondition: text("patient_condition"),
     // 2026-08-12: multi-select conditions (a patient can be e.g. both "Road
     // Accident" AND "Severe Bleeding"). Added alongside the old single-value

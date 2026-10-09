@@ -16,13 +16,16 @@ function AppHeaderInner({ title, subtitle, onBack, right }: Props) {
       {onBack ? (
         <Pressable
           onPress={onBack}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          hitSlop={4}
           android_ripple={{ color: "rgba(0,0,0,0.06)", borderless: true }}
           style={styles.back}
         >
           <Text variant="heading" weight="bold" style={{ fontSize: 24 }}>‹</Text>
         </Pressable>
       ) : null}
-      <View style={{ flex: 1, gap: 2 }}>
+      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         <Text variant="heading">{title}</Text>
         {subtitle ? <Text variant="small" tone="secondary">{subtitle}</Text> : null}
       </View>
@@ -39,8 +42,8 @@ const styles = StyleSheet.create({
     minHeight: 44
   },
   back: {
-    width: 32,
-    height: 32,
+    width: 44,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
     marginLeft: -space.sm

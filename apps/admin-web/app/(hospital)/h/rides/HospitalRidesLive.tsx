@@ -60,6 +60,7 @@ function rowTime(r: HistoryRow): string {
 export function HospitalRidesLive() {
   const [rows, setRows] = useState<HistoryRow[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<number>(Date.now());
   const { subscribe } = useHospitalSocket();
   const router = useRouter();
@@ -68,14 +69,15 @@ export function HospitalRidesLive() {
   const fetchHistory = useCallback(async () => {
     try {
       const res = await fetch("/api/hospital-proxy/api/v1/hospital/bookings?scope=all", { cache: "no-store" });
-      if (!res.ok) return;
+      if (!res.ok) throw new Error(`Refresh failed (${res.status})`);
       const json = await res.json();
       if (!aliveRef.current) return;
       setRows(Array.isArray(json.bookings) ? json.bookings : []);
+      setRefreshError(null);
       setUpdatedAt(Date.now());
       setLoaded(true);
     } catch {
-      /* keep last good */
+      if (aliveRef.current) setRefreshError("Connection interrupted. Displayed records may be out of date. Retrying automatically.");
     }
   }, []);
 
@@ -95,12 +97,13 @@ export function HospitalRidesLive() {
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
+      {refreshError && <div role="alert" className="card" style={{ color: "var(--danger)" }}>{refreshError}</div>}
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <h3 style={{ margin: 0 }}>All rides · {rows.length}</h3>
           <span className="muted" style={{ fontSize: 12 }}>
-            <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "var(--success)", marginRight: 6 }} />
-            Live · refreshed {formatTimeIST(updatedAt)}
+            <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: refreshError || !loaded ? "var(--warning)" : "var(--success)", marginRight: 6 }} />
+            {refreshError ? "Updates interrupted" : loaded ? "Live" : "Connecting"} · last refresh {formatTimeIST(updatedAt)}
           </span>
         </div>
         {!loaded ? (

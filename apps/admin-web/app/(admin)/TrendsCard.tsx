@@ -103,9 +103,7 @@ export function TrendsCard({ apiBase }: { apiBase: string }) {
         if (!res.ok) return;
         const d = await res.json();
         if (alive) setData(d);
-      } catch {
-        /* keep last good */
-      } finally {
+      } catch (error) { console.warn("TrendsCard.tsx.tick failed"); } finally {
         if (alive) setLoading(false);
       }
     };
@@ -114,7 +112,9 @@ export function TrendsCard({ apiBase }: { apiBase: string }) {
     return () => { alive = false; clearInterval(id); };
   }, [apiBase, range.since, range.until]);
 
-  const s = data?.stats;
+  if (!data) return <div className="card" role={loading ? "status" : "alert"}>{loading ? "Loading analytics…" : "Analytics are unavailable. Retrying automatically."}</div>;
+
+  const s = data.stats;
 
   return (
     <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 14 }}>
@@ -184,7 +184,7 @@ export function TrendsCard({ apiBase }: { apiBase: string }) {
       </Section>
 
       {/* App-wise side-by-side: User app | Driver app */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+      <div className="trends-split" style={{ display: "grid", gap: 14 }}>
         <Section kind="user">
           <Grid cols={2}>
             <Stat label="Total users" value={s?.totalUsers ?? 0} />
@@ -302,7 +302,7 @@ function Section({ kind, children, subtitle, titleOverride, headerRight }: {
 
 function Grid({ children, cols = 3 }: { children: React.ReactNode; cols?: number }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fit, minmax(${cols >= 4 ? "150px" : "180px"}, 1fr))`, gap: 10 }}>
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, ${cols >= 4 ? "150px" : "180px"}), 1fr))`, gap: 10 }}>
       {children}
     </div>
   );

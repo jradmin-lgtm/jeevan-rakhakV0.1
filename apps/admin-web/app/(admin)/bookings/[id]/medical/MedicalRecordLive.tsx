@@ -23,6 +23,8 @@ type Medical = {
     gender?: string | null;
     condition?: string | null;
     conditions?: string[] | null;
+    attendantName?: string | null;
+    attendantRelation?: string | null;
     notes?: string | null;
     phone?: string | null;
     bloodGroup?: string | null;
@@ -85,9 +87,7 @@ export function MedicalRecordLive({
         const json = await res.json();
         setData(json);
         setUpdatedAt(Date.now());
-      } catch {
-        /* keep last good */
-      }
+      } catch (error) { console.warn("MedicalRecordLive.tsx.poll failed"); }
     };
     timer.current = setInterval(poll, POLL_MS);
     return () => {
@@ -102,9 +102,7 @@ export function MedicalRecordLive({
       await navigator.clipboard.writeText(window.location.href);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* clipboard blocked — no-op */
-    }
+    } catch (error) { console.warn("MedicalRecordLive.tsx.share failed"); }
   };
 
   const chip = STATUS_CHIP[data.assessment.status] ?? STATUS_CHIP.pending;
@@ -131,7 +129,7 @@ export function MedicalRecordLive({
       {/* Section A — patient submitted */}
       <div className="card">
         <h3 style={{ marginTop: 0, display: "flex", gap: 8, alignItems: "center" }}>
-          Section A · Patient
+          PATIENT ASSESSMENT · Filled by User
           {data.patient.locked ? (
             <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "#F1F5F9", color: "#475569" }}>🔒 locked at arrival</span>
           ) : (
@@ -139,6 +137,8 @@ export function MedicalRecordLive({
           )}
         </h3>
         <dl style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 16px", margin: 0 }}>
+          <dt className="muted">Attendant name</dt><dd style={{ margin: 0 }}>{data.patient.attendantName ?? "·"}</dd>
+          <dt className="muted">Relation with patient</dt><dd style={{ margin: 0 }}>{data.patient.attendantRelation ?? "·"}</dd>
           <dt className="muted">Name</dt><dd style={{ margin: 0 }}>{data.patient.name ?? "-"}</dd>
           <dt className="muted">Age</dt><dd style={{ margin: 0 }}>{data.patient.age ?? "-"}</dd>
           <dt className="muted">Gender</dt><dd style={{ margin: 0 }}>{data.patient.gender ?? "-"}</dd>
@@ -153,7 +153,7 @@ export function MedicalRecordLive({
       {/* Section B — paramedic assessment */}
       <div className="card">
         <h3 style={{ marginTop: 0, display: "flex", gap: 8, alignItems: "center" }}>
-          Section B · Paramedic assessment
+          PARAMEDIC ASSESSMENT · Entered by Paramedic
           <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, background: chip.bg, color: chip.fg }}>{chip.label}</span>
         </h3>
         {a ? (

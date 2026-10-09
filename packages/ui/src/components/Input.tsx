@@ -15,6 +15,7 @@ function InputInner({ label, error, style, ...rest }: Props) {
         <Text variant="label" tone="secondary">{label}</Text>
       ) : null}
       <TextInput
+        accessibilityLabel={rest.accessibilityLabel ?? label}
         placeholderTextColor={colors.textMuted}
         {...rest}
         style={[styles.input, error ? styles.inputError : null, style]}

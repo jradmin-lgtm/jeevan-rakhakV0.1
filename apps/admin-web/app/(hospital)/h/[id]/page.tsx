@@ -24,6 +24,7 @@ export default async function HospitalPatientRecordPage({
           </p>
         </div>
       </div>
+      <p><Link href={`/h/${id}/receipt`}>Receipt · print or save as PDF</Link></p>
       <PatientRecordLive bookingId={id} />
     </>
   );

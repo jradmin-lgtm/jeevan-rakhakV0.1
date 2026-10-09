@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { adminFetch } from "../../../lib/adminFetch";
 import { formatIST } from "../../../lib/dates";
@@ -22,55 +22,66 @@ type User = {
   createdAt: string;
 };
 
-export function UsersList({ initialUsers, apiBase }: { initialUsers: User[]; apiBase: string }) {
+export function UsersList({ initialUsers, initialError, apiBase }: { initialUsers: User[]; initialError?: string; apiBase: string }) {
+  const [loadError, setLoadError] = useState(initialError ?? "");
   const [query, setQuery] = useState<string>("");
   const [rows, setRows] = useState<User[]>(initialUsers);
   const [preset, setPreset] = useState<Preset>("30d");
   const [range, setRange] = useState<DateRange>(presetToRange("30d"));
 
+  const [search, setSearch] = useState("");
+  const [cursors, setCursors] = useState<string[]>([""]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [total, setTotal] = useState<number | null>(null);
+  const [summary, setSummary] = useState<{ total: number; disabled: number } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const cursor = cursors[cursors.length - 1];
   useEffect(() => {
-    let alive = true;
+    const timer = setTimeout(() => { setSearch(query.trim()); setCursors([""]); }, 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+  const paramsFor = (next = "", limit = 100) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (range.since) params.set("since", range.since);
+    if (range.until) params.set("until", range.until);
+    if (search) params.set("q", search);
+    if (next) params.set("cursor", next);
+    return params;
+  };
+  useEffect(() => {
+    let alive = true, running = false;
+    const controller = new AbortController();
     const fetchRows = async () => {
+      if (running) return;
+      running = true; setLoading(true);
       try {
-        const params = new URLSearchParams();
-        if (range.since) params.set("since", range.since);
-        if (range.until) params.set("until", range.until);
-        const qs = params.toString();
-        const res = await adminFetch(`${apiBase}/api/v1/admin/users${qs ? "?" + qs : ""}`);
-        // The same-origin proxy resolves (not throws) a JSON error body on a
-        // transient 401/502 cold start — skip this tick so a blip can't wipe
-        // the live rows. A later good poll repaints them.
-        if (!res.ok) return;
+        const res = await adminFetch(`${apiBase}/api/v1/admin/users?${paramsFor(cursor)}`, { signal: controller.signal });
+        if (!res.ok) throw new Error(`User updates are unavailable (${res.status}). Showing the last loaded data. Retrying automatically.`);
         const data = await res.json();
-        if (!alive) return;
-        setRows(data.users ?? []);
-      } catch {
-        /* keep last good */
-      }
+        if (alive) { setRows(data.users); setNextCursor(data.nextCursor); setTotal(data.total); setSummary(data.summary); setLoadError(""); }
+      } catch (error) {
+        if (alive) setLoadError(error instanceof Error ? error.message : "User updates are unavailable. Retrying automatically.");
+      } finally { running = false; if (alive) setLoading(false); }
     };
     void fetchRows();
-    const id = setInterval(fetchRows, 10000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, [apiBase, range.since, range.until]);
-
-  const filtered = useMemo(() => {
-    if (!query) return rows;
-    const q = query.toLowerCase();
-    return rows.filter(
-      (u) =>
-        (u.name ?? "").toLowerCase().includes(q) ||
-        u.phone.includes(q) ||
-        (u.email ?? "").toLowerCase().includes(q)
-    );
-  }, [rows, query]);
-
-  const disabledCount = rows.filter((r) => r.disabled).length;
-
-  const exportCsv = () => {
-    downloadCsv(filtered, [
+    const id = setInterval(fetchRows, 5000);
+    return () => { alive = false; clearInterval(id); controller.abort(); };
+  }, [apiBase, range.since, range.until, search, cursor]);
+  const filtered = rows;
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const exportRows: User[] = [];
+      let next = "";
+      do {
+        const res = await adminFetch(`${apiBase}/api/v1/admin/users?${paramsFor(next, 500)}`);
+        if (!res.ok) throw new Error(`CSV export failed (${res.status}). Please retry.`);
+        const data = await res.json();
+        exportRows.push(...data.users);
+        next = data.nextCursor ?? "";
+      } while (next);
+    downloadCsv(exportRows, [
       { header: "User ID", value: (u) => u.id },
       { header: "Phone", value: (u) => u.phone },
       { header: "Email", value: (u) => u.email ?? "" },
@@ -82,6 +93,8 @@ export function UsersList({ initialUsers, apiBase }: { initialUsers: User[]; api
       { header: "Joined (IST)", value: (u) => formatIST(u.createdAt) },
       { header: "Disabled", value: (u) => u.disabled ? "Yes" : "No" }
     ], "jr-users");
+    } catch (error) { setLoadError(error instanceof Error ? error.message : "CSV export failed. Please retry."); }
+    finally { setExporting(false); }
   };
 
   return (
@@ -89,14 +102,15 @@ export function UsersList({ initialUsers, apiBase }: { initialUsers: User[]; api
       <div className="page-header">
         <div>
           <h1>Users</h1>
-          <p>{rows.length} in range{disabledCount > 0 ? ` · ${disabledCount} disabled` : ""}</p>
+          <p>{summary ? `${summary.total} in range · ${summary.disabled} disabled` : "Loading user totals…"}</p>
         </div>
-        <button onClick={exportCsv} style={{ background: "transparent", border: "1px solid var(--border, #E2E8F0)", color: "var(--ink, #0F172A)", padding: "8px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>⬇ Download CSV</button>
+        <button onClick={exportCsv} disabled={exporting} style={{ background: "transparent", border: "1px solid var(--border, #E2E8F0)", color: "var(--ink, #0F172A)", padding: "8px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{exporting ? "Preparing CSV…" : "Download CSV"}</button>
       </div>
       <div style={{ marginBottom: 12 }}>
-        <DateRangePicker preset={preset} range={range} onChange={(p, r) => { setPreset(p); setRange(r); }} />
+        <DateRangePicker preset={preset} range={range} onChange={(p, r) => { setPreset(p); setRange(r); setCursors([""]); }} />
       </div>
 
+      {loadError ? <div role="alert" className="card" style={{ marginBottom: 12, color: "var(--danger)" }}>{loadError}</div> : null}
       <div className="filter-bar">
         <input
           type="text"
@@ -105,7 +119,7 @@ export function UsersList({ initialUsers, apiBase }: { initialUsers: User[]; api
           onChange={(e) => setQuery(e.target.value)}
           style={{ flex: 1, minWidth: 240 }}
         />
-        <span className="muted" style={{ fontSize: 12 }}>{filtered.length} match</span>
+        <span className="muted" style={{ fontSize: 12 }}>{total === null ? "Loading…" : `${total} match · ${rows.length} on this page`}</span>
       </div>
 
       <div className="card" style={{ padding: 0 }}>
@@ -125,7 +139,7 @@ export function UsersList({ initialUsers, apiBase }: { initialUsers: User[]; api
               {filtered.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="muted" style={{ padding: 24, textAlign: "center" }}>
-                    No users match the current filters.
+                    {loading ? "Loading users…" : loadError ? "User records could not be loaded." : "No users match the current filters."}
                   </td>
                 </tr>
               ) : (
@@ -165,6 +179,11 @@ export function UsersList({ initialUsers, apiBase }: { initialUsers: User[]; api
             </tbody>
           </table>
         </div>
+      </div>
+      <div style={{ display: "flex", gap: 16, alignItems: "center", justifyContent: "center", padding: 16 }}>
+        <button disabled={cursors.length === 1 || loading} onClick={() => setCursors((v) => v.slice(0, -1))}>Previous</button>
+        <span>Page {cursors.length}</span>
+        <button disabled={!nextCursor || loading} onClick={() => { if (nextCursor) setCursors((v) => [...v, nextCursor]); }}>Next</button>
       </div>
     </>
   );

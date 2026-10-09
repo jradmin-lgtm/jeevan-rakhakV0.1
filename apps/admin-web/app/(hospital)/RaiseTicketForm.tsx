@@ -90,13 +90,13 @@ export function RaiseTicketForm({
       void fetch("/api/hospital-proxy/api/v1/hospital/drivers", { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : { drivers: [] }))
         .then((d) => setDriverList(d.drivers ?? []))
-        .catch(() => {});
+        .catch((error) => { console.warn("RaiseTicketForm.tsx.RaiseTicketForm failed"); });
     }
     if (subject === "RIDE" && rideList.length === 0) {
       void fetch("/api/hospital-proxy/api/v1/hospital/bookings?scope=all", { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : { bookings: [] }))
         .then((d) => setRideList(d.bookings ?? []))
-        .catch(() => {});
+        .catch((error) => { console.warn("RaiseTicketForm.tsx.RaiseTicketForm failed"); });
     }
   }, [subject, lockSubject, driverList.length, rideList.length]);
 

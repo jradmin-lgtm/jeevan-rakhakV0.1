@@ -111,9 +111,7 @@ export function BookingDetailLive({
         }
         setData(next);
         setLastFetch(Date.now());
-      } catch {
-        /* keep last good */
-      }
+      } catch (error) { console.warn("BookingDetailLive.tsx.tick failed"); }
     };
     void tick();
     const id = setInterval(tick, POLL_MS);
@@ -269,7 +267,7 @@ export function BookingDetailLive({
               </div>
               <Field label="Driver phone" value={driver.phone} />
               <Field label="Vehicle" value={driver.vehicleNumber ?? "-"} />
-              <Field label="Rating" value={`⭐ ${(driver.rating ?? 5).toFixed(1)}`} />
+              <Field label="Rating" value={(driver.ratingCount ?? 0) > 0 && driver.rating != null ? `★ ${driver.rating.toFixed(1)}` : "Not rated"} />
             </>
           ) : <div className="muted">No driver assigned yet.</div>}
         </div>

@@ -30,9 +30,7 @@ function openInMaps(lat: number, lng: number) {
   // Universal Google Maps search URL — no Maps API key / quota. Opens the
   // native app when installed, else the browser with the same query.
   const url = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
-  Linking.openURL(url).catch(() => {
-    /* Maps app not installed — the same URL opens in the browser */
-  });
+  Linking.openURL(url).catch((error) => { console.warn("SafetyAlertCard.tsx.openInMaps failed", error instanceof Error ? error.message : String(error)); });
 }
 
 // Straight-line distance (km) responder → raiser. Null when no GPS fix yet.

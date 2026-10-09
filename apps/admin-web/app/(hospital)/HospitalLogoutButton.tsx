@@ -8,22 +8,24 @@ import React, { useState } from "react";
  */
 export function HospitalLogoutButton() {
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   const logout = async () => {
     setBusy(true);
     try {
-      await fetch("/api/hospital-login", { method: "DELETE" });
-    } catch {
-      // best-effort; clear locally regardless
-    } finally {
+      const res = await fetch("/api/hospital-login", { method: "DELETE" });
+      if (!res.ok) throw new Error("Sign-out failed. Please retry.");
       window.location.href = "/hospital-login";
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Sign-out failed. Please retry.");
+      setBusy(false);
     }
   };
 
   return (
-    <button type="button" onClick={logout} disabled={busy} style={styles.btn}>
+    <div>{error ? <p role="alert" style={{ color: "#FECACA" }}>{error}</p> : null}<button type="button" onClick={logout} disabled={busy} style={styles.btn}>
       {busy ? "Signing out…" : "Sign out"}
-    </button>
+    </button></div>
   );
 }
 

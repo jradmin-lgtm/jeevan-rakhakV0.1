@@ -1,6 +1,6 @@
 import "./src/env-check";
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, View, Text, Pressable } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -56,20 +56,27 @@ async function refreshProfile(setter: (p: any) => void) {
   try {
     const r = await me.get();
     if (r?.profile) { setter(r.profile); void setCachedProfile(r.profile); }
-  } catch { /* ignore — next refresh tick will retry */ }
+  } catch (error) { console.warn("App.tsx.refreshProfile failed", error instanceof Error ? error.message : String(error)); }
 }
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
   const [hydrated, setHydrated] = useState(false);
+  const [startupError, setStartupError] = useState<string | null>(null);
+  const [startupAttempt, setStartupAttempt] = useState(0);
   const [profile, setProfile] = useState<any>(null);
   const [googlePending, setGooglePending] = useState<GooglePending | null>(null);
 
   useEffect(() => {
+    let active = true;
+    setStartupError(null);
+    const startupTimeout = setTimeout(() => {
+      if (active) setStartupError("Startup is taking too long. Please retry.");
+    }, 15_000);
     (async () => {
       await hydrateLang();
-      try { configureGoogleSignIn(); } catch { /* dev-only — see user-app for rationale */ }
+      try { configureGoogleSignIn(); } catch (error) { console.warn("App.tsx.App failed", error instanceof Error ? error.message : String(error)); }
       const token = await getToken();
       if (token) {
         // v1.1.0 (CR#12 / CR#5B): a valid token means logged-in. Render from
@@ -77,27 +84,31 @@ export default function App() {
         // and refresh /me in the background. 4s cap — see user-app for the
         // Render cold-start rationale. Only an explicit 401 drops to Login.
         const cached = await getCachedProfile();
-        if (cached) setProfile(cached);
+        if (cached && active) setProfile(cached);
         const TIMEOUT_MS = 4000;
         try {
           const r = await Promise.race<any>([
             me.get(),
             new Promise((_res, rej) => setTimeout(() => rej(new Error("hydrate_timeout")), TIMEOUT_MS))
           ]);
-          if (r?.profile) { setProfile(r.profile); void setCachedProfile(r.profile); }
+          if (active && r?.profile) { setProfile(r.profile); void setCachedProfile(r.profile); }
         } catch (e: any) {
-          if (e?.status === 401) { await clearToken(); setProfile(null); }
+          if (active && e?.status === 401) { await clearToken(); setProfile(null); }
           /* else keep cached session; later refreshes pick it up */
         }
       }
-      setHydrated(true);
-    })();
-  }, []);
+      if (active) { clearTimeout(startupTimeout); setStartupError(null); setHydrated(true); }
+    })().catch(error => {
+      console.error("App startup failed", error);
+      if (active) { clearTimeout(startupTimeout); setStartupError("The app could not start. Please retry."); }
+    });
+    return () => { active = false; clearTimeout(startupTimeout); };
+  }, [startupAttempt]);
 
   // v1.1.0 push: register the FCM token once authenticated so a new SOS /
   // booking wakes the driver even with the app backgrounded/killed.
   useEffect(() => {
-    if (profile) void registerPushToken();
+    if (profile) void registerPushToken().catch(error => console.error("[push] startup registration unavailable", error));
   }, [profile]);
   // v1.2.8: tear down the silent dismiss-on-death listeners ONLY on app
   // unmount — NOT on every profile change (the previous [profile]-scoped
@@ -110,7 +121,10 @@ export default function App() {
       <ErrorBoundary>
         <SafeAreaProvider>
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.bg }}>
-            <ActivityIndicator color={colors.primary} />
+            {startupError ? <View style={{ padding: 24, alignItems: "center" }}>
+              <Text accessibilityRole="alert" style={{ color: colors.textPrimary, textAlign: "center", marginBottom: 16 }}>{startupError}</Text>
+              <Pressable accessibilityRole="button" onPress={() => setStartupAttempt(value => value + 1)} style={{ backgroundColor: colors.primary, padding: 16, borderRadius: 12 }}><Text style={{ color: "white" }}>Retry startup</Text></Pressable>
+            </View> : <ActivityIndicator color={colors.primary} />}
           </View>
         </SafeAreaProvider>
       </ErrorBoundary>

@@ -1,3 +1,5 @@
+import { rideCache } from "../rideCache";
+import { LocationSyncNotice } from "../components/LocationSyncNotice";
 import React, { useEffect, useRef, useState } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 import * as Location from "expo-location";
@@ -20,12 +22,13 @@ import {
   dialog,
   radius,
   space,
-  fetchOsrmRoute
+  useRideRoute,
+  remainingRoute
 } from "@jr/ui";
 import { Booking, bookings as bookingsApi, driver as driverApi, safety as safetyApi } from "../api";
 import { getSocket } from "../socket";
-import { startBackgroundLocationTracking, stopBackgroundLocationTracking } from "../backgroundLocation";
-import { prettyEmergency } from "./DashboardScreen";
+import { startBackgroundLocationTracking, stopBackgroundLocationTracking, publishTripFix } from "../backgroundLocation";
+import { prettyEmergency } from "../formatEmergency";
 import { MapLocationPicker } from "./MapLocationPicker";
 import { LangToggle } from "../components/LangToggle";
 import { CancelRideSheet } from "../components/CancelRideSheet";
@@ -48,8 +51,9 @@ function openTurnByTurn(lat: number, lng: number) {
   // Opens native Google Maps app with directions to pickup. No Maps API key
   // needed — uses Google's universal URL scheme. Free, no quota.
   const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
-  Linking.openURL(url).catch(() => {
-    /* Maps app not installed — fall back to opening in browser, same URL works */
+  Linking.openURL(url).catch((error) => {
+    console.warn("navigation_open_failed", error?.message);
+    void dialog.alert("Navigation unavailable / नेविगेशन नहीं खुला", "Open Google Maps and enter the destination shown on this trip. / Google Maps खोलकर यात्रा का गंतव्य डालें।");
   });
 }
 
@@ -82,8 +86,10 @@ function statusToIndex(status: string): number {
 }
 
 export function TripScreen({ booking: initial, onClose }: { booking: Booking; onClose: () => void }) {
-  const { t } = useT();
+  const { t, lang } = useT();
   const mapCfg = useMapConfig();
+  const [renderedProvider, setRenderedProvider] = useState<"google" | "osm" | null>(null);
+  useEffect(() => setRenderedProvider(null), [mapCfg.provider, mapCfg.googleBrowserKey]);
   const [booking, setBooking] = useState<Booking>(initial);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [busy, setBusy] = useState(false);
@@ -101,9 +107,36 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
   // v1.1.0 (CR#6): road route + ETA to the destination hospital, plus a
   // one-shot auto-launch of Google Maps turn-by-turn once the patient is
   // picked up (destination auto-assigned server-side at pickup).
-  const [navRoute, setNavRoute] = useState<Array<[number, number]> | null>(null);
-  const [navEta, setNavEta] = useState<{ km: number; min: number } | null>(null);
-  const autoNavFiredRef = useRef(false);
+  const { path: navRoute, estimate: routeEstimate, source: routeSource, cacheError: routeCacheError } = useRideRoute(booking, myPos ? { ...myPos, ts: pushedAt ?? 0 } : null, renderedProvider ?? mapCfg.provider, rideCache, bookingsApi.liveEta);
+  const navEta = remainingRoute(navRoute, myPos, routeEstimate);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [gpsError, setGpsError] = useState<string | null>(null);
+  const autoNavFiredRef = useRef(initial.status === "PICKED_UP");
+  useEffect(() => {
+    if (booking.status === "PICKED_UP" && booking.dropLat != null && booking.dropLng != null && !autoNavFiredRef.current) {
+      autoNavFiredRef.current = true; openTurnByTurn(booking.dropLat, booking.dropLng);
+    }
+  }, [booking.status, booking.dropLat, booking.dropLng]);
+
+  const [rideCacheError, setRideCacheError] = useState(false);
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void rideCache.load().then(snapshot => {
+      if (!active || snapshot?.booking.id !== initial.id) return;
+      if (snapshot.contact) setUserProfile(snapshot.contact as UserProfile);
+    }).catch(error => { console.error("[ride] restore failed", error); if (active) setRideCacheError(true); })
+      .finally(() => { if (active) setRestored(true); });
+    return () => { active = false; };
+  }, [initial.id]);
+  useEffect(() => {
+    if (!restored) return;
+    void rideCache.saveBooking(booking).catch(error => { console.error("[ride] save failed", error); setRideCacheError(true); });
+  }, [booking, restored]);
+  useEffect(() => {
+    if (!restored) return;
+    void rideCache.saveDetails(booking.id, { contact: userProfile }).catch(error => { console.error("[ride] detail save failed", error); setRideCacheError(true); });
+  }, [booking.id, userProfile, restored]);
 
   // v1.3.1 (safety): in-ride panic alert raised by THIS driver. `safetyActive`
   // reflects whether the alert is live (drives the small header SafetyButton +
@@ -127,33 +160,50 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
   useEffect(() => {
     let mounted = true;
     let sub: { remove: () => void } | null = null;
+    let backgroundActive = false;
+    let lastTimestamp = 0;
 
     (async () => {
       try {
-        await Location.requestForegroundPermissionsAsync();
-      } catch {
-        /* ignored */
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (!permission.granted) throw new Error("Location permission was not granted");
+      } catch (error) {
+        console.error("[gps] permission unavailable", error);
+        if (mounted) setGpsError(t("trip.location_delivery_failed"));
+        return;
       }
-      void startBackgroundLocationTracking(booking.id);
+      backgroundActive = await startBackgroundLocationTracking(booking.id);
+      if (!mounted) return;
+      if (!backgroundActive) setGpsError(t("trip.background_unavailable"));
       try {
         sub = await Location.watchPositionAsync(
-          { accuracy: Location.Accuracy.Balanced, timeInterval: 5000, distanceInterval: 0 },
+          { accuracy: Location.Accuracy.High, timeInterval: 5000, distanceInterval: 0 },
           (fix) => {
-            if (!mounted) return;
-            setPushedAt(Date.now());
+            if (!mounted || fix.timestamp <= lastTimestamp || Date.now() - fix.timestamp > 60_000 || (fix.coords.accuracy != null && fix.coords.accuracy > 100)) return;
+            lastTimestamp = fix.timestamp;
+            setPushedAt(fix.timestamp);
+            if (!backgroundActive) void publishTripFix(booking.id, fix).catch((err) => { console.error("[gps] foreground delivery failed", err); if (mounted) setGpsError(t("trip.location_delivery_failed")); });
             setMyPos({ lat: fix.coords.latitude, lng: fix.coords.longitude });
           }
         );
-      } catch {
+      } catch (err) {
+        console.error("[gps] foreground tracking unavailable", err);
+        if (mounted) setGpsError(t("trip.location_delivery_failed"));
         /* GPS unavailable — the map/ETA blocks below just stay hidden until it recovers */
       }
     })();
     return () => {
       mounted = false;
       sub?.remove();
-      void stopBackgroundLocationTracking();
+      // The active ride keeps its background service when returning to Home.
+      // Completion, authoritative no-active-ride state or logout stops it.
     };
   }, [booking.id]);
+  useEffect(() => {
+    if (["COMPLETED", "CANCELLED", "TIMED_OUT"].includes(booking.status)) {
+      void stopBackgroundLocationTracking().catch(error => { console.error("[gps] trip cleanup failed", error); setGpsError(t("trip.stop_location_failed")); });
+    }
+  }, [booking.status]);
 
   // Refresh booking state regularly so user-driven cancels show up.
   // v1.0.11: poll cadence backed off from 5s → 12s. The 5s rhythm caused
@@ -164,15 +214,21 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
   // v1.0.11.2: also pulls userProfile so the patient card + call button
   // stay populated.
   useEffect(() => {
-    const tick = () => {
-      bookingsApi.get(booking.id).then((r: any) => {
-        setBooking(r.booking);
+    let active = true, running = false;
+    const tick = async () => {
+      if (running) return;
+      running = true;
+      try {
+        const r: any = await bookingsApi.get(booking.id);
+        if (!active) return;
+        setBooking(r.booking); setRefreshFailed(false);
         if (r.userProfile) setUserProfile(r.userProfile);
-      }).catch(() => {});
+      } catch (error) { console.warn("[trip] refresh unavailable", error); if (active) setRefreshFailed(true); }
+      finally { running = false; }
     };
-    tick();
-    const id = setInterval(tick, 12000);
-    return () => clearInterval(id);
+    void tick();
+    const id = setInterval(() => void tick(), 12_000);
+    return () => { active = false; clearInterval(id); };
   }, [booking.id]);
 
   // v1.2.0 (CR#3): listen for the receiving hospital's "acknowledge —
@@ -205,9 +261,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
           sock.off("hospital:preparing", onPreparing);
           sock.off("safety:cleared", onSafetyCleared);
         };
-      } catch {
-        /* socket bootstrap failed — banner simply won't show; non-critical */
-      }
+      } catch (error) { console.warn("TripScreen.tsx.TripScreen failed", error instanceof Error ? error.message : String(error)); }
     })();
     return () => {
       mounted = false;
@@ -215,53 +269,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
     };
   }, [booking.id]);
 
-  // CR#6: once picked up, fetch the road route to the (auto-assigned) hospital
-  // and auto-launch Google Maps turn-by-turn exactly once. Free OSRM; falls
-  // back silently to the haversine ETA if unavailable.
-  useEffect(() => {
-    if (booking.status !== "PICKED_UP" || booking.dropLat == null || booking.dropLng == null) {
-      setNavRoute(null);
-      setNavEta(null);
-      return;
-    }
-    if (!autoNavFiredRef.current) {
-      autoNavFiredRef.current = true;
-      openTurnByTurn(booking.dropLat, booking.dropLng);
-    }
-    const from = myPos ?? { lat: booking.pickupLat, lng: booking.pickupLng };
-    const to = { lat: booking.dropLat, lng: booking.dropLng };
-    const controller = new AbortController();
-    (async () => {
-      const r = await fetchOsrmRoute(from, to, { signal: controller.signal });
-      if (r) {
-        setNavRoute(r.coords);
-        setNavEta({ km: r.distanceKm, min: Math.max(1, Math.round(r.durationMin)) });
-      }
-      // 2026-08-17: best-effort traffic-aware refinement. No-op unless the
-      // backend's FLAG_GOOGLE_ETA_ENABLED is on. When a route path comes
-      // back, it REPLACES the drawn OSRM line (Google's own traffic-aware
-      // road path, not just a better number) — otherwise only the displayed
-      // minutes are refined, line stays OSRM's.
-      try {
-        const live = await bookingsApi.liveEta(booking.id);
-        if (live.available && live.durationMin != null) {
-          setNavEta((cur) =>
-            cur
-              ? {
-                  km: live.distanceKm ?? cur.km,
-                  min: Math.max(1, Math.round(live.durationMin!))
-                }
-              : cur
-          );
-          if (live.path && live.path.length > 1) setNavRoute(live.path);
-        }
-      } catch {
-        /* keep the OSRM-derived ETA */
-      }
-    })();
-    return () => controller.abort();
-    // Not keyed on myPos — one fetch + one auto-launch per PICKED_UP entry.
-  }, [booking.status, booking.dropLat, booking.dropLng]);
+
 
   // CR8 (2026-08): drop the intermediate feedback step. The moment the
   // server confirms COMPLETED (via `advance`'s setBooking, already backend-
@@ -304,25 +312,20 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
   // fresh fix, then last-known. Final fallback is the booking pickup so the
   // alert always carries a usable location even with GPS cold.
   const safetyLocation = async (): Promise<{ lat: number; lng: number }> => {
-    if (myPos) return myPos;
+    if (myPos && pushedAt && Date.now() - pushedAt < 60_000) return myPos;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      await Location.requestForegroundPermissionsAsync();
-    } catch {
-      /* ignored — fall through to fixes / fallback */
-    }
-    try {
-      const fix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const permission = await Location.getForegroundPermissionsAsync();
+      if (!permission.granted) throw new Error("Safety location permission unavailable");
+      const fix = await Promise.race([
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+        new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("Safety location timed out")), 8000); })
+      ]);
       return { lat: fix.coords.latitude, lng: fix.coords.longitude };
-    } catch {
-      /* try last-known */
-    }
-    try {
-      const last = await Location.getLastKnownPositionAsync();
-      if (last) return { lat: last.coords.latitude, lng: last.coords.longitude };
-    } catch {
-      /* fall through to booking pickup */
-    }
-    return { lat: booking.pickupLat, lng: booking.pickupLng };
+    } catch (error) {
+      console.warn("[safety] using last known ride location", error);
+      return myPos ?? { lat: booking.pickupLat, lng: booking.pickupLng };
+    } finally { if (timeout) clearTimeout(timeout); }
   };
 
   // THROWS on a failed raise so the SafetyButton sheet shows the error in-app
@@ -345,7 +348,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
 
   const finished = ["COMPLETED", "CANCELLED", "TIMED_OUT"].includes(booking.status);
   const failed = ["CANCELLED", "TIMED_OUT"].includes(booking.status);
-  const sharing = !finished && ["ACCEPTED", "ARRIVED", "PICKED_UP"].includes(booking.status);
+  const sharing = !finished && pushedAt != null && Date.now() - pushedAt <= 30_000;
   // v1.3.2 (safety): the small header SafetyButton appears only once the ride is
   // VERIFIED and ongoing, i.e. the patient OTP is verified at pickup and the trip
   // is in progress (PICKED_UP). Subset of the server raise gate, so a raise can
@@ -358,25 +361,81 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
   // ride starts, not buried until 90 min in.
 
   return (
-    <Screen>
+    <Screen bg={colors.surface} footer={<>{!finished ? (
+        <View style={{ gap: space.sm }}>
+          {booking.status === "ACCEPTED" ? (
+            <Button style={{ backgroundColor: colors.textPrimary }} label={t("trip.arrived_button")} loading={busy} onPress={() => advance(() => bookingsApi.arrived(booking.id))} fullWidth size="lg" testID="arrived-cta" />
+          ) : null}
+          {booking.status === "PICKED_UP" ? (
+            (() => {
+              // v1.0.15: SOS bookings arrive without a drop. After the
+              // patient is picked up, the driver MUST set the drop hospital
+              // on the map before the trip can be marked complete. Normal
+              // flow bookings already have dropLat set so this short-circuits.
+              const needsDrop = !!booking.isSos && (booking.dropLat == null || booking.dropLng == null);
+              return needsDrop ? (
+                <View style={{ gap: space.xs }}>
+                  <Text variant="small" tone="secondary">{t("trip.drop_required_title")}</Text>
+                  <Button label={t("trip.choose_drop_on_map")} onPress={() => setDropPickerOpen(true)} fullWidth size="lg" testID="choose-drop-cta" />
+                </View>
+              ) : (
+                <Button
+                  label={t("trip.drop_completed")}
+                  style={{ backgroundColor: colors.textPrimary }}
+                  loading={busy}
+                  onPress={() =>
+                    advance(() => bookingsApi.complete(booking.id), {
+                      title: t("trip.mark_complete_title"),
+                      body: t("trip.mark_complete_body")
+                    })
+                  }
+                  fullWidth
+                  variant="primary"
+                  size="lg"
+                  testID="complete-cta"
+                />
+              );
+            })()
+          ) : null}
+          <Text variant="tiny" tone="muted" align="center">
+            {t("trip.stage_hint")}
+          </Text>
+          {/* v1.2.0 (CR#2): driver can cancel only before pickup (ACCEPTED /
+            * ARRIVED). PICKED_UP+ is admin-only. Patient-reason cancels are
+            * server-gated by a wait window inside the sheet. */}
+          {booking.status === "ACCEPTED" || booking.status === "ARRIVED" ? (
+            <Button
+              label={t("cancel.cancel_ride")}
+              onPress={() => setCancelOpen(true)}
+              variant="ghost"
+              fullWidth
+              testID="cancel-ride-cta"
+            />
+          ) : null}
+        </View>
+      ) : (
+        <Button label={t("trip.back_to_dashboard")} onPress={onClose} fullWidth />
+      )}</>}>
       <AppHeader
         title={t("trip.header_title")}
         subtitle={`#${booking.displayId ?? booking.id.slice(0, 8)}`}
         onBack={onClose}
         right={
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-            {sharing ? (
-              <SafetyButton
+            {safetyAvailable ? (
+              <SafetyButton lang={lang}
                 active={safetyActive}
                 onRaise={onRaise}
                 onStandDown={onStandDown}
-                help={<ContactSupport variant="driver" bookingId={booking.id} />}
+                help={<ContactSupport lang={lang} variant="driver" bookingId={booking.id} />}
               />
             ) : null}
             <LangToggle />
           </View>
         }
       />
+
+      <LocationSyncNotice />
 
       {/* v1.2.0 (CR#3): hospital has acknowledged & is preparing — reassures
         * the driver the receiving end is ready for the patient. */}
@@ -393,11 +452,11 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
 
       <Card>
         <View style={{ gap: space.md }}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, justifyContent: "space-between" }}>
             <Pill label={prettyEmergency(booking.emergencyType, t)} />
-            <StatusBadge status={booking.status} perspective="driver" />
+            <StatusBadge label={t(`status.${booking.status}`)} status={booking.status} perspective="driver" />
           </View>
-          <Stepper steps={STEPS} currentIndex={failed ? -1 : stepIndex} failed={failed} />
+          <Stepper steps={STEPS.map(step => ({ ...step, label: t(`trip.progress.${step.key}`) }))} currentIndex={failed ? -1 : stepIndex} failed={failed} />
           <View style={{ gap: 4 }}>
             <Text variant="heading">{stepHeadline(booking.status, t)}</Text>
             <Text variant="small" tone="secondary">{stepSubline(booking.status, t)}</Text>
@@ -410,19 +469,20 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
             if (booking.status === "ACCEPTED") {
               const km = haversineKm(myPos.lat, myPos.lng, booking.pickupLat, booking.pickupLng);
               label = t("trip.eta_to_pickup");
-              value = `~${estimateEtaMin(km)} min · ${km.toFixed(1)} km`;
+              value = `~${navEta?.min ?? estimateEtaMin(km)} min · ${(navEta?.km ?? km).toFixed(1)} km`;
             } else if (booking.status === "PICKED_UP" && navEta) {
               // Prefer the OSRM road-based ETA when available (CR#6).
               label = t("trip.eta_to_hospital");
-              value = `~${navEta.min} min · ${navEta.km.toFixed(1)} km`;
+              value = `${navEta.min < 1 ? "<1" : "~" + Math.round(navEta.min)} min · ${navEta.km.toFixed(1)} km`;
             } else if (booking.status === "PICKED_UP" && booking.dropLat != null && booking.dropLng != null) {
               const km = haversineKm(myPos.lat, myPos.lng, booking.dropLat, booking.dropLng);
               label = t("trip.eta_to_hospital");
               value = `~${estimateEtaMin(km)} min · ${km.toFixed(1)} km`;
             }
             if (!label || !value) return null;
+            if (routeSource === "cached") label = lang === "hi" ? "सहेजा गया अनुमान" : "Saved estimate";
             return (
-              <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", marginTop: space.sm, paddingTop: space.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, alignItems: "baseline", justifyContent: "space-between", marginTop: space.sm, paddingTop: space.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
                 <Text variant="small" tone="secondary">{label}</Text>
                 <Text variant="heading" weight="bold" tone="primary">{value}</Text>
               </View>
@@ -431,13 +491,13 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
         </View>
       </Card>
 
-      <Card padding="md">
+      <Card flat padding="sm">
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: space.sm }}>
           <Text variant="label" tone="secondary">{t("trip.patient_and_you")}</Text>
           {sharing ? (
             <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
               <PulseDot size={8} color={colors.success} rings={1} />
-              <Text variant="tiny" tone="success" weight="bold">{t("trip.sharing_live")}</Text>
+              <Text variant="tiny" tone="success" weight="bold">{t("trip.gps_active")}</Text>
             </View>
           ) : null}
         </View>
@@ -448,21 +508,23 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
             ? { lat: booking.dropLat, lng: booking.dropLng, label: booking.dropAddress ?? t("trip.pin_hospital_fallback") }
             : null}
           routePath={navRoute}
+          routeProvider={routeSource === "traffic" ? "google" : "osm"}
+          onProviderChange={setRenderedProvider}
           mapConfig={mapCfg}
-          height={280}
+          height={300}
         />
         {myPos && booking.status === "ACCEPTED" ? (
           <View style={{ flexDirection: "row", justifyContent: "space-around", paddingVertical: space.sm }}>
             <View style={{ alignItems: "center" }}>
               <Text variant="tiny" tone="secondary">{t("trip.distance_label")}</Text>
               <Text variant="heading" weight="bold">
-                {haversineKm(myPos.lat, myPos.lng, booking.pickupLat, booking.pickupLng).toFixed(1)} km
+                {(navEta?.km ?? haversineKm(myPos.lat, myPos.lng, booking.pickupLat, booking.pickupLng)).toFixed(1)} km
               </Text>
             </View>
             <View style={{ alignItems: "center" }}>
               <Text variant="tiny" tone="secondary">{t("trip.eta_label")}</Text>
               <Text variant="heading" weight="bold" tone="primary">
-                ~{estimateEtaMin(haversineKm(myPos.lat, myPos.lng, booking.pickupLat, booking.pickupLng))} min
+                ~{navEta?.min ?? estimateEtaMin(haversineKm(myPos.lat, myPos.lng, booking.pickupLat, booking.pickupLng))} min
               </Text>
             </View>
           </View>
@@ -472,17 +534,70 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
             <PulseDot size={10} color={colors.success} />
             <Text variant="small" tone="secondary">
               {pushedAt
-                ? t("trip.sharing_location_note").replace("{n}", String(Math.max(0, Math.round((Date.now() - pushedAt) / 1000))))
+                ? t("trip.gps_captured").replace("{n}", String(Math.max(0, Math.round((Date.now() - pushedAt) / 1000))))
                 : t("trip.sharing_location_note_starting")}
             </Text>
           </View>
         ) : null}
       </Card>
 
+      {/* SOS flow: drop hospital wasn't set at booking time. On arrival, the
+        * driver assesses the patient and captures the drop here. Saved via
+        * /set-drop so the patient app immediately sees the destination.
+        * Then a Maps deep-link opens Google Maps for turn-by-turn nav. */}
+      {!finished && booking.status === "ARRIVED" && !booking.dropAddress ? (
+        <Card>
+          <View style={{ gap: space.sm }}>
+            <Text variant="label" tone="secondary">{t("trip.drop_hospital_sos_label")}</Text>
+            <Text variant="tiny" tone="muted">
+              {t("trip.drop_sos_capture_note")}
+            </Text>
+            <DropPicker
+              bookingId={booking.id}
+              defaultLat={booking.pickupLat}
+              defaultLng={booking.pickupLng}
+              onSaved={(b) => setBooking(b)}
+              onMaps={(lat, lng) => openTurnByTurn(lat, lng)}
+            />
+          </View>
+        </Card>
+      ) : null}
+
+      {/* OTP verification : required to flip ARRIVED → PICKED_UP. Replaces
+        * the legacy 1-tap "Patient picked up" so a driver can't start the
+        * meter on a wrong patient by accident. */}
+      {!finished && booking.status === "ARRIVED" ? (
+        <Card>
+          <View style={{ gap: space.sm }}>
+            <Text variant="label" tone="secondary">{t("trip.verify_otp_label")}</Text>
+            <Text variant="tiny" tone="muted">
+              {t("trip.verify_otp_body")}
+            </Text>
+            <OtpVerify
+              onSubmit={async (code) => {
+                // No confirm dialog : the empty-strings hack here was causing
+                // an empty Alert.alert("","") to flash on submit, which on
+                // some Androids killed the keyboard and stranded the driver.
+                await advance(() => bookingsApi.pickup(booking.id, code));
+              }}
+              busy={busy}
+            />
+          </View>
+        </Card>
+      ) : null}
+
+
+      {rideCacheError || routeCacheError ? <Text variant="small" tone="danger" accessibilityRole="alert">{t("offline.storage_error")}</Text> : null}
+      {refreshFailed ? <Text variant="small" tone="danger" accessibilityRole="alert">{t("offline.refresh_failed")}</Text> : null}
+      {gpsError ? <Text variant="small" tone="danger" accessibilityRole="alert">{gpsError}</Text> : null}
+      <Text variant="tiny" tone="muted">{t(`trip.route_${routeSource}`)}</Text>
       <Card>
         <View style={{ gap: space.md }}>
           <Text variant="label" tone="secondary">{t("trip.pickup_section_label")}</Text>
+          <Text variant="small" weight="bold">{t("trip.address")}</Text>
           <Text variant="body">{booking.pickupAddress ?? t("trip.patient_location")}</Text>
+          <Text variant="small" weight="bold">{t("trip.landmark")}</Text>
+          <Text variant="body">{booking.pickupLandmark ?? t("trip.landmark_unavailable")}</Text>
           <Text variant="tiny" tone="muted">
             {booking.pickupLat.toFixed(5)}, {booking.pickupLng.toFixed(5)}
           </Text>
@@ -532,7 +647,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
             <Text variant="small" tone="secondary">
               {t("trip.need_help_body")}
             </Text>
-            <ContactSupport bookingId={booking.id} compact />
+            <ContactSupport lang={lang} bookingId={booking.id} compact />
           </View>
         </Card>
       ) : null}
@@ -560,7 +675,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
               <Text variant="tiny" tone="muted">{userProfile.phone}</Text>
             </View>
             <Pressable
-              onPress={() => Linking.openURL(`tel:${userProfile.phone}`).catch(() => {})}
+              onPress={() => Linking.openURL(`tel:${userProfile.phone}`).catch(error => { console.warn("patient_call_open_failed", error?.message); void dialog.alert("Call unavailable / कॉल नहीं खुली", userProfile.phone); })}
               style={patientCardStyles.callBtn}
               accessibilityLabel={`Call ${booking.patientName ?? userProfile.name ?? t("trip.patient_fallback")}`}
             >
@@ -577,133 +692,9 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
       {!finished && ["ARRIVED", "PICKED_UP"].includes(booking.status) ? (
         <ParamedicAssessmentCard
           bookingId={booking.id}
-          alreadySubmitted={!!booking.paramedicAssessment}
+          alreadySubmitted={!!booking.hasParamedicAssessment || !!booking.paramedicAssessment}
         />
       ) : null}
-
-      {/* SOS flow: drop hospital wasn't set at booking time. On arrival, the
-        * driver assesses the patient and captures the drop here. Saved via
-        * /set-drop so the patient app immediately sees the destination.
-        * Then a Maps deep-link opens Google Maps for turn-by-turn nav. */}
-      {!finished && booking.status === "ARRIVED" && !booking.dropAddress ? (
-        <Card>
-          <View style={{ gap: space.sm }}>
-            <Text variant="label" tone="secondary">{t("trip.drop_hospital_sos_label")}</Text>
-            <Text variant="tiny" tone="muted">
-              {t("trip.drop_sos_capture_note")}
-            </Text>
-            <DropPicker
-              bookingId={booking.id}
-              defaultLat={booking.pickupLat}
-              defaultLng={booking.pickupLng}
-              onSaved={(b) => setBooking(b)}
-              onMaps={(lat, lng) => openTurnByTurn(lat, lng)}
-            />
-          </View>
-        </Card>
-      ) : null}
-
-      {/* OTP verification — required to flip ARRIVED → PICKED_UP. Replaces
-        * the legacy 1-tap "Patient picked up" so a driver can't start the
-        * meter on a wrong patient by accident. */}
-      {!finished && booking.status === "ARRIVED" ? (
-        <Card>
-          <View style={{ gap: space.sm }}>
-            <Text variant="label" tone="secondary">{t("trip.verify_otp_label")}</Text>
-            <Text variant="tiny" tone="muted">
-              {t("trip.verify_otp_body")}
-            </Text>
-            <OtpVerify
-              onSubmit={async (code) => {
-                // No confirm dialog — the empty-strings hack here was causing
-                // an empty Alert.alert("","") to flash on submit, which on
-                // some Androids killed the keyboard and stranded the driver.
-                await advance(() => bookingsApi.pickup(booking.id, code));
-              }}
-              busy={busy}
-            />
-          </View>
-        </Card>
-      ) : null}
-
-      {!finished ? (
-        <View style={{ gap: space.sm }}>
-          {booking.status === "ACCEPTED" ? (
-            <Button label={t("trip.arrived_button")} loading={busy} onPress={() => advance(() => bookingsApi.arrived(booking.id))} fullWidth size="lg" testID="arrived-cta" />
-          ) : null}
-          {booking.status === "PICKED_UP" ? (
-            (() => {
-              // v1.0.15: SOS bookings arrive without a drop. After the
-              // patient is picked up, the driver MUST set the drop hospital
-              // on the map before the trip can be marked complete. Normal
-              // flow bookings already have dropLat set so this short-circuits.
-              const needsDrop = !!booking.isSos && (booking.dropLat == null || booking.dropLng == null);
-              return needsDrop ? (
-                <>
-                  <Card>
-                    <View style={{ gap: space.sm }}>
-                      <Text variant="label" tone="danger" weight="bold">{t("trip.drop_required_title")}</Text>
-                      <Text variant="small" tone="secondary">
-                        {t("trip.drop_required_body")}
-                      </Text>
-                      <Button
-                        label={t("trip.choose_drop_on_map")}
-                        onPress={() => setDropPickerOpen(true)}
-                        fullWidth
-                        variant="primary"
-                        size="lg"
-                      />
-                    </View>
-                  </Card>
-                  <Button
-                    label={t("trip.drop_completed")}
-                    disabled
-                    fullWidth
-                    variant="primary"
-                    size="lg"
-                    testID="complete-cta"
-                  />
-                  <Text variant="tiny" tone="muted" align="center">
-                    {t("trip.drop_required_hint")}
-                  </Text>
-                </>
-              ) : (
-                <Button
-                  label={t("trip.drop_completed")}
-                  loading={busy}
-                  onPress={() =>
-                    advance(() => bookingsApi.complete(booking.id), {
-                      title: t("trip.mark_complete_title"),
-                      body: t("trip.mark_complete_body")
-                    })
-                  }
-                  fullWidth
-                  variant="primary"
-                  size="lg"
-                  testID="complete-cta"
-                />
-              );
-            })()
-          ) : null}
-          <Text variant="tiny" tone="muted" align="center">
-            {t("trip.stage_hint")}
-          </Text>
-          {/* v1.2.0 (CR#2): driver can cancel only before pickup (ACCEPTED /
-            * ARRIVED). PICKED_UP+ is admin-only. Patient-reason cancels are
-            * server-gated by a wait window inside the sheet. */}
-          {booking.status === "ACCEPTED" || booking.status === "ARRIVED" ? (
-            <Button
-              label={t("cancel.cancel_ride")}
-              onPress={() => setCancelOpen(true)}
-              variant="ghost"
-              fullWidth
-              testID="cancel-ride-cta"
-            />
-          ) : null}
-        </View>
-      ) : (
-        <Button label={t("trip.back_to_dashboard")} onPress={onClose} fullWidth />
-      )}
 
       {/* v1.3.0 (D2): passive "waiting requests" peek (Ola / Uber style). While
         * the driver is on an active ride they STILL SEE that rides are queued,
@@ -773,7 +764,7 @@ function OtpVerify({
   const [code, setCode] = useState("");
   return (
     <View style={{ gap: space.md }}>
-      <OtpInput value={code} onChangeText={setCode} length={4} autoFocus />
+      <OtpInput value={code} onChangeText={setCode} length={4} />
       <Button
         label={t("trip.start_ride_button")}
         loading={busy}

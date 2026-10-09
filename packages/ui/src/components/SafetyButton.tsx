@@ -24,6 +24,7 @@ import { colors, radius, space } from "../tokens";
 type Props = {
   /** An alert raised by this device is currently live (controlled by the screen). */
   active: boolean;
+  lang?: "en" | "hi";
   /** Capture location + raise the alert. Resolve on success, throw Error(message) on failure. */
   onRaise: () => Promise<void>;
   /** Stand the alert down. Resolve on success, throw Error(message) on failure. */
@@ -32,7 +33,8 @@ type Props = {
   help?: React.ReactNode;
 };
 
-function SafetyButtonInner({ active, onRaise, onStandDown, help }: Props) {
+function SafetyButtonInner({ active, onRaise, onStandDown, help, lang = "en" }: Props) {
+  const hi = lang === "hi";
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -77,13 +79,13 @@ function SafetyButtonInner({ active, onRaise, onStandDown, help }: Props) {
         * can see it is active and tap to open the stand-down. */}
       <Pressable
         onPress={() => setOpen(true)}
-        accessibilityLabel="Safety and emergency"
+        accessibilityRole="button" accessibilityLabel={hi ? "सुरक्षा और मदद" : "Safety and help"}
         hitSlop={8}
         style={[styles.trigger, active ? styles.triggerActive : null]}
       >
-        <Text style={styles.triggerGlyph}>🆘</Text>
+        <Text style={styles.triggerGlyph}>!</Text>
         <Text variant="tiny" weight="bold" style={[styles.triggerLabel, active ? styles.triggerLabelActive : null]}>
-          {active ? "Active" : "Safety"}
+          {hi ? (active ? "सक्रिय" : "सुरक्षा") : (active ? "Active" : "Safety")}
         </Text>
       </Pressable>
 
@@ -93,8 +95,8 @@ function SafetyButtonInner({ active, onRaise, onStandDown, help }: Props) {
           <View style={styles.sheet}>
             <View style={styles.handle} />
             <View style={styles.head}>
-              <Text variant="heading" weight="bold">Safety and help</Text>
-              <Pressable onPress={close} accessibilityLabel="Close" hitSlop={10}>
+              <Text variant="heading" weight="bold">{hi ? "सुरक्षा और मदद" : "Safety and help"}</Text>
+              <Pressable onPress={close} accessibilityLabel={hi ? "बंद करें" : "Close"} style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
                 <Text variant="heading" tone="secondary">✕</Text>
               </Pressable>
             </View>
@@ -102,12 +104,12 @@ function SafetyButtonInner({ active, onRaise, onStandDown, help }: Props) {
             <ScrollView contentContainerStyle={{ gap: space.md, paddingBottom: space.lg }} keyboardShouldPersistTaps="handled">
               {active ? (
                 <View style={styles.panelActive}>
-                  <Text variant="label" tone="danger">SAFETY ALERT ACTIVE</Text>
+                  <Text variant="label" tone="danger">{hi ? "सुरक्षा अलर्ट सक्रिय है" : "SAFETY ALERT ACTIVE"}</Text>
                   <Text variant="small" tone="secondary" style={{ marginTop: space.xs }}>
-                    Help is being notified. Nearby drivers and our team can see your location.
+                    {hi ? "सुरक्षा अलर्ट भेज दिया गया है। हमारी टीम और आस-पास के ड्राइवर साझा की गई लोकेशन देख सकते हैं।" : "Safety alert sent. Nearby drivers and our team can see the location shared with the alert."}
                   </Text>
                   <Button
-                    label="I am safe (stand down)"
+                    label={hi ? "मैं सुरक्षित हूँ, अलर्ट बंद करें" : "I am safe, end alert"}
                     variant="outline"
                     onPress={() => void doStandDown()}
                     loading={busy}
@@ -117,26 +119,26 @@ function SafetyButtonInner({ active, onRaise, onStandDown, help }: Props) {
                 </View>
               ) : confirming ? (
                 <View style={styles.panel}>
-                  <Text variant="body" weight="semi">Send a safety alert now?</Text>
+                  <Text variant="body" weight="semi">{hi ? "अभी सुरक्षा अलर्ट भेजें?" : "Send a safety alert now?"}</Text>
                   <Text variant="small" tone="secondary" style={{ marginTop: space.xs }}>
-                    Your live location is shared with nearby drivers and our team so help can reach you fast.
+                    {hi ? "आपकी उपलब्ध लोकेशन हमारी टीम और आस-पास के ड्राइवरों के साथ साझा होगी।" : "Your available location will be shared with nearby drivers and our team."}
                   </Text>
                   <View style={{ flexDirection: "row", gap: space.sm, marginTop: space.md }}>
                     <View style={{ flex: 1 }}>
-                      <Button label="Not now" variant="outline" onPress={() => setConfirming(false)} disabled={busy} fullWidth />
+                      <Button label={hi ? "अभी नहीं" : "Not now"} variant="outline" onPress={() => setConfirming(false)} disabled={busy} fullWidth />
                     </View>
                     <View style={{ flex: 1.3 }}>
-                      <Button label="Yes, send alert" variant="danger" onPress={() => void doRaise()} loading={busy} fullWidth />
+                      <Button label={hi ? "हाँ, अलर्ट भेजें" : "Yes, send alert"} variant="danger" onPress={() => void doRaise()} loading={busy} fullWidth />
                     </View>
                   </View>
                 </View>
               ) : (
                 <View style={styles.panel}>
                   <Text variant="small" tone="secondary">
-                    In danger or facing an emergency during the ride? Send a safety alert and we will notify our team and nearby drivers with your live location.
+                    {hi ? "यात्रा में खतरा या आपातकाल है? सुरक्षा अलर्ट हमारी टीम और आस-पास के ड्राइवरों को आपकी उपलब्ध लोकेशन भेजता है।" : "In danger during the ride? A safety alert sends your available location to our team and nearby drivers."}
                   </Text>
                   <Button
-                    label="🆘  Send safety alert"
+                    label={hi ? "सुरक्षा अलर्ट भेजें" : "Send safety alert"}
                     variant="danger"
                     size="lg"
                     onPress={() => { setError(null); setConfirming(true); }}
@@ -154,7 +156,7 @@ function SafetyButtonInner({ active, onRaise, onStandDown, help }: Props) {
 
               {help ? (
                 <View style={{ gap: space.sm }}>
-                  <Text variant="label" tone="secondary">CONTACT SUPPORT</Text>
+                  <Text variant="label" tone="secondary">{hi ? "सहायता से संपर्क" : "CONTACT SUPPORT"}</Text>
                   {help}
                 </View>
               ) : null}
@@ -173,6 +175,7 @@ const styles = StyleSheet.create({
     gap: 5,
     paddingHorizontal: 10,
     paddingVertical: 6,
+    minHeight: 44,
     borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.danger,

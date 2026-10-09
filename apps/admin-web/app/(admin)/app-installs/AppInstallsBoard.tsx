@@ -68,7 +68,7 @@ export function AppInstallsBoard() {
       setData({ ...EMPTY, ...d });
       setLoaded(true);
       setUpdatedAt(new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
-    } catch { /* keep last good */ }
+    } catch (error) { console.warn("AppInstallsBoard.tsx.load failed"); }
   }, []);
 
   useEffect(() => {

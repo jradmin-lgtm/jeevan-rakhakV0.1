@@ -36,9 +36,7 @@ export function HospitalSessionGuard() {
             window.location.href = "/hospital-login?disabled=1";
           }
         }
-      } catch {
-        /* transient/offline — leave the session as-is; next tick re-checks */
-      }
+      } catch (error) { console.warn("HospitalSessionGuard.tsx.check failed"); }
     };
 
     const id = setInterval(check, CHECK_MS);

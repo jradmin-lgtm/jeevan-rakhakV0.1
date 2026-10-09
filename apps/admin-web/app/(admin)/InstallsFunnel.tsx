@@ -26,7 +26,7 @@ export function InstallsFunnel({ initial }: { initial: D }) {
         if (!res.ok) return; // keep last good
         const j = await res.json();
         setD({ visits: j.visits ?? 0, downloads: j.downloads ?? [], requested: j.requested ?? [], funnel: j.funnel ?? [] });
-      } catch { /* keep last good */ }
+      } catch (error) { console.warn("InstallsFunnel.tsx.tick failed"); }
     };
     const id = setInterval(tick, POLL_MS);
     return () => clearInterval(id);

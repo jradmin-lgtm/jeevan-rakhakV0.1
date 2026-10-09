@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { verifyAdminSession } from "../../../../lib/adminSession";
 
 /**
  * Server-side proxy for every /api/v1/admin/* (and read-only /api/v1/*)
@@ -23,15 +24,10 @@ const ADMIN_API_KEY = process.env.ADMIN_API_KEY ?? "dev-admin-key-change-in-prod
 const SESSION_COOKIE = "jr-admin-session";
 const SESSION_SECRET = process.env.JR_ADMIN_SESSION_SECRET ?? "dev-session-secret-change-in-prod";
 
-function isSessionValid(cookieValue: string | undefined): boolean {
-  // Single shared secret for pilot. Once we add real per-admin accounts
-  // this becomes a JWT/session-store lookup.
-  return !!cookieValue && cookieValue === SESSION_SECRET;
-}
 
 async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
   const session = req.cookies.get(SESSION_COOKIE)?.value;
-  if (!isSessionValid(session)) {
+  if (!await verifyAdminSession(session, SESSION_SECRET)) {
     return NextResponse.json({ error: "admin_login_required" }, { status: 401 });
   }
 

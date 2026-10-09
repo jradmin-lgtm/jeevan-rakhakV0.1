@@ -8,7 +8,8 @@
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "echo \"Wire eslint in next iteration\"",
-    "test": "echo \"Tests run via e2e/\""
+    "test": "echo \"Tests run via e2e/\"",
+    "test:integration": "node test/release.integration.cjs"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

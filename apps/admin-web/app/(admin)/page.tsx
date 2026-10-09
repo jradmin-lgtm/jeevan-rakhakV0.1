@@ -7,14 +7,14 @@ import { adminFetch } from "../../lib/adminFetch";
 // paths from it. Server-side, adminFetch goes direct with the real key.
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
+export const dynamic = "force-dynamic";
+
 async function getDashboard() {
   try {
     const res = await adminFetch(`${API_BASE}/api/v1/admin/dashboard`);
     if (!res.ok) throw new Error("dashboard");
     return res.json();
-  } catch {
-    return { activeTrips: 0, onlineDrivers: 0, bookingsToday: 0, completedTotal: 0, avgResponseTimeMinutes: 0, openTickets: 0 };
-  }
+  } catch (error) { console.error("Dashboard load failed", error); return null; }
 }
 
 async function getRecentBookings() {
@@ -23,20 +23,16 @@ async function getRecentBookings() {
     if (!res.ok) throw new Error("bookings");
     const data = await res.json();
     return data.bookings ?? [];
-  } catch {
-    return [];
-  }
+  } catch (error) { console.error("Dashboard data load failed", error); return null; }
 }
 
 async function getDrivers() {
   try {
-    const res = await adminFetch(`${API_BASE}/api/v1/admin/drivers`);
+    const res = await adminFetch(`${API_BASE}/api/v1/admin/drivers?limit=6`);
     if (!res.ok) throw new Error("drivers");
     const data = await res.json();
     return data.drivers ?? [];
-  } catch {
-    return [];
-  }
+  } catch (error) { console.error("Dashboard data load failed", error); return null; }
 }
 
 async function getAppEvents() {
@@ -45,9 +41,7 @@ async function getAppEvents() {
     if (!res.ok) throw new Error("app-events");
     const d = await res.json();
     return { visits: d.visits ?? 0, downloads: d.downloads ?? [], requested: d.requested ?? [], funnel: d.funnel ?? [] };
-  } catch {
-    return { visits: 0, downloads: [], requested: [], funnel: [] };
-  }
+  } catch (error) { console.error("Install metrics load failed", error); return null; }
 }
 
 export default async function DashboardPage() {
@@ -57,6 +51,7 @@ export default async function DashboardPage() {
     getDrivers(),
     getAppEvents()
   ]);
+  if (!stats || !bookings || !drivers || !installs) return <section role="alert"><h2>Dashboard data could not be loaded</h2><p>Check the connection and retry. Counts are unavailable.</p><a href="/">Retry dashboard</a></section>;
   return (
     <>
       <LiveDashboard initialStats={stats} initialBookings={bookings} initialDrivers={drivers} apiBase={API_BASE} />

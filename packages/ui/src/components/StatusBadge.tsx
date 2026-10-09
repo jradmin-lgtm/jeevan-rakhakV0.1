@@ -46,10 +46,10 @@ function withAlpha(hex: string, a = 0.15) {
   return `rgba(${r},${g},${b},${a})`;
 }
 
-function StatusBadgeInner({ status, perspective = "user" }: { status: string; perspective?: "user" | "driver" }) {
+function StatusBadgeInner({ status, perspective = "user", label: customLabel }: { status: string; perspective?: "user" | "driver"; label?: string }) {
   const c = statusColor[status] ?? colors.textMuted;
   const label = perspective === "driver" ? statusLabelDriver[status] : statusLabelUser[status];
-  return <Pill label={label ?? status} color={c} bg={withAlpha(c, 0.14)} />;
+  return <Pill label={customLabel ?? label ?? status} color={c} bg={withAlpha(c, 0.14)} />;
 }
 
 export const StatusBadge = memo(StatusBadgeInner);

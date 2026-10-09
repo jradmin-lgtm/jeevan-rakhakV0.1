@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { FlatList, RefreshControl, View } from "react-native";
-import { AppHeader, Card, EmptyState, Pill, Screen, Text, colors, space } from "@jr/ui";
+import { AppHeader, Button, Card, EmptyState, Pill, Screen, Text, colors, space } from "@jr/ui";
 import { Booking, bookings as bookingsApi } from "../api";
-import { prettyEmergency } from "./DashboardScreen";
+import { prettyEmergency } from "../formatEmergency";
 import { useT } from "../i18n";
 import { LangToggle } from "../components/LangToggle";
 import { formatDateTime } from "../format";
@@ -21,6 +21,8 @@ import { formatDateTime } from "../format";
 export function TripHistoryScreen({ onBack }: { onBack: () => void }) {
   const { t } = useT();
   const [items, setItems] = useState<Booking[]>([]);
+  const [loadError, setLoadError] = useState(false);
+  const [hasData, setHasData] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -28,6 +30,9 @@ export function TripHistoryScreen({ onBack }: { onBack: () => void }) {
     try {
       const r = await bookingsApi.mine();
       setItems(r.bookings.filter((b) => b.status === "COMPLETED"));
+      setLoadError(false); setHasData(true);
+    } catch (error) {
+      console.warn("[history] refresh failed", error); setLoadError(true);
     } finally {
       setRefreshing(false);
     }
@@ -44,17 +49,18 @@ export function TripHistoryScreen({ onBack }: { onBack: () => void }) {
         <Card>
           <View style={{ gap: space.sm }}>
             <Text variant="label" tone="secondary">{t("trip_history.subtitle").toUpperCase()}</Text>
-            <Text variant="title" weight="bold" tone="primary">{items.length}</Text>
+            <Text variant="title" weight="bold" tone="primary">{hasData ? items.length : "·"}</Text>
             <Text variant="small" tone="secondary">{t("trip_history.title")}</Text>
           </View>
         </Card>
       </View>
+      {loadError ? <View style={{ padding: space.lg, gap: space.sm }}><Text variant="small" tone="danger">{t("history.load_failed")}</Text><Button label={t("history.retry")} variant="neutral" onPress={() => void refresh()} loading={refreshing} /></View> : null}
       <FlatList
         data={items}
         keyExtractor={(b) => b.id}
         contentContainerStyle={{ padding: space.lg, gap: space.md }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
-        ListEmptyComponent={
+        ListEmptyComponent={loadError || refreshing ? null :
           <EmptyState title={t("trip_history.empty")} description={t("trip_history.subtitle")} />
         }
         renderItem={({ item }) => <TripHistoryRow item={item} t={t} />}
@@ -75,13 +81,13 @@ function TripHistoryRow({ item, t }: { item: Booking; t: (k: string) => string }
     ? Math.max(1, Math.round((endMs - startMs) / 60_000))
     : null;
   const durationLabel = durationMin == null
-    ? "-"
+    ? "·"
     : durationMin >= 60
       ? t("trip_history.duration_long")
           .replace("{hours}", String(Math.floor(durationMin / 60)))
           .replace("{minutes}", String(durationMin % 60))
       : t("trip_history.duration").replace("{minutes}", String(durationMin));
-  const kmLabel = km == null ? "-" : t("trip_history.km").replace("{km}", km.toFixed(1));
+  const kmLabel = km == null ? "·" : t("trip_history.km").replace("{km}", km.toFixed(1));
   const dateLabel = formatDateTime(item.completedAt ?? item.createdAt);
 
   return (
@@ -96,7 +102,7 @@ function TripHistoryRow({ item, t }: { item: Booking; t: (k: string) => string }
             {truncate(item.pickupAddress ?? `${item.pickupLat.toFixed(3)}, ${item.pickupLng.toFixed(3)}`, 36)}
           </Text>
           <Text variant="small" tone="secondary" numberOfLines={1}>
-            → {truncate(item.dropAddress ?? "-", 36)}
+            → {truncate(item.dropAddress ?? "·", 36)}
           </Text>
         </View>
         <View style={{ flexDirection: "row", justifyContent: "space-between", paddingTop: space.xs, borderTopWidth: 1, borderTopColor: colors.border }}>

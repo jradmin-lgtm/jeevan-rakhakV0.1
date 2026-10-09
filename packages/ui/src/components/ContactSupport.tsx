@@ -1,219 +1,55 @@
 import React, { memo } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 import { Text } from "./Text";
-import { colors, radius, space } from "../tokens";
+import { colors, space } from "../tokens";
+import { dialog } from "./AppDialog";
 
-/**
- * Live support coordinates for the pilot. Inline so any screen can drop
- * <ContactSupport /> in without re-typing the email/phone or risking drift.
- *
- * v1.0.15 — renamed "Ops desk" label to "Mobile" so users don't see internal
- * dispatcher jargon. The number itself (the 0581-258-2000 landline) is the
- * one that can route across the rotation; the existing second mobile is
- * renamed "Alt mobile" to disambiguate.
- */
-// Phone numbers stored in full E.164 form (+91 + subscriber, NO trunk-0).
-// The dialable string must equal the displayed number once spaces are stripped,
-// or the user taps a row and gets a wrong number.
-// v1.2.8 fix: the primary line is the Bareilly landline 0581-258-2000. When you
-// dial it internationally the +91 country code REPLACES the STD trunk-0 — so the
-// E.164 is +91 581 258 2000 = +915812582000 (drop the 0). The previous value
-// +9105812582000 kept that trunk-0, so the dialer showed an extra "0" after 91
-// ("+910 581 258 2000") and called a wrong number.
-//
-// Display format conventions:
-//   • Mobile (10 digits, starts 6/7/8/9): "+91 9XXXX XXXXX"
-//   • Landline: "+91 STD-without-0 subscriber" (trunk-0 dropped)
 export const SUPPORT_EMAIL = "contact.jeevanrakshak@gmail.com";
 export const SUPPORT_PHONE = "+915812582000"; // 0581-258-2000, trunk-0 dropped for +91 dialing
 export const SUPPORT_PHONE_DISPLAY = "+91 581 258 2000";
 
-// v1.0.15: labels swapped — "OPS DESK" → "MOBILE" (user-facing relabel),
-// the existing mobile becomes "ALT MOBILE" to avoid duplicate "MOBILE" rows.
-// CR5 (2026-08): "ALT MOBILE" relabelled "TRANSPORT OFFICE" + number
-// corrected (+91 9458701070 was wrong; correct is +91 9458701707).
 export const SUPPORT_NUMBERS = [
   { label: "MOBILE",           phone: "+915812582000",  display: "+91 581 258 2000", primary: true },
   { label: "TRANSPORT OFFICE", phone: "+919458701707",  display: "+91 94587 01707" },
   { label: "GYNAE EMERGENCY",  phone: "+919045954724",  display: "+91 90459 54724", urgent: true }
 ];
 
-type Props = {
-  /**
-   * Optional booking id appended to the mailto subject so support can
-   * pull the right record without asking.
-   */
-  bookingId?: string;
-  compact?: boolean;
-  /**
-   * Driver app only needs one Call button (defaults to the ops desk).
-   * User app shows the full list with GYNAE labelled. Default: full list.
-   */
-  variant?: "user" | "driver";
-};
-
-function ContactSupportInner({ bookingId, compact, variant = "user" }: Props) {
-  const subject = bookingId
-    ? `Help with booking ${bookingId.slice(0, 8)}`
-    : "Help · Jeevan Rakshak";
-
-  const callDefault = () => {
-    Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {});
+type Props = { bookingId?: string; compact?: boolean; variant?: "user" | "driver"; lang?: "en" | "hi" };
+function ContactSupportInner({ bookingId, compact, variant = "user", lang = "en" }: Props) {
+  const hi = lang === "hi";
+  const subject = bookingId ? `Help with booking ${bookingId.slice(0, 8)}` : "Help · Jeevan Rakshak";
+  const open = async (url: string) => {
+    try { await Linking.openURL(url); }
+    catch (error) {
+      console.error("[support] could not open contact action", error);
+      void dialog.alert(hi ? "संपर्क नहीं खुला" : "Could not open contact", hi ? "फ़ोन या ईमेल ऐप जाँचें। नीचे दी गई जानकारी से सीधे संपर्क करें।" : "Check your phone or email app. You can use the contact details shown here.");
+    }
   };
-  const callNumber = (phone: string) => {
-    Linking.openURL(`tel:${phone}`).catch(() => {});
-  };
-  const emailSupport = () => {
-    Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}`).catch(() => {});
-  };
-
-  // Compact = single Call + Email row used inside the "Need help" banner
-  // during an active trip. Both apps share this layout; the call icon
-  // always dials the ops desk default regardless of variant.
-  if (compact) {
-    return (
-      <View style={styles.compactRow}>
-        <Pressable onPress={callDefault} android_ripple={{ color: "rgba(229,50,43,0.1)" }} style={styles.compactCta}>
-          <Text variant="small" weight="bold" tone="primary">📞  Call mobile</Text>
-        </Pressable>
-        <Pressable onPress={emailSupport} android_ripple={{ color: "rgba(229,50,43,0.1)" }} style={styles.compactCta}>
-          <Text variant="small" weight="bold" tone="primary">✉  Email</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
-  // Full card. Driver app keeps the original 2-button row (single
-  // primary call). User app gets a stacked list of three buttons so the
-  // GYNAE emergency line is one tap away from Home.
-  if (variant === "driver") {
-    return (
-      <View style={styles.card}>
-        <Text variant="label" tone="secondary">CONTACT SUPPORT</Text>
-        <Text variant="small" tone="secondary" style={{ marginTop: 2 }}>
-          Available daily, 8 AM to 11 PM IST.
-        </Text>
-        <View style={styles.row}>
-          <Pressable onPress={callDefault} android_ripple={{ color: "rgba(229,50,43,0.1)" }} style={styles.cta}>
-            <Text variant="body" weight="bold" tone="primary">📞  Call mobile</Text>
-            <Text variant="tiny" tone="secondary">{SUPPORT_PHONE_DISPLAY}</Text>
-          </Pressable>
-          <Pressable onPress={emailSupport} android_ripple={{ color: "rgba(229,50,43,0.1)" }} style={styles.cta}>
-            <Text variant="body" weight="bold" tone="primary">✉  Email</Text>
-            <Text variant="tiny" tone="secondary">{SUPPORT_EMAIL}</Text>
-          </Pressable>
-        </View>
-      </View>
-    );
-  }
-
-  // user variant
-  return (
-    <View style={styles.card}>
-      <Text variant="label" tone="secondary">CONTACT SUPPORT</Text>
-      <Text variant="small" tone="secondary" style={{ marginTop: 2 }}>
-        Available daily, 8 AM to 11 PM IST.
-      </Text>
-      <View style={{ gap: space.sm, marginTop: space.sm }}>
-        {SUPPORT_NUMBERS.map((n) => (
-          <Pressable
-            key={n.phone}
-            onPress={() => callNumber(n.phone)}
-            android_ripple={{ color: "rgba(229,50,43,0.1)" }}
-            style={[styles.stackedCta, n.urgent ? styles.stackedCtaUrgent : null]}
-          >
-            <View style={{ flex: 1 }}>
-              <Text variant="body" weight="bold" tone={n.urgent ? "danger" : "primary"} style={{ letterSpacing: 0.4 }}>
-                {n.label}
-              </Text>
-              <Text variant="tiny" tone="secondary">{n.display}</Text>
-            </View>
-            {/* v1.0.14 (revised): replaced "Call ›" text with a circular
-              * filled icon button. Brand-coloured (red) on urgent rows,
-              * accent-coloured on the rest. Tap area = full row Pressable
-              * above, the icon is decorative + a visual affordance. */}
-            <View style={[styles.iconBtn, n.urgent ? styles.iconBtnUrgent : styles.iconBtnPrimary]}>
-              <Text style={styles.iconGlyph}>📞</Text>
-            </View>
-          </Pressable>
-        ))}
-        <Pressable onPress={emailSupport} android_ripple={{ color: "rgba(229,50,43,0.1)" }} style={styles.stackedCta}>
-          <View style={{ flex: 1 }}>
-            <Text variant="body" weight="bold" tone="primary" style={{ letterSpacing: 0.4 }}>EMAIL</Text>
-            <Text variant="tiny" tone="secondary">{SUPPORT_EMAIL}</Text>
-          </View>
-          <View style={[styles.iconBtn, styles.iconBtnPrimary]}>
-            <Text style={styles.iconGlyph}>✉</Text>
-          </View>
-        </Pressable>
-      </View>
+  const email = () => void open(`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}`);
+  if (compact) return <View style={styles.compact}>
+    <Pressable accessibilityRole="button" onPress={() => void open(`tel:${SUPPORT_PHONE}`)} style={styles.compactButton}><Text weight="semi">{hi ? "कॉल करें" : "Call support"}</Text></Pressable>
+    <Pressable accessibilityRole="button" onPress={email} style={styles.compactButton}><Text weight="semi">{hi ? "ईमेल" : "Email"}</Text></Pressable>
+  </View>;
+  const numbers = variant === "driver" ? SUPPORT_NUMBERS.slice(0, 1) : SUPPORT_NUMBERS;
+  const labels = hi ? ["मोबाइल", "परिवहन कार्यालय", "स्त्री रोग आपातकाल"] : ["Mobile", "Transport office", "Gynae emergency"];
+  return <View style={styles.card}>
+    <Text weight="bold">{hi ? "फ़ोन पर मदद" : "Talk to our team"}</Text>
+    <Text variant="small" tone="secondary">{hi ? "रोज़ सुबह 8 से रात 11 बजे तक" : "Daily, 8 AM to 11 PM IST"}</Text>
+    <View style={{ marginTop: space.sm }}>
+      {numbers.map((number, index) => <Pressable key={number.phone} accessibilityRole="button" accessibilityLabel={`${labels[index]}, ${number.display}`} onPress={() => void open(`tel:${number.phone}`)} style={styles.row}>
+        <View style={{ flex: 1, minWidth: 0, gap: 3 }}><Text weight="semi" tone={number.urgent ? "danger" : "primary"}>{labels[index]}</Text><Text variant="small" tone="secondary">{number.display}</Text></View>
+        <Text variant="small" weight="bold">{hi ? "कॉल" : "Call"} ↗</Text>
+      </Pressable>)}
+      <Pressable accessibilityRole="button" onPress={email} style={styles.row}>
+        <View style={{ flex: 1, minWidth: 0, gap: 3 }}><Text weight="semi">{hi ? "ईमेल" : "Email"}</Text><Text variant="small" tone="secondary">{SUPPORT_EMAIL}</Text></View><Text weight="bold">↗</Text>
+      </Pressable>
     </View>
-  );
+  </View>;
 }
-
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    padding: space.md,
-    borderWidth: 1,
-    borderColor: colors.border
-  },
-  row: {
-    flexDirection: "row",
-    gap: space.sm,
-    marginTop: space.sm
-  },
-  cta: {
-    flex: 1,
-    paddingVertical: space.md,
-    paddingHorizontal: space.sm,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
-    alignItems: "center"
-  },
-  stackedCta: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: space.md,
-    paddingHorizontal: space.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bg
-  },
-  // v1.0.14: softened. The previous "full danger-red border + pink fill" made
-  // GYNAE look like a selected/active state instead of just "important". Now
-  // we keep the same neutral card chrome as the other rows, but accent the
-  // left edge in red + use the danger text colour on the label. Subtle.
-  stackedCtaUrgent: {
-    borderLeftWidth: 4,
-    borderLeftColor: colors.danger
-  },
-  // v1.0.14: round filled call/email icon buttons. Used inside each
-  // SUPPORT_NUMBERS row + the email row. 44dp matches the minimum touch
-  // target Material spec recommends; the icon is centred via flex.
-  iconBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  iconBtnPrimary: { backgroundColor: colors.primary },
-  iconBtnUrgent: { backgroundColor: colors.danger },
-  iconGlyph: { fontSize: 20, color: "#fff", lineHeight: 22 },
-  compactRow: { flexDirection: "row", gap: space.sm },
-  compactCta: {
-    paddingVertical: space.xs,
-    paddingHorizontal: space.md,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    backgroundColor: colors.primaryFaint
-  }
+  card: { paddingVertical: space.md, gap: 4 },
+  row: { flexDirection: "row", alignItems: "center", gap: space.md, minHeight: 68, paddingVertical: space.sm, borderTopWidth: 1, borderColor: colors.border },
+  compact: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
+  compactButton: { minHeight: 48, paddingHorizontal: space.md, justifyContent: "center", borderWidth: 1, borderColor: colors.border, borderRadius: 12 }
 });
-
 export const ContactSupport = memo(ContactSupportInner);

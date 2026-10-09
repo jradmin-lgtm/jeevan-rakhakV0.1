@@ -1,5 +1,7 @@
 "use client";
 
+import { prettyEmergency } from "../../../../lib/status";
+
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { formatTimeIST } from "../../../../lib/dates";
 import { haversineKm, haversineEtaMin, fetchOsrmRoute, fmtDistance, fmtEta } from "../../../../lib/hospitalEta";
@@ -18,6 +20,8 @@ type HospitalRecord = {
     emergencyType?: string | null;
     condition?: string | null;
     conditions?: string[] | null;
+    attendantName?: string | null;
+    attendantRelation?: string | null;
     notes?: string | null;
   };
   sectionB: Assessment | null;
@@ -38,16 +42,6 @@ type HospitalRecord = {
 
 const POLL_MS = 10000;
 
-function prettyEmergency(t?: string | null): string {
-  switch (t) {
-    case "ACCIDENT_TRAUMA": return "Accident / Trauma";
-    case "CARDIAC": return "Cardiac";
-    case "BREATHING_DISTRESS": return "Breathing distress";
-    case "PREGNANCY_NEONATAL": return "Pregnancy / Neonatal";
-    case "GENERAL_CRITICAL_TRANSFER": return "Critical transfer";
-    default: return t ?? "-";
-  }
-}
 
 function prettyStatus(s: string): string {
   switch (s) {
@@ -74,6 +68,7 @@ function prettyVal(v: any): string {
 export function PatientRecordLive({ bookingId }: { bookingId: string }) {
   const [data, setData] = useState<HospitalRecord | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<number>(Date.now());
   const [route, setRoute] = useState<{ coords: Array<[number, number]>; distanceKm: number; durationMin: number } | null>(null);
   const [acking, setAcking] = useState(false);
@@ -88,13 +83,14 @@ export function PatientRecordLive({ bookingId }: { bookingId: string }) {
         if (aliveRef.current) setNotFound(true);
         return;
       }
-      if (!res.ok) return;
+      if (!res.ok) throw new Error(`Refresh failed (${res.status})`);
       const json: HospitalRecord = await res.json();
       if (!aliveRef.current) return;
       setData(json);
+      setRefreshError(null);
       setUpdatedAt(Date.now());
     } catch {
-      /* keep last good */
+      if (aliveRef.current) setRefreshError("Connection interrupted. Displayed records may be out of date. Retrying automatically.");
     }
   }, [bookingId]);
 
@@ -143,9 +139,10 @@ export function PatientRecordLive({ bookingId }: { bookingId: string }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({})
       });
-      if (res.ok) void fetchRecord();
+      if (!res.ok) throw new Error("Acknowledgement failed");
+      void fetchRecord();
     } catch {
-      /* next poll reconciles */
+      setRefreshError("Acknowledgement could not be confirmed. Please retry.");
     } finally {
       setAcking(false);
     }
@@ -155,7 +152,7 @@ export function PatientRecordLive({ bookingId }: { bookingId: string }) {
     return <div className="card muted">This ride is not destined to your hospital, or no longer active.</div>;
   }
   if (!data) {
-    return <div className="card muted">Loading patient record…</div>;
+    return <div className="card muted">{refreshError || "Loading patient record…"}</div>;
   }
 
   const a = data.sectionA;
@@ -186,6 +183,7 @@ export function PatientRecordLive({ bookingId }: { bookingId: string }) {
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
+      {refreshError && <div role="alert" className="card" style={{ color: "var(--danger)" }}>{refreshError}</div>}
       <div className="card" style={{ display: "grid", gap: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -199,7 +197,7 @@ export function PatientRecordLive({ bookingId }: { bookingId: string }) {
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <span className="muted" style={{ fontSize: 12 }}>
               <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "var(--success)", marginRight: 6 }} />
-              Live · {formatTimeIST(updatedAt)}
+              {refreshError ? "Updates interrupted" : "Live"} · {formatTimeIST(updatedAt)}
             </span>
             <button
               type="button"
@@ -269,8 +267,10 @@ export function PatientRecordLive({ bookingId }: { bookingId: string }) {
 
       {/* Section A — patient */}
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Section A · Patient</h3>
+        <h3 style={{ marginTop: 0 }}>PATIENT ASSESSMENT · Filled by User</h3>
         <dl style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 16px", margin: 0 }}>
+          <dt className="muted">Attendant name</dt><dd style={{ margin: 0 }}>{a.attendantName ?? "·"}</dd>
+          <dt className="muted">Relation with patient</dt><dd style={{ margin: 0 }}>{a.attendantRelation ?? "·"}</dd>
           <dt className="muted">Name</dt><dd style={{ margin: 0 }}>{a.name ?? "-"}</dd>
           <dt className="muted">Age</dt><dd style={{ margin: 0 }}>{a.age ?? "-"}</dd>
           <dt className="muted">Gender</dt><dd style={{ margin: 0 }}>{a.gender === "M" ? "Male" : a.gender === "F" ? "Female" : a.gender === "O" ? "Other" : a.gender ?? "-"}</dd>
@@ -285,7 +285,7 @@ export function PatientRecordLive({ bookingId }: { bookingId: string }) {
 
       {/* Section B — paramedic assessment */}
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Section B · Paramedic assessment</h3>
+        <h3 style={{ marginTop: 0 }}>PARAMEDIC ASSESSMENT · Entered by Paramedic</h3>
         {b ? (
           <>
             {b.immediateRisk ? (

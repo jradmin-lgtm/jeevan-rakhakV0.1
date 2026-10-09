@@ -1,10 +1,10 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import * as Location from "expo-location";
 import { AppHeader, Button, Card, Input, PulseDot, Screen, Text, colors, radius, space, OutOfServiceArea } from "@jr/ui";
 import { bookings as bookingsApi, fares as faresApi, serviceArea as serviceAreaApi, FareQuote, EmergencyType, Booking } from "../api";
 import { MapLocationPicker } from "./MapLocationPicker";
-import { EMERGENCY_KEYS } from "../constants/emergencyCategories";
+import { BOOKING_CATEGORIES } from "../constants/emergencyCategories";
 import { useT } from "../i18n";
 
 // v2.0: local haversine for the client-side geofence pre-check. Kept local so
@@ -38,6 +38,7 @@ type Props = {
 
 export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
   const { t } = useT();
+  const locationEpoch = useRef(0);
   const [type, setType] = useState<EmergencyType | null>(null);
   // Pickup is GPS-only as of v1.0.11 — the team flagged that typing/backspacing
   // in the field was confusing because the dispatch uses coordinates, not the
@@ -53,10 +54,11 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
   // toggles which the modal is currently editing; null means the modal is
   // closed. This lets us reuse the same component instance + state plumbing.
   const [pickerMode, setPickerMode] = useState<"pickup" | "drop" | null>(null);
-  const [pickupAddress, setPickupAddress] = useState<string>("Current location");
+  const [pickupAddress, setPickupAddress] = useState<string>("");
+  const [pickupIsGps, setPickupIsGps] = useState(true);
   const [pickupCoords, setPickupCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(true);
-  const [locationNote, setLocationNote] = useState<string>(t("book.detecting_location"));
+  const [locationNote, setLocationNote] = useState<string>("book.detecting_location");
   const [coupon, setCoupon] = useState<string>("");
   const [couponApplied, setCouponApplied] = useState<boolean>(false);
   const [busy, setBusy] = useState(false);
@@ -85,44 +87,50 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
   const [outOfAreaVisible, setOutOfAreaVisible] = useState(false);
 
   const refreshLocation = useCallback(async () => {
+    const epoch = ++locationEpoch.current;
     setLocating(true);
-    setLocationNote(t("book.detecting_location"));
+    setLocationNote("book.detecting_location");
     setPickupCoords(null);
     try {
       const perm = await Location.requestForegroundPermissionsAsync();
+      if (epoch !== locationEpoch.current) return;
       if (perm.status !== "granted") {
-        setLocationNote(t("book.location_permission_needed"));
+        setLocationNote("book.location_permission_needed");
         return;
       }
-      const fix = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High
-      });
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const fix = await Promise.race([
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+        new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("GPS lookup timed out")), 15_000); })
+      ]).finally(() => { if (timeout) clearTimeout(timeout); });
+      if (epoch !== locationEpoch.current) return;
       setPickupCoords({ lat: fix.coords.latitude, lng: fix.coords.longitude });
-      setLocationNote(
-        t("book.location_active")
-          .replace("{lat}", String(fix.coords.latitude.toFixed(4)))
-          .replace("{lng}", String(fix.coords.longitude.toFixed(4)))
-          .replace("{accuracy}", String(Math.round(fix.coords.accuracy ?? 0)))
-      );
-    } catch {
+      setPickupIsGps(true);
+      setLocationNote("book.gps_ready");
+    } catch (error) {
+      if (epoch !== locationEpoch.current) return;
+      console.warn("Pickup GPS lookup failed", error);
       try {
         const last = await Location.getLastKnownPositionAsync();
-        if (last) {
+        if (epoch !== locationEpoch.current) return;
+        if (last && Date.now() - last.timestamp < 120_000 && (last.coords.accuracy ?? Infinity) <= 200) {
           setPickupCoords({ lat: last.coords.latitude, lng: last.coords.longitude });
-          setLocationNote(t("book.location_last_known"));
+          setPickupIsGps(true);
+          setLocationNote("book.location_last_known");
           return;
         }
-      } catch {
-        /* ignored */
+      } catch (error) {
+        console.warn("Last known pickup unavailable", error);
       }
-      setLocationNote(t("book.location_failed"));
+      setLocationNote("book.location_failed");
     } finally {
-      setLocating(false);
+      if (epoch === locationEpoch.current) setLocating(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void refreshLocation();
+    return () => { locationEpoch.current += 1; };
   }, [refreshLocation]);
 
   // Pull the public service-area config once on mount. Mounted-guarded so we
@@ -142,9 +150,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
           hospitalName: sa.hospitalName
         });
       })
-      .catch(() => {
-        /* keep-last-good — server still gatekeeps on POST */
-      });
+      .catch((error) => { console.warn("BookAmbulanceScreen.tsx.BookAmbulanceScreen failed", error instanceof Error ? error.message : String(error)); });
     return () => { mounted = false; };
   }, []);
 
@@ -181,6 +187,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
   const finalFare = quote?.coupon?.payableInr ?? totalBeforeDiscount;
 
   const applyCoupon = () => {
+    setErr(null);
     const code = coupon.trim().toUpperCase();
     if (!code) {
       // Empty input — auto-apply the pilot coupon so the user doesn't have to type.
@@ -216,6 +223,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
     if (!type) return;
     if (!pickupCoords) return;
     setErr(null);
+    if (dropAddress.trim() && !dropCoords) { setErr(t("book.drop_pin_required")); setPickerMode("drop"); return; }
     // Client-side geofence guard. When the service area is enabled and we have
     // a real pickup fix, block here if the pickup is beyond radiusKm of the
     // hospital center — saves a round-trip and gives instant feedback. The
@@ -240,8 +248,8 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
         pickupLng: pickupCoords.lng,
         // Server will reverse-geocode if needed; we just send "Current location"
         // as a stable label so admin doesn't see an empty pickup string.
-        pickupAddress: "Current location",
-        dropAddress: dropAddress || undefined,
+        pickupAddress: pickupIsGps ? t("book.current_location") : pickupAddress,
+        dropAddress: dropCoords ? dropAddress : undefined,
         dropLat: dropCoords?.lat,
         dropLng: dropCoords?.lng,
         couponCode: couponApplied ? coupon : undefined
@@ -263,115 +271,82 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
   };
 
   return (
-    <Screen>
-      <AppHeader title={t("home.book_card.title")} onBack={onCancel} />
-      <Card>
-        <View style={{ gap: space.md }}>
-          <Text variant="label" tone="secondary">{t("book.emergency_type_label")}</Text>
-          <View style={{ gap: space.sm }}>
-            {EMERGENCY_KEYS.map((e) => {
-              const selected = type === e.key;
-              return (
-                <Pressable
-                  key={e.key}
-                  onPress={() => setType(e.key)}
-                  android_ripple={{ color: "rgba(0,0,0,0.04)" }}
-                  style={[
-                    styles.tile,
-                    selected ? { borderColor: colors.primary, backgroundColor: colors.primaryFaint } : null
-                  ]}
-                  testID={`emergency-${e.key}`}
-                >
-                  <View style={[styles.emoji, selected ? { backgroundColor: colors.primary } : null]}>
-                    <Text variant="heading" style={{ color: selected ? colors.textInverse : colors.primary }}>
-                      {e.emoji}
-                    </Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text variant="body" weight="semi">{t(e.labelKey)}</Text>
-                    <Text variant="small" tone="secondary">{t(e.subKey)}</Text>
-                  </View>
-                  <View style={[styles.radio, selected ? { borderColor: colors.primary, backgroundColor: colors.primary } : null]} />
-                </Pressable>
-              );
-            })}
+    <Screen
+      bg={colors.surface}
+      header={<AppHeader title={t("home.book_card.title")} onBack={onCancel} />}
+      footer={
+        <View style={{ gap: space.sm }}>
+          {err ? <Text variant="small" tone="danger" accessibilityRole="alert">{err}</Text> : null}
+          <View style={styles.fareRow}>
+            <Text variant="small" tone="secondary">{t("book.estimate_label")}</Text>
+            <Text variant="heading" weight="bold">
+              {quoteBusy ? t("book.calculating") : quote ? `₹${finalFare}` : t("book.estimate_pending")}
+            </Text>
           </View>
+          <Button
+            label={busy ? t("book.dispatching") : t("book.request_ambulance")}
+            onPress={submit}
+            loading={busy}
+            disabled={!type || !pickupCoords}
+            style={{ backgroundColor: colors.textPrimary, borderRadius: 14 }}
+            fullWidth size="lg" testID="confirm-booking"
+          />
+          <Text variant="tiny" tone="secondary" align="center">
+            {!type ? t("book.choose_type_hint") : !pickupCoords ? t("book.choose_pickup_hint") : t("book.footer_note")}
+          </Text>
         </View>
-      </Card>
-
-      <Card>
-        <View style={{ gap: space.md }}>
-          <Text variant="label" tone="secondary">{t("book.pickup_location_label")}</Text>
-          <View style={styles.pickupLockedRow}>
-            <View style={{ flex: 1, gap: 4 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
-                {!locating && pickupCoords ? <PulseDot size={8} color={colors.success} rings={1} /> : null}
-                <Text variant="body" weight="semi" numberOfLines={2}>
-                  {locating ? t("book.detecting_short") : pickupCoords ? pickupAddress : t("book.location_not_set")}
-                </Text>
-              </View>
-              <Text variant="tiny" tone={locating ? "secondary" : "muted"}>
-                {locationNote}
-              </Text>
-              <Text variant="tiny" tone="secondary">
-                {t("book.location_share_note")}
-              </Text>
-            </View>
-            <Button
-              label={locating ? "…" : t("book.gps_button")}
-              variant="ghost"
-              onPress={refreshLocation}
-              disabled={locating}
-            />
-          </View>
-          {/* v1.0.13 revised: pickup is now editable via the map picker too.
-            * Same UX as drop — search a place or pin manually. */}
-          <Pressable
-            onPress={() => setPickerMode("pickup")}
-            android_ripple={{ color: "rgba(229,50,43,0.10)" }}
-            style={styles.pinOnMapBtn}
-            testID="open-pickup-picker"
-          >
-            <Text variant="small" weight="bold" tone="primary">
-              📍 {t("map_picker.pickup_open_button")}
+      }
+    >
+      <View style={{ gap: space.xs }}>
+        <Text variant="title">{t("book.journey_title")}</Text>
+        <Text variant="small" tone="secondary">{t("book.journey_hint")}</Text>
+      </View>
+      <View style={styles.routePanel}>
+        <View style={styles.locationRow}>
+          <View style={styles.pickupDot} />
+          <Pressable accessibilityRole="button" onPress={() => setPickerMode("pickup")} style={styles.locationMain} testID="open-pickup-picker">
+            <Text variant="tiny" tone="secondary">{t("book.pickup_location_label")}</Text>
+            <Text variant="body" weight="semi" numberOfLines={2}>
+              {locating ? t("book.detecting_short") : pickupCoords ? (pickupIsGps ? t("book.current_location") : pickupAddress) : t("book.location_not_set")}
             </Text>
-            <Text variant="tiny" tone="muted">
-              {pickupCoords ? `${pickupCoords.lat.toFixed(4)}, ${pickupCoords.lng.toFixed(4)}` : t("map_picker.pickup_hint")}
-            </Text>
+            <Text variant="small" tone={pickupCoords || locating ? "secondary" : "danger"}>{t(locationNote)}</Text>
           </Pressable>
-
-          <View style={{ gap: space.xs }}>
-            <Input
-              label={t("book.drop_label")}
-              value={dropAddress}
-              onChangeText={(v) => {
-                setDropAddress(v);
-                // Clear coords if user is typing — they're picking a new
-                // destination, the pin from the map no longer matches.
-                if (dropCoords) setDropCoords(null);
-              }}
-              placeholder={t("book.drop_placeholder")}
-            />
-            <Pressable
-              onPress={() => setPickerMode("drop")}
-              android_ripple={{ color: "rgba(229,50,43,0.10)" }}
-              style={styles.pinOnMapBtn}
-              testID="open-drop-picker"
-            >
-              <Text variant="small" weight="bold" tone="primary">
-                {dropCoords ? t("book.edit_pin_on_map") : `📍 ${t("drop_picker.open_button")}`}
-              </Text>
-              <Text variant="tiny" tone="muted">
-                {dropCoords
-                  ? t("book.exact_location_set").replace("{lat}", String(dropCoords.lat.toFixed(4))).replace("{lng}", String(dropCoords.lng.toFixed(4)))
-                  : t("drop_picker.refine_hint")}
-              </Text>
-            </Pressable>
-          </View>
+          <Button label={t("book.gps_button")} variant="ghost" onPress={refreshLocation} loading={locating} testID="refresh-pickup-gps" />
         </View>
-      </Card>
+        <View style={styles.routeDivider} />
+        <View style={styles.locationRow}>
+          <View style={styles.dropDot} />
+          <Pressable accessibilityRole="button" onPress={() => setPickerMode("drop")} style={styles.locationMain} testID="open-drop-picker">
+            <Text variant="tiny" tone="secondary">{t("book.drop_label")}</Text>
+            <Text variant="body" weight="semi" numberOfLines={2}>{dropAddress || t("book.drop_placeholder")}</Text>
+            <Text variant="small" tone="secondary">{dropCoords ? t("book.pin_confirmed") : t("book.search_or_pin")}</Text>
+          </Pressable>
+          {dropCoords ? <Button label={t("book.clear_drop")} variant="ghost" onPress={() => { setDropCoords(null); setDropAddress(""); }} testID="clear-drop" /> : null}
+        </View>
+      </View>
+      <View style={{ gap: space.sm }}>
+        <Text variant="heading">{t("book.emergency_type_label")}</Text>
+        <View style={styles.serviceList}>
+          {BOOKING_CATEGORIES.map((e, index) => {
+            const selected = type === e.key;
+            return (
+              <Pressable key={e.key} accessibilityRole="radio" accessibilityState={{ checked: selected }} aria-checked={selected}
+                onPress={() => setType(e.key)} testID={`emergency-${e.key}`}
+                style={({ pressed }) => [styles.tile, index > 0 ? styles.serviceDivider : null, selected ? styles.selectedTile : null, pressed ? { opacity: 0.72 } : null]}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text variant="body" weight="semi">{t(e.labelKey)}</Text>
+                  <Text variant="small" tone="secondary">{t(e.subKey)}</Text>
+                </View>
+                <View style={[styles.radio, selected ? { borderColor: colors.textPrimary } : null]}>
+                  {selected ? <View style={styles.radioDot} /> : null}
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
 
-      <Card>
+      <Card flat>
         <View style={{ gap: space.md }}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
             <Text variant="label" tone="secondary">{t("book.fare_offers_label")}</Text>
@@ -439,9 +414,9 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
             </View>
           )}
 
-          {!quote || quote.distanceKm == null ? (
+          {quote && quote.distanceKm == null ? (
             <Text variant="tiny" tone="muted">
-              {t("book.fare_no_drop_hint").replace("{rate}", String(quote?.perKmFareInr ?? 120)).replace("{fare}", String(quote?.baseFareInr ?? 300))}
+              {t("book.fare_no_drop_hint").replace("{rate}", String(quote.perKmFareInr)).replace("{fare}", String(quote.baseFareInr))}
             </Text>
           ) : null}
 
@@ -481,25 +456,6 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
         </View>
       </Card>
 
-      {err ? (
-        <Card flat>
-          <Text variant="small" tone="danger">{err}</Text>
-        </Card>
-      ) : null}
-
-      <Button
-        label={busy ? t("book.dispatching") : finalFare === 0 ? t("book.confirm_free") : t("book.confirm_amount").replace("{amount}", String(finalFare))}
-        onPress={submit}
-        loading={busy}
-        disabled={!type || !pickupCoords}
-        fullWidth
-        size="lg"
-        testID="confirm-booking"
-      />
-      <Text variant="tiny" tone="muted" align="center">
-        {t("book.footer_note")}
-      </Text>
-
       {/* v1.0.13 revised: one picker handles both pickup + drop. The mode
         * is tracked in `pickerMode` (null = closed, "pickup" / "drop" = open).
         * Centre is the current pin for that mode, or the other pin as a
@@ -516,16 +472,18 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
         onCancel={() => setPickerMode(null)}
         onConfirm={(picked) => {
           if (pickerMode === "pickup") {
+            locationEpoch.current += 1;
             setPickupCoords({ lat: picked.lat, lng: picked.lng });
             setPickupAddress(picked.address);
+            setPickupIsGps(false);
             // We have an explicit pickup now — stop showing "Detecting…".
             setLocating(false);
-            setLocationNote(`Set on map · ${picked.lat.toFixed(4)}, ${picked.lng.toFixed(4)}`);
+            setLocationNote("book.pin_confirmed");
           } else {
             setDropCoords({ lat: picked.lat, lng: picked.lng });
             // Only auto-fill the address field if the user hasn't typed
             // anything custom — never clobber their input.
-            if (!dropAddress.trim()) setDropAddress(picked.address);
+            setDropAddress(picked.address);
           }
           setPickerMode(null);
         }}
@@ -547,63 +505,19 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
 }
 
 const styles = StyleSheet.create({
-  pickupLockedRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.md,
-    padding: space.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface
-  },
-  tile: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.md,
-    paddingVertical: space.md,
-    paddingHorizontal: space.lg,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    borderWidth: 1.5,
-    borderColor: colors.border
-  },
-  emoji: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: colors.primaryFaint,
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  radio: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 1.5,
-    borderColor: colors.borderStrong
-  },
-  fareRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center"
-  },
-  fareTotalRow: {
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingTop: space.sm
-  },
-  struck: {
-    textDecorationLine: "line-through",
-    color: colors.textMuted
-  },
-  pinOnMapBtn: {
-    marginTop: -space.xs,
-    paddingVertical: space.sm,
-    paddingHorizontal: space.md,
-    borderRadius: radius.md,
-    backgroundColor: colors.primaryFaint,
-    borderWidth: 1,
-    borderColor: "rgba(229,50,43,0.15)"
-  }
+  routePanel: { backgroundColor: colors.bg, borderRadius: 18, paddingHorizontal: 16 },
+  locationRow: { flexDirection: "row", gap: 12, alignItems: "center", paddingVertical: 8 },
+  locationMain: { flex: 1, minWidth: 0, gap: 3, paddingVertical: 8, minHeight: 68 },
+  pickupDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.textPrimary },
+  dropDot: { width: 10, height: 10, borderRadius: 2, borderWidth: 2, borderColor: colors.primary },
+  routeDivider: { height: 1, marginLeft: 22, backgroundColor: colors.border },
+  serviceList: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
+  tile: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 16, minHeight: 68 },
+  serviceDivider: { borderTopWidth: 1, borderTopColor: colors.border },
+  selectedTile: { backgroundColor: "#EEF0F3" },
+  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: colors.borderStrong, alignItems: "center", justifyContent: "center" },
+  radioDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: colors.textPrimary },
+  fareRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" },
+  fareTotalRow: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: space.sm },
+  struck: { textDecorationLine: "line-through", color: colors.textSecondary }
 });

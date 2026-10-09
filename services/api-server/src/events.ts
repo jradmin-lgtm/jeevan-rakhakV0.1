@@ -18,7 +18,7 @@ export type EmitEventInput = {
  * Never throws — observability code that crashes the request path is
  * a net negative.
  */
-export async function emitEvent(input: EmitEventInput): Promise<void> {
+export async function emitEvent(input: EmitEventInput, options: { required?: boolean } = {}): Promise<void> {
   try {
     const ctxStr = input.context ? JSON.stringify(input.context).slice(0, 4000) : null;
     const shouldEmail = input.level === "error" || input.level === "critical";
@@ -48,6 +48,7 @@ export async function emitEvent(input: EmitEventInput): Promise<void> {
     }
   } catch (err) {
     // eslint-disable-next-line no-console
-    console.warn("[emitEvent] write failed:", err);
+    console.warn("[emitEvent] write failed");
+    if (options.required) throw new Error("System event persistence failed");
   }
 }

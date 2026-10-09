@@ -73,6 +73,7 @@ function ticketSeverity(t: Ticket): "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" {
 }
 
 function categoryBadge(t: Ticket): { label: string; bg: string; fg: string } {
+  if (t.category === "DOC_UPDATE") return { label: "Document update", bg: "rgba(13,148,136,0.12)", fg: "#0F766E" };
   if (ticketCategory(t) === "FEEDBACK") {
     return { label: "Feedback", bg: "rgba(245,158,11,0.14)", fg: "#B45309" };
   }
@@ -224,9 +225,7 @@ export function SupportTicketsList({
         const data = await res.json();
         if (!alive) return;
         setTally({ open: Number(data.open ?? 0), resolved: Number(data.resolved ?? 0) });
-      } catch {
-        /* keep last good */
-      }
+      } catch (error) { console.warn("SupportTicketsList.tsx.tick failed"); }
     };
     void tick();
     const id = setInterval(tick, 10000);

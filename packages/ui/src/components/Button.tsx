@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useRef } from "react";
+import React, { memo, useCallback, useEffect, useRef } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -6,10 +6,11 @@ import {
   StyleSheet,
   ViewStyle
 } from "react-native";
+import { useReducedMotion } from "../hooks/useReducedMotion";
 import { Text } from "./Text";
 import { colors, radius, space, animation } from "../tokens";
 
-type Variant = "primary" | "secondary" | "danger" | "ghost" | "outline";
+type Variant = "primary" | "secondary" | "danger" | "ghost" | "outline" | "neutral";
 type Size = "sm" | "md" | "lg";
 
 type Props = {
@@ -29,21 +30,24 @@ const bg: Record<Variant, string> = {
   secondary: colors.accent,
   danger: colors.danger,
   ghost: "transparent",
-  outline: "transparent"
+  outline: "transparent",
+  neutral: colors.bg
 };
 const fg: Record<Variant, string> = {
   primary: colors.textInverse,
   secondary: colors.textInverse,
   danger: colors.textInverse,
   ghost: colors.primary,
-  outline: colors.primary
+  outline: colors.primary,
+  neutral: colors.textPrimary
 };
 const border: Record<Variant, string> = {
   primary: colors.primary,
   secondary: colors.accent,
   danger: colors.danger,
   ghost: "transparent",
-  outline: colors.primary
+  outline: colors.primary,
+  neutral: "transparent"
 };
 const padY: Record<Size, number> = { sm: 8, md: 12, lg: 16 };
 const padX: Record<Size, number> = { sm: 12, md: 16, lg: 20 };
@@ -60,14 +64,17 @@ function ButtonInner({
   testID
 }: Props) {
   const scale = useRef(new Animated.Value(1)).current;
+  const reduced = useReducedMotion();
+  useEffect(() => () => scale.stopAnimation(), [scale]);
 
   const onPressIn = useCallback(() => {
+    if (reduced) return;
     Animated.timing(scale, {
       toValue: 0.97,
       duration: animation.fast,
       useNativeDriver: true
     }).start();
-  }, [scale]);
+  }, [scale, reduced]);
 
   const onPressOut = useCallback(() => {
     Animated.timing(scale, {
@@ -75,7 +82,7 @@ function ButtonInner({
       duration: animation.fast,
       useNativeDriver: true
     }).start();
-  }, [scale]);
+  }, [scale, reduced]);
 
   const isDisabled = disabled || loading;
 
@@ -83,6 +90,7 @@ function ButtonInner({
     <Animated.View style={{ transform: [{ scale }], width: fullWidth ? "100%" : undefined }}>
       <Pressable
         accessibilityRole="button"
+        accessibilityState={{ disabled: Boolean(isDisabled), busy: Boolean(loading) }}
         testID={testID}
         onPress={onPress}
         onPressIn={onPressIn}
@@ -105,7 +113,7 @@ function ButtonInner({
         {loading ? (
           <ActivityIndicator size="small" color={fg[variant]} />
         ) : (
-          <Text variant="body" weight="semi" style={{ color: fg[variant] }}>
+          <Text variant="body" weight="semi" align="center" style={{ color: fg[variant] }}>
             {label}
           </Text>
         )}

@@ -6,7 +6,7 @@ import { Input } from "./Input";
 import { colors, space } from "../tokens";
 
 /**
- * v1.0.15 — extracted from BookAmbulanceScreen so the new PaymentScreen
+ * v1.0.15: extracted from BookAmbulanceScreen so the new PaymentScreen
  * (SOS post-completion) can render the same breakdown. Both consumers pass
  * the same `quote` shape (the `/fares/quote` response) and the coupon state
  * lives in the parent.
@@ -39,7 +39,10 @@ type Props = {
   coupon: string;
   onCouponChange: (v: string) => void;
   couponApplied: boolean;
-  onApply: () => void;
+  onApply: (code?: string) => void;
+  lockedFare?: { finalFare: number; couponCode: string | null; discountInr: number; payableInr: number } | null;
+  lang?: "en" | "hi";
+  disabled?: boolean;
   onRemove: () => void;
   /** Suggested coupon for the quick-apply link. */
   pilotCoupon?: string;
@@ -59,16 +62,23 @@ function FareBreakdownInner({
   onRemove,
   pilotCoupon = "PILOT100",
   hideDistanceHint,
-  hideEta
+  hideEta,
+  lockedFare,
+  lang = "en",
+  disabled = false
 }: Props) {
+  const hi = lang === "hi";
   const distanceCharge = quote?.distanceChargeInr ?? 0;
-  const totalBeforeDiscount = quote?.totalInr ?? 0;
-  const discount = quote?.coupon?.discountInr ?? 0;
-  const finalFare = quote?.coupon?.payableInr ?? totalBeforeDiscount;
+  const totalBeforeDiscount = lockedFare?.finalFare ?? quote?.totalInr;
+  const discount = lockedFare?.discountInr ?? quote?.coupon?.discountInr;
+  const finalFare = lockedFare?.payableInr ?? quote?.coupon?.payableInr ?? totalBeforeDiscount;
 
   return (
     <View style={{ gap: space.sm }}>
-      {quote && quote.distanceKm != null ? (
+      {lockedFare ? <View style={styles.fareRow}>
+        <Text variant="body" tone="secondary">{hi ? "यात्रा का किराया" : "Recorded trip fare"}</Text>
+        <Text variant="body" weight="semi">₹{lockedFare.finalFare}</Text>
+      </View> : quote && quote.distanceKm != null ? (
         <>
           <View style={styles.fareRow}>
             <Text variant="body" tone="secondary">
@@ -111,7 +121,7 @@ function FareBreakdownInner({
         </>
       ) : (
         <View style={styles.fareRow}>
-          <Text variant="body" tone="secondary">Minimum fare estimate</Text>
+          <Text variant="body" tone="secondary">{hi ? "किराया" : "Trip fare"}</Text>
           <Text variant="body" weight="semi">
             {quote ? `₹${quote.totalInr}` : <Text variant="body" tone="muted">…</Text>}
           </Text>
@@ -127,32 +137,33 @@ function FareBreakdownInner({
       {couponApplied ? (
         <>
           <View style={styles.fareRow}>
-            <Text variant="body" tone="success">Coupon {coupon}</Text>
-            <Text variant="body" weight="semi" tone="success">− ₹{discount}</Text>
+            <Text variant="body" tone="success">{hi ? "कूपन" : "Coupon"} {coupon}</Text>
+            <Text variant="body" weight="semi" tone="success">{discount == null ? "…" : `− ₹${discount}`}</Text>
           </View>
           <View style={[styles.fareRow, styles.fareTotalRow]}>
-            <Text variant="heading" weight="bold">Total payable</Text>
-            <Text variant="heading" weight="bold" tone="success">₹{finalFare}</Text>
+            <Text variant="heading" weight="bold">{hi ? "कुल देय राशि" : "Total payable"}</Text>
+            <Text variant="heading" weight="bold" tone="success">{finalFare == null ? "…" : `₹${finalFare}`}</Text>
           </View>
-          <Button label="Remove coupon" variant="ghost" onPress={onRemove} />
+          <Button label={hi ? "कूपन हटाएँ" : "Remove coupon"} variant="ghost" onPress={onRemove} disabled={disabled} />
         </>
       ) : (
         <>
           <View style={{ flexDirection: "row", gap: space.sm, alignItems: "flex-end" }}>
             <View style={{ flex: 1 }}>
               <Input
-                label="Coupon code"
+                label={hi ? "कूपन कोड" : "Coupon code"}
+                editable={!disabled}
                 value={coupon}
                 onChangeText={onCouponChange}
                 placeholder={pilotCoupon}
                 autoCapitalize="characters"
               />
             </View>
-            <Button label="Apply" onPress={onApply} variant="outline" />
+            <Button label={hi ? "लगाएँ" : "Apply"} onPress={() => onApply()} variant="outline" disabled={disabled || !coupon.trim()} />
           </View>
-          <Pressable onPress={() => { onCouponChange(pilotCoupon); onApply(); }}>
+          <Pressable accessibilityRole="button" disabled={disabled} style={{ minHeight: 44, justifyContent: "center" }} onPress={() => onApply(pilotCoupon)}>
             <Text variant="small" tone="primary" style={{ textDecorationLine: "underline" }}>
-              Use launch offer: {pilotCoupon} (100% off)
+              {hi ? "लॉन्च ऑफर लगाएँ" : "Use launch offer"}: {pilotCoupon} (100% off)
             </Text>
           </Pressable>
         </>
@@ -165,7 +176,9 @@ const styles = StyleSheet.create({
   fareRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center"
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: space.sm
   },
   fareTotalRow: {
     borderTopWidth: 1,

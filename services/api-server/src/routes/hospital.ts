@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { and, eq } from "drizzle-orm";
-import { db, hospitals, bookings, drivers, sql as pgClient } from "@jr/db";
+import { db, hospitals, bookings, drivers, users, sql as pgClient } from "@jr/db";
 import { config } from "@jr/config";
 import { verifyPassword } from "../password";
 import { resolveParamedic } from "../paramedic";
@@ -8,6 +8,14 @@ import { resolveParamedic } from "../paramedic";
 const RATE_LIMIT_BYPASS = process.env.RATE_LIMIT_BYPASS === "1";
 
 export async function registerHospitalRoutes(app: FastifyInstance) {
+  app.get("/api/v1/hospital/bookings/:id/receipt", { preHandler: [(app as any).requireHospital] }, async (req: any, reply) => {
+    const [b] = await db.select().from(bookings).where(and(eq(bookings.id, req.params.id), eq(bookings.destHospitalId, req.user.hospitalId))).limit(1);
+    if (!b) return reply.code(404).send({ error: "not_found" });
+    const [user] = await db.select({ name: users.name, phone: users.phone, bloodGroup: users.bloodGroup, allergies: users.allergies, emergencyContact: users.emergencyContact }).from(users).where(eq(users.id, b.userId)).limit(1);
+    const [driver] = b.driverId ? await db.select({ name: drivers.name, phone: drivers.phone, vehicleNumber: drivers.vehicleNumber, vehicleType: drivers.vehicleType, hospitalName: drivers.hospitalName, rating: drivers.rating, ratingCount: drivers.ratingCount }).from(drivers).where(eq(drivers.id, b.driverId)).limit(1) : [];
+    const { rideOtpCode, ...booking } = b;
+    return reply.send({ booking, user, driver, track: null });
+  });
   // CR#3: hospital portal login. Signs with the existing app.jwt secret + a
   // role:"hospital" + hospitalId claim so the socket-server validates it for
   // free (no new secret). RBAC downstream derives hospitalId ONLY from this
@@ -121,6 +129,7 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
                     : b.patientCondition
                       ? [b.patientCondition]
                       : [],
+                  attendantName: b.attendantName, attendantRelation: b.attendantRelation, source: "user",
                   notes: b.patientNotes },
       sectionB: b.paramedicAssessment ?? null,
       sectionC: { status: b.status, ambulanceLat: driver?.lastLat ?? null, ambulanceLng: driver?.lastLng ?? null,
@@ -168,6 +177,7 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
         vehicleNumber: drivers.vehicleNumber,
         status: drivers.status,
         rating: drivers.rating,
+        ratingCount: drivers.ratingCount,
         lastLat: drivers.lastLat,
         lastLng: drivers.lastLng,
         kycVerified: drivers.kycVerified
@@ -209,6 +219,7 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
         vehicleNumber: d.vehicleNumber,
         status: d.status,
         rating: d.rating,
+        ratingCount: d.ratingCount,
         lastLat: servingHere ? d.lastLat : null,
         lastLng: servingHere ? d.lastLng : null,
         kycVerified: d.kycVerified
@@ -234,7 +245,8 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
     // omitted/unknown category lands in the actionable Help & Support bucket.
     const category = String(req.body?.category ?? "ISSUE").trim().toUpperCase() === "FEEDBACK" ? "FEEDBACK" : "ISSUE";
     if (!["DRIVER", "RIDE", "GENERAL"].includes(subjectType)) return reply.code(400).send({ error: "invalid_subject" });
-    if (message.length < 5) return reply.code(400).send({ error: "message_too_short" });
+    if (message.length > 4000) return reply.code(400).send({ error: "message_too_long" });
+      if (message.length < 5) return reply.code(400).send({ error: "message_too_short" });
 
     let driverId: string | null = null;
     let bookingId: string | null = null;
@@ -261,14 +273,17 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
     const [{ name: hospitalName = null } = {}] = await pgClient<any[]>`
       SELECT name FROM hospitals WHERE id = ${hid} LIMIT 1`;
 
-    const [{ id } = {}] = await pgClient`
+    const id = await pgClient.begin(async tx => {
+      const [{ id } = {}] = await tx`
       INSERT INTO support_tickets (hospital_id, subject_type, category, source, driver_id, booking_id, message, status)
       VALUES (${hid}, ${subjectType}, ${category}, 'HOSPITAL', ${driverId}, ${bookingId}, ${message}, 'OPEN')
       RETURNING id`;
     // Seed the first thread row so the card reads as one conversation.
-    await pgClient`
+    await tx`
       INSERT INTO support_ticket_messages (ticket_id, author_role, author_name, body)
       VALUES (${id}, 'HOSPITAL', ${hospitalName}, ${message})`;
+    return id;
+    });
     return reply.send({ ok: true, id });
   });
 
@@ -332,7 +347,8 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
     const id = String(req.params.id);
     if (!/^[0-9a-f-]{36}$/i.test(id)) return reply.code(404).send({ error: "not_found" });
     const body = String(req.body?.body ?? "").trim();
-    if (body.length < 2) return reply.code(400).send({ error: "message_too_short" });
+    if (body.length > 4000) return reply.code(400).send({ error: "message_too_long" });
+      if (body.length < 2) return reply.code(400).send({ error: "message_too_short" });
 
     // Ownership check — the ticket must belong to THIS hospital.
     const [t] = await pgClient<any[]>`
@@ -342,15 +358,18 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
     const [{ name: hospitalName = null } = {}] = await pgClient<any[]>`
       SELECT name FROM hospitals WHERE id = ${hid} LIMIT 1`;
 
-    const [message] = await pgClient`
+    const message = await pgClient.begin(async tx => {
+      const [message] = await tx`
       INSERT INTO support_ticket_messages (ticket_id, author_role, author_name, body)
       VALUES (${id}, 'HOSPITAL', ${hospitalName}, ${body})
       RETURNING id, ticket_id, author_role, author_name, body, created_at`;
     // v1.2.4 fix: a raiser reply REOPENS a resolved ticket so ops sees it again
     // (honours the "reply to reopen the conversation" promise the apps show).
-    await pgClient`
+    await tx`
       UPDATE support_tickets SET status = 'OPEN', resolved_at = NULL, resolved_by = NULL
       WHERE id = ${id} AND status = 'RESOLVED'`;
+    return message;
+    });
     return reply.send({ message });
   });
 
@@ -367,12 +386,12 @@ export async function registerHospitalRoutes(app: FastifyInstance) {
       await fetch(`${config.socketBaseUrl}/internal/emit-to-driver`, {
         method: "POST", headers: { "Content-Type": "application/json", "x-internal": config.internalApiSecret },
         body: JSON.stringify({ driverId: b.driverId, event: "hospital:preparing", payload: { bookingId: b.id } })
-      }).catch(() => {});
+      }).then(res => { if (!res.ok) throw new Error(`Realtime notification failed: HTTP ${res.status}`); }).catch(err => { app.log.error({ err }, "Realtime notification failed; polling will recover the saved state"); });
     }
     await fetch(`${config.socketBaseUrl}/internal/booking-event`, {
       method: "POST", headers: { "Content-Type": "application/json", "x-internal": config.internalApiSecret },
       body: JSON.stringify({ bookingId: b.id, type: "hospital_ack", hospitalAckAt: new Date().toISOString() })
-    }).catch(() => {});
+    }).then(res => { if (!res.ok) throw new Error(`Realtime notification failed: HTTP ${res.status}`); }).catch(err => { app.log.error({ err }, "Realtime notification failed; polling will recover the saved state"); });
     return reply.send({ ok: true });
   });
 

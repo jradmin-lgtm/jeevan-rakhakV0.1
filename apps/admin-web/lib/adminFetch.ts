@@ -27,7 +27,7 @@ const SERVER_ADMIN_KEY = isServer
   ? (process.env.ADMIN_API_KEY ?? "dev-admin-key-change-in-prod")
   : "";
 
-export function adminFetch(url: string, init: RequestInit = {}): Promise<Response> {
+export async function adminFetch(url: string, init: RequestInit = {}): Promise<Response> {
   if (isServer) {
     // Direct call to the api-server with the real admin key.
     const target = /^https?:\/\//.test(url) ? url : `${API_BASE}${url}`;
@@ -45,5 +45,14 @@ export function adminFetch(url: string, init: RequestInit = {}): Promise<Respons
   } else if (!url.startsWith("/api/proxy") && url.startsWith("/api/")) {
     target = `/api/proxy${url}`;
   }
-  return fetch(target, { ...init, cache: "no-store" });
+  const requestKey = target.split("?")[0];
+  const report = (failed: boolean) => window.dispatchEvent(new CustomEvent("jr:request-status", { detail: { requestKey, failed } }));
+  try {
+    const response = await fetch(target, { ...init, cache: "no-store" });
+    report(response.status >= 500 || response.status === 401 || response.status === 403);
+    return response;
+  } catch (error) {
+    if (!(error instanceof Error && error.name === "AbortError")) report(true);
+    throw error;
+  }
 }

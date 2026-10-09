@@ -17,6 +17,7 @@
 export type PushLang = "en" | "hi";
 
 export type PushTemplateKey =
+  | "booking_timed_out"
   | "sos_new"
   | "booking_new"
   | "booking_assigned"
@@ -39,6 +40,8 @@ const EMERGENCY_LABELS: Record<PushLang, Record<string, string>> = {
     CARDIAC: "Cardiac",
     BREATHING_DISTRESS: "Breathing distress",
     PREGNANCY_NEONATAL: "Pregnancy / Neonatal",
+    REFERRAL_AMBULANCE: "Referral Ambulance",
+    OPD_AMBULANCE: "OPD Ambulance",
     GENERAL_CRITICAL_TRANSFER: "Critical transfer"
   },
   hi: {
@@ -46,6 +49,8 @@ const EMERGENCY_LABELS: Record<PushLang, Record<string, string>> = {
     CARDIAC: "हृदय संबंधी",
     BREATHING_DISTRESS: "सांस लेने में तकलीफ",
     PREGNANCY_NEONATAL: "गर्भावस्था / नवजात",
+    REFERRAL_AMBULANCE: "रेफरल एम्बुलेंस",
+    OPD_AMBULANCE: "ओपीडी एम्बुलेंस",
     GENERAL_CRITICAL_TRANSFER: "गंभीर स्थानांतरण"
   }
 };
@@ -55,6 +60,7 @@ function emergencyLabel(lang: PushLang, raw: string): string {
 }
 
 const EN: Record<PushTemplateKey, Template> = {
+  booking_timed_out: { title: "No driver responded", body: () => "No ambulance accepted this request. Call support if you still need help." },
   sos_new: {
     title: "🚨 New SOS request",
     body: (v) => `${emergencyLabel("en", String(v.emergencyType))} · ${Number(v.distanceKm).toFixed(1)} km away · tap to accept.`
@@ -98,6 +104,7 @@ const EN: Record<PushTemplateKey, Template> = {
 };
 
 const HI: Record<PushTemplateKey, Template> = {
+  booking_timed_out: { title: "चालक ने जवाब नहीं दिया", body: () => "इस अनुरोध को किसी एम्बुलेंस ने स्वीकार नहीं किया। ज़रूरत हो तो सहायता नंबर पर कॉल करें।" },
   sos_new: {
     title: "🚨 नई SOS रिक्वेस्ट",
     body: (v) => `${emergencyLabel("hi", String(v.emergencyType))} · ${Number(v.distanceKm).toFixed(1)} km दूर · स्वीकार करने के लिए टैप करें।`

@@ -9,13 +9,14 @@ async function getBookings() {
     const res = await adminFetch(`${API_BASE}/api/v1/admin/bookings`);
     if (!res.ok) throw new Error("bookings");
     const data = await res.json();
-    return data.bookings ?? [];
-  } catch {
-    return [];
+    return { bookings: data.bookings ?? [], error: "" };
+  } catch (error) {
+    console.error("[bookings] initial load failed", error);
+    return { bookings: [], error: "Bookings could not load. Retrying automatically." };
   }
 }
 
 export default async function BookingsPage() {
   const bookings = await getBookings();
-  return <BookingsList initialBookings={bookings} apiBase={API_BASE} />;
+  return <BookingsList initialBookings={bookings.bookings} initialError={bookings.error} apiBase={API_BASE} />;
 }

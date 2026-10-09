@@ -5,7 +5,8 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test test/*.test.cjs"
   },
   "peerDependencies": {
     "react": "*",
@@ -21,6 +22,6 @@
   },
   "dependencies": {
     "@react-native-google-signin/google-signin": "^16.1.2",
-    "expo-constants": "^55.0.16"
+    "expo-constants": "~17.1.8"
   }
 }

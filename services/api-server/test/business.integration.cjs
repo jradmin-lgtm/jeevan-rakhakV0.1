@@ -1,0 +1,101 @@
+const fs = require('fs'), crypto = require('crypto'), assert = require('assert/strict');
+const root = require('path').resolve(__dirname, '../../..');
+const env = process.env, base = env.TEST_API_BASE || 'http://127.0.0.1:4100';
+for (const url of [env.DATABASE_URL, base]) if (!url || !['localhost','127.0.0.1','postgres'].includes(new URL(url).hostname)) throw Error('Isolated local services required');
+const sql = require(root + '/packages/db/node_modules/postgres')(env.DATABASE_URL);
+const results = [];
+const sign = claims => { const enc = x => Buffer.from(JSON.stringify(x)).toString('base64url'); const body=enc({alg:'HS256',typ:'JWT'})+'.'+enc({...claims,exp:Math.floor(Date.now()/1000)+3600}); return body+'.'+crypto.createHmac('sha256',env.JWT_SECRET).update(body).digest('base64url'); };
+const check = (name, pass, detail) => { results.push({name,pass,detail}); console.log(pass?'PASS':'FAIL',name,pass?'':JSON.stringify(detail)); };
+async function api(id, action, token, body={}) { const r=await fetch(base+'/api/v1/bookings/'+id+'/'+action,{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(body)});return {status:r.status,body:await r.json()}; }
+async function main() {
+ const suffix=Date.now();
+ const [user]=await sql`INSERT INTO users(phone,name) VALUES (${'+9151'+suffix},'Business test user') RETURNING id`;
+ const [driver]=await sql`INSERT INTO drivers(phone,name,kyc_verified,status) VALUES (${'+9152'+suffix},'Business test driver',true,'OFFLINE') RETURNING id`;
+ const [hospital]=await sql`INSERT INTO hospitals(name,active,portal_enabled,portal_password_hash,lat,lng) VALUES ('Business test hospital',true,true,'test-only',28.4,79.4) RETURNING id`;
+ const ut=sign({sub:user.id,role:'user'}),dt=sign({sub:driver.id,role:'driver'}),ht=sign({sub:hospital.id,role:'hospital',hospitalId:hospital.id});
+ async function booking(status='COMPLETED') { const [b]=await sql`INSERT INTO bookings(user_id,driver_id,status,emergency_type,pickup_lat,pickup_lng,pickup_address,ride_otp_code,fare_final_inr,is_sos) VALUES (${user.id},${driver.id},${status},'OPD_AMBULANCE',28.4,79.4,'Business test','1234',500,true) RETURNING id`;return b.id; }
+ const active=await booking('ARRIVED');
+ const unauthorized=await api(active,'cancel',ht);
+ check('Hospital cannot cancel a patient ride',unauthorized.status===403,unauthorized);
+ await sql`UPDATE bookings SET status='ARRIVED' WHERE id=${active}`;
+ check('Cannot rate an unfinished ride',(await api(active,'rate',ut,{rating:4})).status===409);
+ check('Driver cannot rate unfinished ride',(await api(active,'rate-by-driver',dt,{rating:4})).status===409);
+ check('Unfinished ride payment refused',(await api(active,'mark-paid',ut)).status===409);
+ await sql`UPDATE bookings SET status='CANCELLED' WHERE id=${active}`;
+ const previewTrip=await booking();
+ const preview=await api(previewTrip,'payment-preview',ut,{couponCode:'PILOT100'});
+ const [unpaid]=await sql`SELECT paid_at FROM bookings WHERE id=${previewTrip}`;
+ check('Payment preview uses locked fare and does not mark paid',preview.status===200 && preview.body.breakdown.finalFare===500 && preview.body.breakdown.payableInr===0 && unpaid.paid_at===null);
+ check('Driver cannot preview patient payment',(await api(previewTrip,'payment-preview',dt)).status===403);
+ check('Unfinished ride cannot preview payment',(await api(active,'payment-preview',ut)).status===409);
+ const invalidCoupon=await api(previewTrip,'payment-preview',ut,{couponCode:'NOTVALID'});
+ check('Invalid coupon is identified without a fake discount',invalidCoupon.status===200 && invalidCoupon.body.couponValid===false && invalidCoupon.body.breakdown.payableInr===500);
+ await sql`UPDATE bookings SET coupon_code='PILOT100' WHERE id=${previewTrip}`;
+ const removed=await api(previewTrip,'payment-preview',ut,{couponCode:null});
+ const removedPaid=await api(previewTrip,'mark-paid',ut,{couponCode:null});
+ check('Explicit coupon removal agrees between preview and payment',removed.body.breakdown.payableInr===500 && removedPaid.body.paid.inr===500 && removedPaid.body.paid.coupon===null);
+ const paidPreview=await api(previewTrip,'payment-preview',ut,{couponCode:'PILOT100'});
+ check('Already paid preview returns committed amount',paidPreview.body.alreadyPaid===true && paidPreview.body.breakdown.payableInr===500);
+ const missingFare=await booking();
+ await sql`UPDATE bookings SET fare_final_inr=NULL,fare_estimate_inr=NULL WHERE id=${missingFare}`;
+ check('Missing fare never becomes a fabricated payment',(await api(missingFare,'payment-preview',ut)).status===409 && (await api(missingFare,'mark-paid',ut)).status===409);
+ const completed=await booking();
+ const rates=await Promise.all(Array.from({length:12},()=>api(completed,'rate',ut,{rating:4})));
+ check('Concurrent user rating counts exactly once',rates.filter(r=>r.status===200).length===1 && rates.filter(r=>r.status===409).length===11,rates.map(r=>r.status));
+ const driverRates=await Promise.all(Array.from({length:12},()=>api(completed,'rate-by-driver',dt,{rating:3})));
+ check('Concurrent driver rating counts exactly once',driverRates.filter(r=>r.status===200).length===1 && driverRates.filter(r=>r.status===409).length===11,driverRates.map(r=>r.status));
+ const rides=await Promise.all(Array.from({length:8},()=>booking()));
+ await Promise.all(rides.map((id,i)=>api(id,'rate',ut,{rating:i%2?5:1})));
+ const [aggregate]=await sql`SELECT rating_count,rating FROM drivers WHERE id=${driver.id}`;
+ check('Ratings from different rides retain all contributions',aggregate.rating_count===9 && Math.abs(aggregate.rating-28/9)<0.01,aggregate);
+ const paid=await Promise.all(Array.from({length:12},()=>api(completed,'mark-paid',ut)));
+ const [events]=await sql`SELECT count(*)::int AS n FROM booking_events WHERE booking_id=${completed} AND type='booking.paid'`;
+ check('Payment retries return one committed receipt',paid.every(r=>r.status===200) && new Set(paid.map(r=>r.body.paid?.at)).size===1 && events.n===1,{statuses:paid.map(r=>r.status),events:events.n,receiptTimes:new Set(paid.map(r=>r.body.paid?.at)).size});
+ const race=await booking('ARRIVED');
+ const crossed=await Promise.all([api(race,'cancel',ut),api(race,'pickup',dt,{code:'1234'})]);
+ check('Cancel and pickup cannot both succeed',crossed.filter(r=>r.status===200).length===1,crossed.map(r=>r.status));
+ await sql`UPDATE bookings SET status='CANCELLED' WHERE id=${race}`;
+ async function driverAction(id, action, body={}) { const response=await fetch(base+'/api/v1/driver/bookings/'+id+'/'+action,{method:'POST',headers:{authorization:'Bearer '+dt,'content-type':'application/json'},body:JSON.stringify(body)});return {status:response.status,body:await response.json()}; }
+ const waiting=await booking('ARRIVED');
+ const clocks=await Promise.all(Array.from({length:6},()=>driverAction(waiting,'cancel/start-wait')));
+ check('Repeated cancellation wait uses one clock',clocks.every(r=>r.status===200) && new Set(clocks.map(r=>r.body.waitStartedAt)).size===1);
+ check('Driver patient cancellation enforces wait',(await driverAction(waiting,'cancel',{reasonCode:'PATIENT_NOT_AVAILABLE'})).status===425);
+ check('Legacy cancellation cannot bypass driver wait',(await api(waiting,'cancel',dt)).status===403);
+ await sql`UPDATE bookings SET cancel_wait_started_at=now()-interval '20 minutes' WHERE id=${waiting}`;
+ const closed=await Promise.all(Array.from({length:6},()=>driverAction(waiting,'cancel',{reasonCode:'PATIENT_NOT_AVAILABLE'})));
+ const [audits]=await sql`SELECT count(*)::int AS n FROM booking_cancellations WHERE booking_id=${waiting}`;
+ check('Concurrent driver close produces one cancellation',closed.filter(r=>r.status===200).length===1 && audits.n===1,{statuses:closed.map(r=>r.status),audits});
+ const vehicle=await booking('ARRIVED');
+ const redispatch=await driverAction(vehicle,'cancel',{reasonCode:'VEHICLE_BREAKDOWN'});
+ const [returned]=await sql`SELECT status,driver_id FROM bookings WHERE id=${vehicle}`;
+ check('Vehicle cancellation redispatches and detaches driver',redispatch.status===200 && returned.status==='REQUESTED' && returned.driver_id===null,redispatch);
+ await sql`UPDATE bookings SET status='CANCELLED' WHERE id=${vehicle}`;
+ const picked=await booking('PICKED_UP');
+ check('Driver cannot cancel after pickup',(await driverAction(picked,'cancel',{reasonCode:'VEHICLE_BREAKDOWN'})).status===409);
+ const complete=await api(picked,'complete',dt);
+ check('Completion atomically returns fare and hides OTP',complete.status===200 && complete.body.booking.fareFinalInr!=null && !('rideOtpCode' in complete.body.booking),complete.status);
+ const invalid=await fetch(base+'/api/v1/safety/raise',{method:'POST',headers:{authorization:'Bearer '+dt,'content-type':'application/json'},body:JSON.stringify({bookingId:race,lat:999,lng:999,reason:'Safety test'})});
+ check('Safety rejects impossible coordinates',invalid.status===400,invalid.status);
+ await sql`UPDATE drivers SET status='OFFLINE' WHERE id=${driver.id}`;
+ for(let run=0;run<6;run++) {
+  const moving=await booking('PICKED_UP');
+  await sql`UPDATE drivers SET status='ON_TRIP' WHERE id=${driver.id}`;
+  const syncing=Array.from({length:4},(_,i)=>fetch(base+'/api/v1/driver/location-batch',{method:'POST',signal:AbortSignal.timeout(10000),headers:{authorization:'Bearer '+dt,'content-type':'application/json'},body:JSON.stringify({points:[{bookingId:moving,lat:28.4+i*.00001,lng:79.4,ts:Date.now()}]})}));
+  const responses=await Promise.all([...syncing,api(moving,'complete',dt)]);
+  const [state]=await sql`SELECT status FROM drivers WHERE id=${driver.id}`;
+  check('GPS sync and completion coexist '+(run+1),responses.every(r=>r.status===200)&&state.status==='AVAILABLE',{statuses:responses.map(r=>r.status),state});
+ }
+ for(let run=0;run<6;run++) {
+  const newRide=await booking('REQUESTED');
+  await sql`UPDATE bookings SET driver_id=NULL WHERE id=${newRide}`;
+  const availability=fetch(base+'/api/v1/driver/availability',{method:'POST',headers:{authorization:'Bearer '+dt,'content-type':'application/json'},body:JSON.stringify({status:'OFFLINE'})});
+  const [toggle,accepted]=await Promise.all([availability,api(newRide,'accept',dt)]);
+  const [state]=await sql`SELECT status FROM drivers WHERE id=${driver.id}`;
+  check('Concurrent availability cannot override accepted trip '+(run+1),[200,409].includes(toggle.status)&&accepted.status===200&&state.status==='ON_TRIP',{toggle:toggle.status,accepted:accepted.status,state});
+  await sql`UPDATE bookings SET status='CANCELLED' WHERE id=${newRide}`;
+  await sql`UPDATE drivers SET status='OFFLINE' WHERE id=${driver.id}`;
+ }
+ if(env.TEST_RESULTS_FILE) fs.writeFileSync(env.TEST_RESULTS_FILE,JSON.stringify(results,null,2));
+ assert.ok(results.every(r=>r.pass),'Business regression failures');
+}
+main().catch(error=>{console.error(error);process.exitCode=1}).finally(()=>sql.end());

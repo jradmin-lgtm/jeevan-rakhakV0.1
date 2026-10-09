@@ -1,3 +1,4 @@
+import { useReducedMotion } from "../hooks/useReducedMotion";
 import React, { memo, useEffect, useRef } from "react";
 import { Animated, StyleSheet, View } from "react-native";
 import { colors } from "../tokens";
@@ -15,6 +16,7 @@ type Props = {
  * low-RAM devices.
  */
 function PulseDotInner({ size = 12, color = colors.primary, rings = 2 }: Props) {
+  const reducedMotion = useReducedMotion();
   const ringValues = useRef(
     Array.from({ length: rings }, () => ({
       scale: new Animated.Value(1),
@@ -23,6 +25,7 @@ function PulseDotInner({ size = 12, color = colors.primary, rings = 2 }: Props) 
   ).current;
 
   useEffect(() => {
+    if (reducedMotion) return;
     const loops = ringValues.map((v, i) => {
       const reset = () => {
         v.scale.setValue(1);
@@ -42,11 +45,11 @@ function PulseDotInner({ size = 12, color = colors.primary, rings = 2 }: Props) 
       return loop;
     });
     return () => loops.forEach((l) => l.stop());
-  }, [ringValues]);
+  }, [ringValues, reducedMotion]);
 
   return (
     <View style={[styles.wrap, { width: size * 3, height: size * 3 }]}>
-      {ringValues.map((v, i) => (
+      {!reducedMotion && ringValues.map((v, i) => (
         <Animated.View
           key={i}
           style={[

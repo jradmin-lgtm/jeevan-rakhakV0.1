@@ -1,0 +1,64 @@
+const fs=require('fs'),crypto=require('crypto'),assert=require('assert/strict');
+const root=require('path').resolve(__dirname,'../../..'),env=process.env,base=env.TEST_API_BASE||'http://127.0.0.1:4100';
+for(const url of [env.DATABASE_URL,base])if(!url||!['localhost','127.0.0.1','postgres'].includes(new URL(url).hostname))throw Error('Local isolated services required');
+const sql=require(root+'/packages/db/node_modules/postgres')(env.DATABASE_URL),results=[];
+const jwt=claims=>{const e=x=>Buffer.from(JSON.stringify(x)).toString('base64url'),b=e({alg:'HS256',typ:'JWT'})+'.'+e({...claims,exp:Math.floor(Date.now()/1000)+3600});return b+'.'+crypto.createHmac('sha256',env.JWT_SECRET).update(b).digest('base64url')};
+const check=(name,pass,detail)=>{assert.ok(pass,name+': '+JSON.stringify(detail));results.push({name,pass});console.log('PASS',name)};
+async function api(path,token,body,method=body?'POST':'GET'){const r=await fetch(base+path,{method,headers:{authorization:'Bearer '+token,...(body?{'content-type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});return{status:r.status,body:await r.json()}}
+async function main(){
+ const stamp=Date.now();
+ const [u]=await sql`INSERT INTO users(phone,name) VALUES (${'+9141'+stamp},'Support test user') RETURNING id`;
+ const [d]=await sql`INSERT INTO drivers(phone,name,kyc_verified,status) VALUES (${'+9142'+stamp},'Support test driver',true,'OFFLINE') RETURNING id`;
+ const [h]=await sql`INSERT INTO hospitals(name,lat,lng,active,portal_enabled,portal_password_hash) VALUES ('Support hospital',28.4,79.4,true,true,'test-only') RETURNING id`;
+ const ut=jwt({sub:u.id,role:'user'}),dt=jwt({sub:d.id,role:'driver'}),ht=jwt({sub:h.id,role:'hospital',hospitalId:h.id});
+ for(const [role,path,token,other]of [['user','me',ut,dt],['driver','driver',dt,ut],['hospital','hospital',ht,ut]]){
+  const created=await api('/api/v1/'+path+'/tickets',token,{subjectType:'GENERAL',category:'ISSUE',message:'Local support regression message'});
+  check(role+' support ticket created',created.status===200,created);
+  const id=created.body.id;
+  const read=await api('/api/v1/'+path+'/tickets/'+id,token);
+  check(role+' first message saved with ticket',read.status===200&&read.body.messages.length===1,read.status);
+  const denied=await api('/api/v1/'+path+'/tickets/'+id,other);
+  check(role+' other role denied',denied.status===403,denied.status);
+  await sql`UPDATE support_tickets SET status='RESOLVED',resolved_at=now(),resolved_by='Local test' WHERE id=${id}`;
+  const reply=await api('/api/v1/'+path+'/tickets/'+id+'/messages',token,{body:'Reopen this local test conversation'});
+  const [state]=await sql`SELECT status FROM support_tickets WHERE id=${id}`;
+  check(role+' reply reopens resolved conversation',reply.status===200&&state.status==='OPEN',{reply:reply.status,state});
+  const large=await api('/api/v1/'+path+'/tickets',token,{message:'x'.repeat(4001)});
+  check(role+' oversized support message rejected',large.status===400,large.status);
+ }
+ const kyc=await api('/api/v1/driver/kyc',dt,{licenseNumber:'LOCAL-1234',vehicleNumber:'UP25 QA1234',rcNumber:'',pucNumber:'',fitnessNumber:'',insuranceNumber:'',employmentType:'private_driver',hospitalId:h.id,hospitalName:'Incorrect supplied label'});
+ check('KYC accepts blank optional numbers from installed apps',kyc.status===200,kyc);
+ const [assignment]=await sql`SELECT count(*)::int AS n FROM driver_hospitals WHERE driver_id=${d.id} AND hospital_id=${h.id}`;
+ check('KYC saves canonical hospital and assignment together',kyc.body.driver.hospitalName==='Support hospital'&&assignment.n===1);
+ check('KYC rejects malformed supplied optional number',(await api('/api/v1/driver/kyc',dt,{rcNumber:'1'})).status===400);
+ const invalidHospital=await api('/api/v1/driver/kyc',dt,{vehicleNumber:'SHOULD-NOT-SAVE',hospitalId:crypto.randomUUID()});
+ const [afterBadHospital]=await sql`SELECT vehicle_number FROM drivers WHERE id=${d.id}`;
+ check('Unknown hospital leaves KYC unchanged',invalidHospital.status===400&&afterBadHospital.vehicle_number==='UP25 QA1234');
+ const image={docType:'licence',contentType:'image/png',base64:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6WQAAAAASUVORK5CYII='};
+ check('Patient cannot replace a driver document',(await api('/api/v1/driver/kyc/document/reissue',ut,image)).status===403);
+ const uploads=await Promise.all(Array.from({length:8},()=>api('/api/v1/driver/kyc/document/reissue',dt,image)));
+ check('Concurrent document replacement creates one request',uploads.filter(r=>r.status===200).length===1&&uploads.filter(r=>r.status===409).length===7,uploads.map(r=>r.status));
+ const [docCounts]=await sql`SELECT count(*)::int AS n FROM driver_document_updates WHERE driver_id=${d.id} AND status='PENDING'`;
+ const [ticketCounts]=await sql`SELECT count(*)::int AS n FROM support_tickets WHERE raiser_driver_id=${d.id} AND category='DOC_UPDATE'`;
+ const [messageCounts]=await sql`SELECT count(*)::int AS n FROM support_ticket_messages m JOIN support_tickets t ON t.id=m.ticket_id WHERE t.raiser_driver_id=${d.id} AND t.category='DOC_UPDATE'`;
+ check('Document, ticket and message are one complete record',docCounts.n===1&&ticketCounts.n===1&&messageCounts.n===1,{docCounts,ticketCounts,messageCounts});
+ const update=uploads.find(r=>r.status===200).body;
+ const premature=await fetch(base+'/api/v1/admin/tickets/'+update.ticketId,{method:'PATCH',headers:{'content-type':'application/json','x-admin-key':env.ADMIN_API_KEY||'dev-admin-key'},body:JSON.stringify({status:'RESOLVED',resolvedBy:'Local reviewer'})});
+ check('Pending document cannot be hidden by resolving its ticket',premature.status===409&&(await premature.json()).error==='document_review_required');
+ const review=await Promise.all(Array.from({length:8},(_,i)=>fetch(base+'/api/v1/admin/document-updates/'+update.id+'/'+(i%2?'reject':'approve'),{method:'POST',headers:{'content-type':'application/json','x-admin-key':env.ADMIN_API_KEY||'dev-admin-key'},body:JSON.stringify({resolvedBy:'Local reviewer'})})));
+ check('Concurrent approval and rejection have one winner',review.filter(r=>r.status===200).length===1&&review.filter(r=>r.status===404).length===7,review.map(r=>r.status));
+ const [reviewed]=await sql`SELECT status FROM driver_document_updates WHERE id=${update.id}`;
+ const [closedTicket]=await sql`SELECT status FROM support_tickets WHERE id=${update.ticketId}`;
+ const [adminReply]=await sql`SELECT count(*)::int AS n FROM support_ticket_messages WHERE ticket_id=${update.ticketId} AND author_role='ADMIN'`;
+ const [liveDoc]=await sql`SELECT count(*)::int AS n FROM driver_documents WHERE driver_id=${d.id} AND doc_type='licence'`;
+ check('Review result, live document and ticket agree',closedTicket.status==='RESOLVED'&&adminReply.n===1&&liveDoc.n===(reviewed.status==='APPROVED'?1:0),{reviewed,closedTicket,adminReply,liveDoc});
+ const device='local-token-'+crypto.randomUUID();
+ check('User device token registration',(await api('/api/v1/me/push-token',ut,{token:device})).status===200);
+ check('Shared device token moves to driver account',(await api('/api/v1/me/push-token',dt,{token:device})).status===200);
+ const [uToken]=await sql`SELECT push_token FROM users WHERE id=${u.id}`;const[dToken]=await sql`SELECT push_token FROM drivers WHERE id=${d.id}`;
+ check('Previous account no longer owns device token',uToken.push_token===null&&dToken.push_token===device);
+ const revoked=await api('/api/v1/me/push-token',dt,undefined,'DELETE');const[cleared]=await sql`SELECT push_token FROM drivers WHERE id=${d.id}`;
+ check('Logout push revocation',revoked.status===200&&cleared.push_token===null);
+ if(env.TEST_RESULTS_FILE)fs.writeFileSync(env.TEST_RESULTS_FILE,JSON.stringify(results,null,2));
+}
+main().catch(error=>{console.error(error);process.exitCode=1}).finally(()=>sql.end());

@@ -70,6 +70,8 @@ export const EMERGENCY_MULT: Record<string, number> = {
   ACCIDENT_TRAUMA: 1.2,          // Same
   PREGNANCY_NEONATAL: 1.1,       // Slight uplift for specialised handling
   BREATHING_DISTRESS: 1.0,
+  REFERRAL_AMBULANCE: 1.0,
+  OPD_AMBULANCE: 1.0,
   GENERAL_CRITICAL_TRANSFER: 1.0
 };
 

@@ -3,7 +3,9 @@ export type EmergencyType =
   | "CARDIAC"
   | "BREATHING_DISTRESS"
   | "PREGNANCY_NEONATAL"
-  | "GENERAL_CRITICAL_TRANSFER";
+  | "GENERAL_CRITICAL_TRANSFER"
+  | "REFERRAL_AMBULANCE"
+  | "OPD_AMBULANCE";
 
 export type BookingStatus =
   | "REQUESTED"

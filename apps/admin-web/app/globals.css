@@ -424,3 +424,38 @@ button:focus-visible { outline: 3px solid rgba(37,99,235,0.25); outline-offset: 
   .row { grid-template-columns: minmax(0, 1fr); }
   main.content { padding: 16px; }
 }
+
+/* Release audit: small-screen containment and accessible interaction. */
+.card, .page-header, main, .row > * { min-width: 0; }
+.card { overflow-wrap: anywhere; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 600px) {
+  .page-header { flex-wrap: wrap; }
+  .page-header > * { max-width: 100%; }
+  .card input, .card select { max-width: 100%; }
+  button, .btn, input, select { min-height: 44px; }
+  .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .row { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+
+.trends-split { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 600px) { .trends-split { grid-template-columns: minmax(0, 1fr); } }
+
+input, select, textarea { min-width: 0; box-sizing: border-box; }
+
+.hospital-sidebar { background: #153D38; }
+.hospital-sidebar .brand small { opacity: 1; color: #B8D7D2; }
+.hospital-sidebar nav a.nav-item { color: #D2E6E2; }
+.hospital-sidebar nav a.nav-item.active { background: #2D6259; color: #FFFFFF; }
+.hospital-sidebar nav a.nav-item.active::before { background: #B8D7D2; }
+.hospital-footer { margin-top: auto; padding: 8px 6px; }
+@media (max-width: 1100px) {
+  .hospital-sidebar { gap: 12px; }
+  .hospital-sidebar nav { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; }
+  .hospital-sidebar nav a { flex-shrink: 0; }
+  .hospital-footer { align-self: flex-end; padding: 0; }
+  .hospital-footer > span { display: none; }
+}

@@ -1,3 +1,4 @@
+import { realtimeRequest } from "../realtime-http";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, desc, eq, isNull, sql as drizzleSql } from "drizzle-orm";
@@ -6,6 +7,7 @@ import {
   bookings,
   bookingCancellations,
   drivers,
+  hospitals,
   driverDocuments,
   driverDocumentUpdates,
   driverHeartbeats,
@@ -23,8 +25,8 @@ import { autoResolveSafetyForBooking } from "./safety";
 
 const availabilitySchema = z.object({
   status: z.enum(["OFFLINE", "AVAILABLE", "ON_TRIP"]),
-  lat: z.number().optional(),
-  lng: z.number().optional()
+  lat: z.number().min(-90).max(90).optional(),
+  lng: z.number().min(-180).max(180).optional()
 });
 
 // KYC submission — driver fills these during onboarding (team feedback 1.10).
@@ -33,7 +35,10 @@ const availabilitySchema = z.object({
 // licence scan, RC scan, insurance scan) are deferred to v1.0.12 when blob
 // storage lands — for v1.0.11 we collect the numbers only and admin verifies
 // out-of-band against physical documents.
-const kycSchema = z.object({
+const kycSchema = z.preprocess(value => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  return Object.fromEntries(Object.entries(value).filter(([, field]) => typeof field !== "string" || field.trim() !== "").map(([key, field]) => [key, typeof field === "string" ? field.trim() : field]));
+}, z.object({
   name: z.string().min(1).max(120).optional(),
   photoUrl: z.string().max(500).optional(),
   vehicleNumber: z.string().min(4).max(20).optional(),
@@ -41,14 +46,14 @@ const kycSchema = z.object({
   licenseNumber: z.string().min(4).max(40).optional(),
   rcNumber: z.string().min(4).max(40).optional(),
   insuranceNumber: z.string().min(4).max(60).optional(),
-  hospitalId: z.string().max(60).optional(),
+  hospitalId: z.string().uuid().optional(),
   hospitalName: z.string().max(200).optional(),
   // CR6 (2026-08): KYC redesign — Ambulance Details + Driver Details.
   pucNumber: z.string().min(1).max(60).optional(),
   fitnessNumber: z.string().min(1).max(60).optional(),
   employmentType: z.enum(["hospital_employee", "private_driver"]).optional(),
   employeeNumber: z.string().min(1).max(60).optional()
-});
+}));
 
 // CR6 (2026-08): the document slots the KYC screen can upload. "employee_id"
 // only applies when employmentType === "hospital_employee" (enforced client-side
@@ -83,17 +88,29 @@ export async function registerDriverRoutes(app: FastifyInstance) {
       if (!parsed.success)
         return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
       const { status, lat, lng } = parsed.data;
-      const [d] = await db
-        .update(drivers)
-        .set({
-          status,
-          lastLat: lat,
-          lastLng: lng,
-          lastSeenAt: new Date(),
+      if ((lat == null) !== (lng == null)) return reply.code(400).send({ error: "coordinate_pair_required" });
+      const result = await db.transaction(async tx => {
+        const [account] = await tx.select().from(drivers).where(eq(drivers.id, sub)).limit(1).for("update");
+        if (!account) return { error: "driver_not_found", code: 404 };
+        if (status === "AVAILABLE" && !account.kycVerified) return { error: "kyc_required", code: 403 };
+        // This is a non-locking read. A simultaneous accept/complete sets its
+        // final driver status after this short transaction releases the driver.
+        const [active] = await tx.select({ id: bookings.id }).from(bookings).where(and(eq(bookings.driverId, sub), drizzleSql`${bookings.status} IN ('ACCEPTED','ARRIVED','PICKED_UP')`)).limit(1);
+        if (!active && status === "ON_TRIP") return { error: "active_ride_required", code: 409 };
+        if (active && status !== "ON_TRIP") return { error: "driver_on_active_ride", code: 409 };
+        const [driver] = await tx.update(drivers).set({
+          status, lastLat: lat, lastLng: lng,
+          lastSeenAt: lat != null && lng != null ? new Date() : undefined,
           updatedAt: new Date()
-        })
-        .where(eq(drivers.id, sub))
-        .returning();
+        }).where(eq(drivers.id, sub)).returning();
+        return { driver };
+      });
+      if (result.error) return reply.code(result.code).send({ error: result.error });
+      const d = result.driver;
+      if (status === "AVAILABLE") {
+        const { offerPendingSosToDriver } = await import("../sos-cascade.js");
+        void offerPendingSosToDriver(app, sub).catch(error => app.log.error({ error, driverId: sub }, "Pending SOS offer delivery failed"));
+      }
       return reply.send({ driver: d });
     }
   );
@@ -105,8 +122,9 @@ export async function registerDriverRoutes(app: FastifyInstance) {
   // Returns 204 — body-less, intentional: this is a high-frequency poll, no
   // payload to negotiate.
   const heartbeatSchema = z.object({
-    lat: z.number(),
-    lng: z.number()
+    lat: z.number().min(-90).max(90),
+    lng: z.number().min(-180).max(180),
+    ts: z.number().int().optional()
   });
   app.post(
     "/api/v1/driver/heartbeat",
@@ -118,20 +136,23 @@ export async function registerDriverRoutes(app: FastifyInstance) {
       if (!parsed.success) {
         return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
       }
+      const capturedAt = parsed.data.ts ?? Date.now();
+      if (capturedAt > Date.now() + 10_000 || Date.now() - capturedAt > 120_000) return reply.code(400).send({ error: "stale_location" });
       await db
         .insert(driverHeartbeats)
         .values({
           driverId: sub,
           lat: parsed.data.lat,
           lng: parsed.data.lng,
-          updatedAt: new Date()
+          updatedAt: new Date(capturedAt)
         })
         .onConflictDoUpdate({
           target: driverHeartbeats.driverId,
+          setWhere: drizzleSql`${driverHeartbeats.updatedAt} <= ${new Date(capturedAt).toISOString()}`,
           set: {
             lat: parsed.data.lat,
             lng: parsed.data.lng,
-            updatedAt: new Date()
+            updatedAt: new Date(capturedAt)
           }
         });
       // Also keep drivers.lastLat / lastLng / lastSeenAt fresh so admin's
@@ -142,10 +163,10 @@ export async function registerDriverRoutes(app: FastifyInstance) {
         .set({
           lastLat: parsed.data.lat,
           lastLng: parsed.data.lng,
-          lastSeenAt: new Date(),
-          updatedAt: new Date()
+          lastSeenAt: new Date(capturedAt),
+          updatedAt: new Date(capturedAt)
         })
-        .where(eq(drivers.id, sub));
+        .where(and(eq(drivers.id, sub), drizzleSql`(${drivers.lastSeenAt} IS NULL OR ${drivers.lastSeenAt} <= ${new Date(capturedAt).toISOString()})`));
       return reply.code(204).send();
     }
   );
@@ -212,7 +233,7 @@ export async function registerDriverRoutes(app: FastifyInstance) {
       // SOS requests dispatched to THIS driver, still open, not rejected by them.
       const sosRows = await pgClient`
         SELECT b.id, b.display_id, b.emergency_type, b.pickup_lat, b.pickup_lng,
-               b.pickup_address, b.patient_name, b.created_at, true AS is_sos
+               b.pickup_address, b.pickup_landmark, b.patient_name, b.created_at, true AS is_sos
         FROM bookings b
         JOIN sos_dispatch_attempts a ON a.booking_id = b.id AND a.driver_id = ${sub}
         WHERE b.status = 'REQUESTED' AND a.rejected_at IS NULL
@@ -221,7 +242,7 @@ export async function registerDriverRoutes(app: FastifyInstance) {
       // Normal broadcast bookings still open (no driver yet).
       const normalRows = await pgClient`
         SELECT b.id, b.display_id, b.emergency_type, b.pickup_lat, b.pickup_lng,
-               b.pickup_address, b.patient_name, b.created_at, false AS is_sos
+               b.pickup_address, b.pickup_landmark, b.patient_name, b.created_at, false AS is_sos
         FROM bookings b
         WHERE b.status = 'REQUESTED' AND b.is_sos = false AND b.driver_id IS NULL
         ORDER BY b.created_at DESC
@@ -249,21 +270,16 @@ export async function registerDriverRoutes(app: FastifyInstance) {
       const { sub, role } = req.user;
       if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
       const bookingId = req.params.id;
-      const [b] = await db.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1);
-      if (!b || b.driverId !== sub) return reply.code(404).send({ error: "not_found" });
-      if (!(b.status === "ACCEPTED" || b.status === "ARRIVED")) {
-        return reply.code(409).send({ error: "not_cancellable" });
-      }
-      // Anchor the wait clock once; idempotent so repeated taps don't reset it.
-      let startedAt = b.cancelWaitStartedAt as Date | null;
-      if (!startedAt) {
-        startedAt = new Date();
-        await db
-          .update(bookings)
-          .set({ cancelWaitStartedAt: startedAt })
-          .where(eq(bookings.id, bookingId));
-      }
-      return reply.send({ waitStartedAt: startedAt, waitSeconds: config.driverCancelPatientWaitS });
+      const result = await db.transaction(async tx => {
+        const [b] = await tx.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1).for("update");
+        if (!b || b.driverId !== sub) return { status: 404, error: "not_found" };
+        if (!["ACCEPTED", "ARRIVED"].includes(b.status)) return { status: 409, error: "not_cancellable" };
+        const startedAt = b.cancelWaitStartedAt ?? new Date();
+        if (!b.cancelWaitStartedAt) await tx.update(bookings).set({ cancelWaitStartedAt: startedAt }).where(eq(bookings.id, bookingId));
+        return { status: 200, startedAt };
+      });
+      if (!result.startedAt) return reply.code(result.status).send({ error: result.error });
+      return reply.send({ waitStartedAt: result.startedAt, waitSeconds: config.driverCancelPatientWaitS });
     }
   );
 
@@ -283,38 +299,30 @@ export async function registerDriverRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: "remarks_required" });
       }
 
-      const [b] = await db.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1);
-      if (!b || b.driverId !== sub) return reply.code(404).send({ error: "not_found" });
-      if (!(b.status === "ACCEPTED" || b.status === "ARRIVED")) {
-        return reply.code(409).send({ error: "not_cancellable" }); // PICKED_UP+ is admin-only
-      }
-
-      // Patient-reason wait gate (server-authoritative).
-      if (PATIENT_REASONS.has(reasonCode)) {
-        const startedAt = (b.cancelWaitStartedAt as Date | null) ?? (b.arrivedAt as Date | null);
-        const elapsed = startedAt ? (Date.now() - new Date(startedAt).getTime()) / 1000 : 0;
-        if (elapsed < config.driverCancelPatientWaitS) {
-          return reply.code(425).send({
-            error: "cancel_wait_not_elapsed",
-            remainingS: Math.ceil(config.driverCancelPatientWaitS - elapsed)
-          });
-        }
-      }
-
       const outcome = PATIENT_REASONS.has(reasonCode) ? "CLOSED" : "RE_DISPATCHED";
-
-      // Audit log first (always).
-      await db.insert(bookingCancellations).values({ bookingId, driverId: sub, reasonCode, remarks, outcome });
-
-      if (outcome === "CLOSED") {
-        await db
-          .update(bookings)
-          .set({ status: "CANCELLED", cancelledAt: new Date(), cancelWaitStartedAt: null })
+      if (remarks && remarks.length > 1000) return reply.code(400).send({ error: "remarks_too_long" });
+      const result = await db.transaction(async tx => {
+        const [booking] = await tx.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1).for("update");
+        if (!booking || booking.driverId !== sub) return { status: 404, error: "not_found" };
+        if (!["ACCEPTED", "ARRIVED"].includes(booking.status)) return { status: 409, error: "not_cancellable" };
+        if (PATIENT_REASONS.has(reasonCode)) {
+          const startedAt = booking.cancelWaitStartedAt ?? booking.arrivedAt;
+          const elapsed = startedAt ? (Date.now() - new Date(startedAt).getTime()) / 1000 : 0;
+          if (elapsed < config.driverCancelPatientWaitS) return { status: 425, error: "cancel_wait_not_elapsed", remainingS: Math.ceil(config.driverCancelPatientWaitS - elapsed) };
+        }
+        await tx.insert(bookingCancellations).values({ bookingId, driverId: sub, reasonCode, remarks, outcome });
+        await tx.update(bookings).set(outcome === "CLOSED"
+          ? { status: "CANCELLED", cancelledAt: new Date(), cancelWaitStartedAt: null }
+          : { status: "REQUESTED", driverId: null, acceptedAt: null, arrivedAt: null, cancelWaitStartedAt: null })
           .where(eq(bookings.id, bookingId));
-        await db
-          .update(drivers)
-          .set({ status: "AVAILABLE", updatedAt: new Date() })
-          .where(eq(drivers.id, sub));
+        await tx.update(drivers).set({ status: "AVAILABLE", updatedAt: new Date() }).where(eq(drivers.id, sub));
+        if (outcome === "RE_DISPATCHED") await tx.insert(sosDispatchAttempts).values({ bookingId, driverId: sub, waveNumber: 0, rejectedAt: new Date() })
+          .onConflictDoUpdate({ target: [sosDispatchAttempts.bookingId, sosDispatchAttempts.driverId], set: { rejectedAt: new Date() } });
+        return { status: 200, booking };
+      });
+      if (!result.booking) return reply.code(result.status).send({ error: result.error, remainingS: result.remainingS });
+      const b = result.booking;
+      if (outcome === "CLOSED") {
         // v1.3.1: booking is now terminal (CANCELLED) — auto-resolve any
         // still-ACTIVE safety alert for it. Fire-and-forget; never blocks the
         // cancel response. (The RE_DISPATCHED branch is NOT terminal — the
@@ -334,7 +342,7 @@ export async function registerDriverRoutes(app: FastifyInstance) {
           {},
           { bookingId, status: "CANCELLED" }
         );
-        await fetch(`${config.socketBaseUrl}/internal/emit-to-user`, {
+        await realtimeRequest(`${config.socketBaseUrl}/internal/emit-to-user`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-internal": config.internalApiSecret },
           body: JSON.stringify({
@@ -342,17 +350,12 @@ export async function registerDriverRoutes(app: FastifyInstance) {
             event: "booking:cancelled",
             payload: { bookingId, message: msg }
           })
-        }).catch(() => {});
+        }).then(res => { if (!res.ok) throw new Error(`Realtime notification failed: HTTP ${res.status}`); }).catch(err => { app.log.error({ err }, "Realtime notification failed; polling will recover the saved state"); });
       } else {
-        // Vehicle / operational / Other → free THIS driver, put booking back to dispatch.
-        await db
-          .update(drivers)
-          .set({ status: "AVAILABLE", updatedAt: new Date() })
-          .where(eq(drivers.id, sub));
         const msg =
           "The assigned ambulance is unable to continue due to a vehicle issue. We are searching for another available ambulance.";
         void pushToUser(b.userId, "booking_reassigning", {}, { bookingId, status: "REQUESTED" });
-        await fetch(`${config.socketBaseUrl}/internal/emit-to-user`, {
+        await realtimeRequest(`${config.socketBaseUrl}/internal/emit-to-user`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-internal": config.internalApiSecret },
           body: JSON.stringify({
@@ -360,7 +363,7 @@ export async function registerDriverRoutes(app: FastifyInstance) {
             event: "booking:reassigning",
             payload: { bookingId, message: msg }
           })
-        }).catch(() => {});
+        }).then(res => { if (!res.ok) throw new Error(`Realtime notification failed: HTTP ${res.status}`); }).catch(err => { app.log.error({ err }, "Realtime notification failed; polling will recover the saved state"); });
         await redispatchBooking(app, bookingId, sub);
       }
 
@@ -380,9 +383,7 @@ export async function registerDriverRoutes(app: FastifyInstance) {
             for (const a of attempts) {
               if (a.driverId !== sub) void dismissPushToDriver(a.driverId, bookingId);
             }
-          } catch {
-            /* best-effort */
-          }
+          } catch (error) { console.warn("drivers.ts.registerDriverRoutes failed"); }
         })();
       }
 
@@ -390,14 +391,14 @@ export async function registerDriverRoutes(app: FastifyInstance) {
       // booking room and refetches on `booking:event`. The emit-to-user events
       // above carry the friendly toast; this one makes the screen reflect the
       // new status (CANCELLED / back to REQUESTED) without waiting for the poll.
-      await fetch(`${config.socketBaseUrl}/internal/booking-event`, {
+      await realtimeRequest(`${config.socketBaseUrl}/internal/booking-event`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-internal": config.internalApiSecret },
         body: JSON.stringify({
           bookingId,
           type: outcome === "CLOSED" ? "booking.cancelled" : "booking.reassigning"
         })
-      }).catch(() => {});
+      }).then(res => { if (!res.ok) throw new Error(`Realtime notification failed: HTTP ${res.status}`); }).catch(err => { app.log.error({ err }, "Realtime notification failed; polling will recover the saved state"); });
 
       return reply.send({ ok: true, outcome });
     }
@@ -412,35 +413,25 @@ export async function registerDriverRoutes(app: FastifyInstance) {
       const parsed = kycSchema.safeParse(req.body);
       if (!parsed.success)
         return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
-      // Driver submits — flag never auto-verifies. Admin must flip
-      // kycVerified true via PATCH /admin/drivers/:id (new route in admin.ts).
-      const [d] = await db
-        .update(drivers)
-        .set({ ...parsed.data, updatedAt: new Date() })
-        .where(eq(drivers.id, sub))
-        .returning();
-      // v1.1.2: mirror the KYC hospital pick into the driver↔hospital join
-      // table as the PRIMARY assignment, so admin's multi-assign view + the
-      // hospital pages honour it. Only when a real hospital UUID was picked
-      // and the driver has no assignment yet (admin reassignment wins after).
-      const hid = parsed.data.hospitalId;
-      if (hid && /^[0-9a-f-]{36}$/.test(hid)) {
-        try {
-          const existing = await db
-            .select({ id: driverHospitals.id })
-            .from(driverHospitals)
-            .where(eq(driverHospitals.driverId, sub))
-            .limit(1);
-          if (existing.length === 0) {
-            await db.insert(driverHospitals)
-              .values({ driverId: sub, hospitalId: hid, isPrimary: true })
-              .onConflictDoNothing();
-          }
-        } catch {
-          /* best-effort — drivers.hospitalId is still set as the mirror */
+      const result = await db.transaction(async tx => {
+        const [account] = await tx.select({ id: drivers.id }).from(drivers).where(eq(drivers.id, sub)).limit(1).for("update");
+        if (!account) return { error: "driver_not_found", code: 404 };
+        const hid = parsed.data.hospitalId;
+        let hospitalName = parsed.data.hospitalName;
+        if (hid) {
+          const [hospital] = await tx.select({ name: hospitals.name }).from(hospitals).where(and(eq(hospitals.id, hid), eq(hospitals.active, true))).limit(1).for("share");
+          if (!hospital) return { error: "hospital_not_available", code: 400 };
+          hospitalName = hospital.name;
         }
-      }
-      return reply.send({ driver: d });
+        const [driver] = await tx.update(drivers).set({ ...parsed.data, hospitalName, updatedAt: new Date() }).where(eq(drivers.id, sub)).returning();
+        if (hid) {
+          const existing = await tx.select({ id: driverHospitals.id }).from(driverHospitals).where(eq(driverHospitals.driverId, sub)).limit(1);
+          if (existing.length === 0) await tx.insert(driverHospitals).values({ driverId: sub, hospitalId: hid, isPrimary: true }).onConflictDoNothing();
+        }
+        return { driver };
+      });
+      if ("error" in result) return reply.code(result.code!).send({ error: result.error });
+      return reply.send(result);
     }
   );
 
@@ -533,20 +524,6 @@ export async function registerDriverRoutes(app: FastifyInstance) {
       const parsed = reissueRequestSchema.safeParse(req.body);
       if (!parsed.success)
         return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
-      // One outstanding request per doc type at a time — a second tap while
-      // one's already PENDING would just confuse the review queue.
-      const [existing] = await db
-        .select({ id: driverDocumentUpdates.id })
-        .from(driverDocumentUpdates)
-        .where(
-          and(
-            eq(driverDocumentUpdates.driverId, sub),
-            eq(driverDocumentUpdates.docType, parsed.data.docType),
-            eq(driverDocumentUpdates.status, "PENDING")
-          )
-        )
-        .limit(1);
-      if (existing) return reply.code(409).send({ error: "request_already_pending" });
       let buf: Buffer;
       try {
         buf = Buffer.from(parsed.data.base64, "base64");
@@ -556,28 +533,24 @@ export async function registerDriverRoutes(app: FastifyInstance) {
       if (buf.length === 0 || buf.length > 6 * 1024 * 1024) {
         return reply.code(400).send({ error: "document_too_large_or_empty" });
       }
-      const [{ name: driverName = null } = {}] = await pgClient<any[]>`
-        SELECT name FROM drivers WHERE id = ${sub} LIMIT 1`;
-      const label = REISSUE_DOC_LABEL[parsed.data.docType];
-      const message = `Requesting an update to my ${label} on file.`;
-      const [{ id: ticketId } = {}] = await pgClient`
-        INSERT INTO support_tickets (subject_type, category, source, raiser_driver_id, message, status)
-        VALUES ('GENERAL', 'DOC_UPDATE', 'DRIVER', ${sub}, ${message}, 'OPEN')
-        RETURNING id`;
-      await pgClient`
-        INSERT INTO support_ticket_messages (ticket_id, author_role, author_name, body)
-        VALUES (${ticketId}, 'DRIVER', ${driverName}, ${message})`;
-      const [row] = await db
-        .insert(driverDocumentUpdates)
-        .values({
-          driverId: sub,
-          docType: parsed.data.docType,
-          contentType: parsed.data.contentType,
-          data: buf,
-          ticketId
-        })
-        .returning({ id: driverDocumentUpdates.id });
-      return reply.send({ ok: true, id: row.id, ticketId });
+      const result = await pgClient.begin(async (tx) => {
+        const [driver] = await tx`SELECT name FROM drivers WHERE id=${sub} FOR UPDATE`;
+        if (!driver) return { error: "driver_not_found" as const };
+        const [pending] = await tx`SELECT id FROM driver_document_updates WHERE driver_id=${sub} AND doc_type=${parsed.data.docType} AND status='PENDING' LIMIT 1`;
+        if (pending) return { error: "request_already_pending" as const };
+        const label = REISSUE_DOC_LABEL[parsed.data.docType];
+        const message = `Requesting an update to my ${label} on file.`;
+        const [ticket] = await tx`
+          INSERT INTO support_tickets (subject_type, category, source, raiser_driver_id, message, status)
+          VALUES ('GENERAL', 'DOC_UPDATE', 'DRIVER', ${sub}, ${message}, 'OPEN') RETURNING id`;
+        await tx`INSERT INTO support_ticket_messages (ticket_id, author_role, author_name, body)
+          VALUES (${ticket.id}, 'DRIVER', ${driver.name}, ${message})`;
+        const [document] = await tx`INSERT INTO driver_document_updates (driver_id, doc_type, content_type, data, ticket_id)
+          VALUES (${sub}, ${parsed.data.docType}, ${parsed.data.contentType}, ${buf}, ${ticket.id}) RETURNING id`;
+        return { id: document.id, ticketId: ticket.id };
+      });
+      if (result.error) return reply.code(result.error === "driver_not_found" ? 404 : 409).send({ error: result.error });
+      return reply.send({ ok: true, id: result.id, ticketId: result.ticketId });
     }
   );
 
@@ -629,6 +602,7 @@ export async function registerDriverRoutes(app: FastifyInstance) {
       // unknown lands in the actionable ISSUE bucket.
       const category =
         String(req.body?.category ?? "ISSUE").trim().toUpperCase() === "FEEDBACK" ? "FEEDBACK" : "ISSUE";
+      if (message.length > 4000) return reply.code(400).send({ error: "message_too_long" });
       if (message.length < 5) return reply.code(400).send({ error: "message_too_short" });
 
       let bookingId: string | null = null;
@@ -649,15 +623,18 @@ export async function registerDriverRoutes(app: FastifyInstance) {
       const [{ name: driverName = null } = {}] = await pgClient<any[]>`
         SELECT name FROM drivers WHERE id = ${sub} LIMIT 1`;
 
-      const [{ id } = {}] = await pgClient`
+      const id = await pgClient.begin(async tx => {
+      const [{ id } = {}] = await tx`
         INSERT INTO support_tickets (subject_type, category, source, raiser_driver_id, booking_id, message, status)
         VALUES (${subjectType}, ${category}, 'DRIVER', ${sub}, ${bookingId}, ${message}, 'OPEN')
         RETURNING id`;
       // Seed the first thread row so the card reads as one conversation.
-      await pgClient`
+      await tx`
         INSERT INTO support_ticket_messages (ticket_id, author_role, author_name, body)
         VALUES (${id}, 'DRIVER', ${driverName}, ${message})`;
-      return reply.send({ ok: true, id });
+      return id;
+    });
+    return reply.send({ ok: true, id });
     }
   );
 
@@ -723,6 +700,7 @@ export async function registerDriverRoutes(app: FastifyInstance) {
       const id = String(req.params.id);
       if (!/^[0-9a-f-]{36}$/i.test(id)) return reply.code(404).send({ error: "not_found" });
       const body = String(req.body?.body ?? "").trim();
+      if (body.length > 4000) return reply.code(400).send({ error: "message_too_long" });
       if (body.length < 2) return reply.code(400).send({ error: "message_too_short" });
 
       // Ownership check — the ticket must belong to THIS driver.
@@ -733,16 +711,19 @@ export async function registerDriverRoutes(app: FastifyInstance) {
       const [{ name: driverName = null } = {}] = await pgClient<any[]>`
         SELECT name FROM drivers WHERE id = ${sub} LIMIT 1`;
 
-      const [message] = await pgClient`
+      const message = await pgClient.begin(async tx => {
+      const [message] = await tx`
         INSERT INTO support_ticket_messages (ticket_id, author_role, author_name, body)
         VALUES (${id}, 'DRIVER', ${driverName}, ${body})
         RETURNING id, ticket_id, author_role, author_name, body, created_at`;
       // v1.2.4 fix: a raiser reply REOPENS a resolved ticket (honours the
       // "reply to reopen the conversation" promise shown in the app).
-      await pgClient`
+      await tx`
         UPDATE support_tickets SET status = 'OPEN', resolved_at = NULL, resolved_by = NULL
         WHERE id = ${id} AND status = 'RESOLVED'`;
-      return reply.send({ message });
+      return message;
+    });
+    return reply.send({ message });
     }
   );
 }

@@ -53,8 +53,11 @@ function ChipPicker({
         return (
           <Pressable
             key={o.value}
+            accessibilityRole="radio" accessibilityState={{ checked: sel }}
             onPress={() => onChange(o.value)}
             style={{
+              minHeight: 44,
+              justifyContent: "center",
               paddingVertical: 8,
               paddingHorizontal: 12,
               borderRadius: 999,
@@ -152,7 +155,7 @@ function DocUploadRow({
         <Text variant="label" tone="secondary">{label}</Text>
         {required ? <Text variant="tiny" tone="danger">*</Text> : null}
         {onRemove && state === "empty" ? (
-          <Pressable onPress={onRemove} style={{ marginLeft: "auto" }}>
+          <Pressable accessibilityRole="button" onPress={onRemove} style={{ marginLeft: "auto", minHeight: 44, justifyContent: "center" }}>
             <Text variant="tiny" tone="muted">{t("kyc.doc.remove_page")}</Text>
           </Pressable>
         ) : null}
@@ -161,23 +164,25 @@ function DocUploadRow({
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: space.sm, borderRadius: radius.md, backgroundColor: "#F0FDF4", borderWidth: 1, borderColor: "#BBF7D0" }}>
           <Text variant="small" tone="success">✓ {t("kyc.doc.uploaded")}</Text>
           <View style={{ flexDirection: "row", gap: space.sm }}>
-            <Pressable onPress={() => pick("camera")}><Text variant="tiny" tone="primary" weight="semi">{t("kyc.doc.retake")}</Text></Pressable>
-            <Pressable onPress={() => pick("gallery")}><Text variant="tiny" tone="primary" weight="semi">{t("kyc.doc.replace")}</Text></Pressable>
+            <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: "center" }} onPress={() => pick("camera")}><Text variant="tiny" tone="primary" weight="semi">{t("kyc.doc.retake")}</Text></Pressable>
+            <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: "center" }} onPress={() => pick("gallery")}><Text variant="tiny" tone="primary" weight="semi">{t("kyc.doc.replace")}</Text></Pressable>
           </View>
         </View>
       ) : (
         <View style={{ flexDirection: "row", gap: space.sm }}>
           <Pressable
+            accessibilityRole="button"
             onPress={() => pick("camera")}
             disabled={state === "uploading"}
-            style={{ flex: 1, paddingVertical: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: "center" }}
+            style={{ minHeight: 44, justifyContent: "center", flex: 1, paddingVertical: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: "center" }}
           >
             {state === "uploading" ? <ActivityIndicator size="small" color={colors.primary} /> : <Text variant="small" weight="semi">{t("kyc.doc.camera")}</Text>}
           </Pressable>
           <Pressable
+            accessibilityRole="button"
             onPress={() => pick("gallery")}
             disabled={state === "uploading"}
-            style={{ flex: 1, paddingVertical: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: "center" }}
+            style={{ minHeight: 44, justifyContent: "center", flex: 1, paddingVertical: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: "center" }}
           >
             <Text variant="small" weight="semi">{t("kyc.doc.gallery")}</Text>
           </Pressable>
@@ -233,7 +238,7 @@ function MultiPageDocGroup({
         />
       ))}
       {visibleCount < MAX_DOC_PAGES ? (
-        <Pressable onPress={() => setExtraSlots((n) => n + 1)}>
+        <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: "center" }} onPress={() => setExtraSlots((n) => n + 1)}>
           <Text variant="tiny" tone="primary" weight="semi">+ {t("kyc.doc.add_page")}</Text>
         </Pressable>
       ) : null}
@@ -254,7 +259,10 @@ function MultiPageDocGroup({
  * both employment types — it drives dispatch/admin assignment, not payroll.
  */
 export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [loadError, setLoadError] = useState(false);
+  const [detailsLoading, setDetailsLoading] = useState(true);
   const [licenseNumber, setLicenseNumber] = useState<string>(initial?.licenseNumber ?? "");
   const [vehicleNumber, setVehicleNumber] = useState<string>(initial?.vehicleNumber ?? "");
   const initialVehicleType = initial?.vehicleType ?? "BLS";
@@ -282,30 +290,23 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
 
   useEffect(() => {
     let mounted = true;
-    (async () => {
-      try {
-        const r = await hospitalsApi.list();
-        if (mounted) setHospitalList(r.hospitals ?? []);
-      } catch {
-        if (mounted) setHospitalList([]);
+    setLoadError(false);
+    setDetailsLoading(true);
+    void Promise.all([hospitalsApi.list(), driverApi.kycDocuments()]).then(([hospitals, documents]) => {
+      if (!mounted) return;
+      setHospitalList(hospitals.hospitals ?? []);
+      const fetched = documents.documents ?? {};
+      setDocs(fetched);
+      if (!identityDocDefaulted.current) {
+        identityDocDefaulted.current = true;
+        if (fetched.pan?.[1] && !fetched.aadhar?.[1]) setIdentityDocType("pan");
       }
-    })();
-    (async () => {
-      try {
-        const r = await driverApi.kycDocuments();
-        if (!mounted) return;
-        const fetched = r.documents ?? {};
-        setDocs(fetched);
-        if (!identityDocDefaulted.current) {
-          identityDocDefaulted.current = true;
-          if (fetched.pan?.[1] && !fetched.aadhar?.[1]) setIdentityDocType("pan");
-        }
-      } catch {
-        /* best-effort — doc rows just show as not-yet-uploaded */
-      }
-    })();
+    }).catch((error: any) => {
+      console.warn("kyc_details_load_failed", error?.message);
+      if (mounted) setLoadError(true);
+    }).finally(() => { if (mounted) setDetailsLoading(false); });
     return () => { mounted = false; };
-  }, []);
+  }, [loadAttempt]);
 
   const isHospitalEmployee = employmentType === "hospital_employee";
   // 2026-08: licence is mandatory; identity proof is Aadhar OR PAN (driver's
@@ -317,8 +318,10 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
   const allMandatoryDocsUploaded = !!docs.licence?.[1] && hasIdentityProof;
 
   const canSubmit =
-    licenseNumber.trim().length >= 4 &&
-    vehicleNumber.trim().length >= 4 &&
+    licenseNumber.trim().length >= 4 && licenseNumber.trim().length <= 40 &&
+    vehicleNumber.trim().length >= 4 && vehicleNumber.trim().length <= 20 &&
+    (!rcNumber.trim() || rcNumber.trim().length >= 4) &&
+    (!insuranceNumber.trim() || insuranceNumber.trim().length >= 4) &&
     (vehicleType !== "OTHER" || vehicleTypeOther.trim().length >= 2) &&
     !!employmentType &&
     hospitalId.trim().length >= 1 &&
@@ -326,6 +329,7 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
     allMandatoryDocsUploaded;
 
   const submit = async () => {
+    if (busy || !canSubmit || loadError || detailsLoading) return;
     setBusy(true);
     setErr(null);
     try {
@@ -333,19 +337,20 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
         licenseNumber: licenseNumber.trim(),
         vehicleNumber: vehicleNumber.trim().toUpperCase(),
         vehicleType: vehicleType === "OTHER" ? vehicleTypeOther.trim() : vehicleType,
-        rcNumber: rcNumber.trim(),
-        pucNumber: pucNumber.trim(),
-        fitnessNumber: fitnessNumber.trim(),
-        insuranceNumber: insuranceNumber.trim(),
+        rcNumber: rcNumber.trim() || undefined,
+        pucNumber: pucNumber.trim() || undefined,
+        fitnessNumber: fitnessNumber.trim() || undefined,
+        insuranceNumber: insuranceNumber.trim() || undefined,
         employmentType: employmentType as "hospital_employee" | "private_driver",
-        employeeNumber: isHospitalEmployee ? employeeNumber.trim() : undefined,
+        employeeNumber: isHospitalEmployee ? employeeNumber.trim() || undefined : undefined,
         hospitalId: hospitalId.trim(),
         hospitalName: hospitalName.trim()
       });
       onSubmitted(r.driver);
       void dialog.alert(t("kyc.success.title"), t("kyc.success.body"));
     } catch (e: any) {
-      setErr(e?.message ?? t("kyc.error_generic"));
+      const message = String(e?.message ?? "");
+      setErr(message === "invalid_input" ? (lang === "hi" ? "दर्ज विवरण जाँचें। RC और बीमा नंबर भरने पर कम से कम 4 अक्षर होने चाहिए।" : "Check your details. If provided, RC and insurance numbers need at least 4 characters.") : message || t("kyc.error_generic"));
     } finally {
       setBusy(false);
     }
@@ -356,30 +361,34 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
   };
 
   return (
-    <Screen>
-      <AppHeader
-        title={t("kyc.header.title")}
-        subtitle={t("kyc.header.subtitle")}
-        right={<LangToggle />}
-      />
+    <Screen scroll={false} padding={0}
+      header={<AppHeader title={t("kyc.header.title")} subtitle={t("kyc.header.subtitle")} right={<LangToggle />} />}
+      footer={<Button label={busy ? t("kyc.submit.busy") : t("kyc.submit")} onPress={submit} loading={busy} disabled={!canSubmit || busy || loadError || detailsLoading} fullWidth size="lg" />}
+    >
+      {loadError ? <View style={{ paddingHorizontal: space.lg, gap: space.sm }}>
+        <Text variant="small" tone="danger">{lang === "hi" ? "जानकारी लोड नहीं हुई। अपलोड से पहले फिर कोशिश करें।" : "Could not load your details. Retry before uploading."}</Text>
+        <Button label={lang === "hi" ? "फिर कोशिश करें" : "Retry"} onPress={() => setLoadAttempt(value => value + 1)} variant="outline" />
+      </View> : null}
 
-      <ScrollView contentContainerStyle={{ gap: space.md, paddingBottom: space.xl }}>
+      {(!rcNumber.trim() || rcNumber.trim().length >= 4) && (!insuranceNumber.trim() || insuranceNumber.trim().length >= 4) ? null : <Text variant="small" tone="danger" style={{ paddingHorizontal: space.lg }}>{lang === "hi" ? "RC और बीमा नंबर वैकल्पिक हैं। भरने पर कम से कम 4 अक्षर लिखें।" : "RC and insurance numbers are optional. Enter at least 4 characters if provided."}</Text>}
+      {detailsLoading ? <ActivityIndicator color={colors.primary} accessibilityLabel={lang === "hi" ? "जानकारी लोड हो रही है" : "Loading details"} /> : null}
+      <ScrollView pointerEvents={detailsLoading || loadError ? "none" : "auto"} style={{ flex: 1, opacity: detailsLoading || loadError ? 0.5 : 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: space.md, padding: space.lg, paddingBottom: space.xl }}>
         <Card>
           <View style={{ gap: space.md }}>
             <Text variant="label" tone="primary">{t("kyc.section.ambulance_details")}</Text>
 
-            <Input label={t("kyc.field.vehicle_number")} value={vehicleNumber} onChangeText={setVehicleNumber} placeholder="UP32 AB 4587" autoCapitalize="characters" />
+            <Input label={t("kyc.field.vehicle_number")} value={vehicleNumber} maxLength={20} onChangeText={setVehicleNumber} placeholder="UP32 AB 4587" autoCapitalize="characters" />
 
-            <Input label={t("kyc.field.rc_number")} value={rcNumber} onChangeText={setRcNumber} placeholder={t("kyc.field.rc_number_placeholder")} />
+            <Input label={t("kyc.field.rc_number")} value={rcNumber} maxLength={40} onChangeText={setRcNumber} placeholder={t("kyc.field.rc_number_placeholder")} />
             <MultiPageDocGroup label={t("kyc.doc.rc_photo")} docType="rc" required={false} pages={docs.rc ?? {}} onUploaded={markUploaded} />
 
-            <Input label={t("kyc.field.puc_number")} value={pucNumber} onChangeText={setPucNumber} placeholder={t("kyc.field.puc_number_placeholder")} />
+            <Input label={t("kyc.field.puc_number")} value={pucNumber} maxLength={60} onChangeText={setPucNumber} placeholder={t("kyc.field.puc_number_placeholder")} />
             <MultiPageDocGroup label={t("kyc.doc.puc_photo")} docType="puc" required={false} pages={docs.puc ?? {}} onUploaded={markUploaded} />
 
-            <Input label={t("kyc.field.fitness_number")} value={fitnessNumber} onChangeText={setFitnessNumber} placeholder={t("kyc.field.fitness_number_placeholder")} />
+            <Input label={t("kyc.field.fitness_number")} value={fitnessNumber} maxLength={60} onChangeText={setFitnessNumber} placeholder={t("kyc.field.fitness_number_placeholder")} />
             <MultiPageDocGroup label={t("kyc.doc.fitness_photo")} docType="fitness" required={false} pages={docs.fitness ?? {}} onUploaded={markUploaded} />
 
-            <Input label={t("kyc.field.insurance_number")} value={insuranceNumber} onChangeText={setInsuranceNumber} placeholder={t("kyc.field.insurance_number_placeholder")} />
+            <Input label={t("kyc.field.insurance_number")} value={insuranceNumber} maxLength={60} onChangeText={setInsuranceNumber} placeholder={t("kyc.field.insurance_number_placeholder")} />
             <MultiPageDocGroup label={t("kyc.doc.insurance_photo")} docType="insurance" required={false} pages={docs.insurance ?? {}} onUploaded={markUploaded} />
 
             <View style={{ gap: space.xs }}>
@@ -390,7 +399,7 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
                 onChange={setVehicleType}
               />
               {vehicleType === "OTHER" ? (
-                <Input value={vehicleTypeOther} onChangeText={setVehicleTypeOther} placeholder={t("kyc.ambulance_type_specify")} />
+                <Input value={vehicleTypeOther} maxLength={40} onChangeText={setVehicleTypeOther} placeholder={t("kyc.ambulance_type_specify")} />
               ) : null}
             </View>
           </View>
@@ -400,7 +409,7 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
           <View style={{ gap: space.md }}>
             <Text variant="label" tone="primary">{t("kyc.section.driver_details")}</Text>
 
-            <Input label={t("kyc.field.license")} value={licenseNumber} onChangeText={setLicenseNumber} placeholder="As printed on DL" autoCapitalize="characters" />
+            <Input label={t("kyc.field.license")} value={licenseNumber} maxLength={40} onChangeText={setLicenseNumber} placeholder="As printed on DL" autoCapitalize="characters" />
             <MultiPageDocGroup label={t("kyc.doc.licence_photo")} docType="licence" required pages={docs.licence ?? {}} onUploaded={markUploaded} />
 
             <View style={{ gap: space.xs }}>
@@ -440,7 +449,7 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
 
             {isHospitalEmployee ? (
               <>
-                <Input label={t("kyc.employee_number_label")} value={employeeNumber} onChangeText={setEmployeeNumber} placeholder={t("kyc.employee_number_placeholder")} />
+                <Input label={t("kyc.employee_number_label")} value={employeeNumber} maxLength={60} onChangeText={setEmployeeNumber} placeholder={t("kyc.employee_number_placeholder")} />
                 <MultiPageDocGroup label={t("kyc.doc.employee_id_photo")} docType="employee_id" required={false} pages={docs.employee_id ?? {}} onUploaded={markUploaded} />
               </>
             ) : null}
@@ -464,6 +473,7 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
                   return (
                     <Pressable
                       key={h.id}
+                      accessibilityRole="radio" accessibilityState={{ checked: hospitalId === h.id }}
                       onPress={() => { setHospitalId(h.id); setHospitalName(h.name); }}
                       style={{
                         flexDirection: "row",
@@ -503,14 +513,6 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
           </Card>
         ) : null}
 
-        <Button
-          label={busy ? t("kyc.submit.busy") : t("kyc.submit")}
-          onPress={submit}
-          loading={busy}
-          disabled={!canSubmit}
-          fullWidth
-          size="lg"
-        />
         {!canSubmit ? (
           <Text variant="tiny" tone="muted" align="center">
             {t("kyc.submit_incomplete_hint")}

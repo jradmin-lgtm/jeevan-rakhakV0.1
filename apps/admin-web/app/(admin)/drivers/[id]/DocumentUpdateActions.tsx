@@ -37,9 +37,7 @@ export function DocumentUpdateActions({ driverId, apiBase, pending }: { driverId
   const rememberOperator = (name: string) => {
     try {
       if (name.trim()) window.localStorage.setItem(OPERATOR_KEY, name.trim());
-    } catch {
-      /* best-effort */
-    }
+    } catch (error) { console.warn("DocumentUpdateActions.tsx.rememberOperator failed"); }
   };
 
   const resolve = async (id: string, action: "approve" | "reject") => {

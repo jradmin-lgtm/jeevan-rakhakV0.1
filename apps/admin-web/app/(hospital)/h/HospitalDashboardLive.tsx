@@ -1,5 +1,7 @@
 "use client";
 
+import { prettyEmergency } from "../../../lib/status";
+
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { formatTimeIST, relativeIST } from "../../../lib/dates";
@@ -58,16 +60,6 @@ export function workflowStep(b: { status: string; has_assessment?: boolean; hosp
   return 1;
 }
 
-function prettyEmergency(t: string): string {
-  switch (t) {
-    case "ACCIDENT_TRAUMA": return "Accident / Trauma";
-    case "CARDIAC": return "Cardiac";
-    case "BREATHING_DISTRESS": return "Breathing distress";
-    case "PREGNANCY_NEONATAL": return "Pregnancy / Neonatal";
-    case "GENERAL_CRITICAL_TRANSFER": return "Critical transfer";
-    default: return t;
-  }
-}
 
 function prettyStatus(s: string): string {
   switch (s) {
@@ -81,6 +73,7 @@ function prettyStatus(s: string): string {
 
 export function HospitalDashboardLive() {
   const [bookings, setBookings] = useState<HBooking[]>([]);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<number>(Date.now());
   const [loaded, setLoaded] = useState(false);
   const { subscribe } = useHospitalSocket();
@@ -89,14 +82,15 @@ export function HospitalDashboardLive() {
   const fetchBookings = useCallback(async () => {
     try {
       const res = await fetch("/api/hospital-proxy/api/v1/hospital/bookings", { cache: "no-store" });
-      if (!res.ok) return;
+      if (!res.ok) throw new Error(`Refresh failed (${res.status})`);
       const json = await res.json();
       if (!aliveRef.current) return;
       setBookings(Array.isArray(json.bookings) ? json.bookings : []);
+      setRefreshError(null);
       setUpdatedAt(Date.now());
       setLoaded(true);
     } catch {
-      /* keep last good */
+      if (aliveRef.current) setRefreshError("Connection interrupted. Displayed records may be out of date. Retrying automatically.");
     }
   }, []);
 
@@ -117,10 +111,11 @@ export function HospitalDashboardLive() {
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
+      {refreshError && <div role="alert" className="card" style={{ color: "var(--danger)" }}>{refreshError}</div>}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
         <span className="muted" style={{ fontSize: 12 }}>
-          <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "var(--success)", marginRight: 6 }} />
-          Live · refreshed {formatTimeIST(updatedAt)}
+          <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: refreshError || !loaded ? "var(--warning)" : "var(--success)", marginRight: 6 }} />
+          {refreshError ? "Updates interrupted" : loaded ? "Live" : "Connecting"} · last refresh {formatTimeIST(updatedAt)}
         </span>
       </div>
 
@@ -137,6 +132,7 @@ export function HospitalDashboardLive() {
 
 function BookingCard({ b, onAck }: { b: HBooking; onAck: () => void }) {
   const [acking, setAcking] = useState(false);
+  const [ackError, setAckError] = useState<string | null>(null);
   const acked = !!b.hospital_ack_at;
   const step = workflowStep(b);
 
@@ -154,15 +150,17 @@ function BookingCard({ b, onAck }: { b: HBooking; onAck: () => void }) {
 
   const acknowledge = async () => {
     setAcking(true);
+    setAckError(null);
     try {
       const res = await fetch(`/api/hospital-proxy/api/v1/hospital/bookings/${b.id}/acknowledge`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({})
       });
-      if (res.ok) onAck();
+      if (!res.ok) throw new Error("Acknowledgement failed");
+      onAck();
     } catch {
-      /* leave UI as-is; next poll reconciles */
+      setAckError("Acknowledgement could not be confirmed. Please retry.");
     } finally {
       setAcking(false);
     }
@@ -211,6 +209,7 @@ function BookingCard({ b, onAck }: { b: HBooking; onAck: () => void }) {
       </div>
 
       <WorkflowIndicator step={step} />
+      {ackError && <p role="alert" style={{ color: "var(--danger)" }}>{ackError}</p>}
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, gap: 8, flexWrap: "wrap" }}>
         <span className="muted" style={{ fontSize: 12 }}>

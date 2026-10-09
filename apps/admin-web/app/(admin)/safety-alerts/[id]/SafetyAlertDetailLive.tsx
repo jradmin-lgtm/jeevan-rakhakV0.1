@@ -107,9 +107,7 @@ export function SafetyAlertDetailLive({
     try {
       const saved = window.localStorage.getItem(OPERATOR_KEY) ?? "";
       if (saved) setOperator(saved);
-    } catch {
-      /* localStorage unavailable — operator just types each time */
-    }
+    } catch (error) { console.warn("SafetyAlertDetailLive.tsx.SafetyAlertDetailLive failed"); }
   }, []);
 
   const pickRow = (alerts: SafetyAlert[]): SafetyAlert | null =>
@@ -143,9 +141,7 @@ export function SafetyAlertDetailLive({
         if (!alive || mutatingRef.current || !next) return;
         setData(next);
         setLastFetch(Date.now());
-      } catch {
-        /* keep last good */
-      }
+      } catch (error) { console.warn("SafetyAlertDetailLive.tsx.tick failed"); }
     };
     void tick();
     const id = setInterval(tick, POLL_MS);
@@ -172,9 +168,7 @@ export function SafetyAlertDetailLive({
   const rememberOperator = (name: string) => {
     try {
       if (name.trim()) window.localStorage.setItem(OPERATOR_KEY, name.trim());
-    } catch {
-      /* best-effort */
-    }
+    } catch (error) { console.warn("SafetyAlertDetailLive.tsx.rememberOperator failed"); }
   };
 
   function openResolve() {

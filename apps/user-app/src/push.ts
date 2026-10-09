@@ -1,169 +1,115 @@
-/**
- * v1.1.0 — push-notification registration (patient app).
- *
- * Asks for notification permission, gets the device's **FCM** token
- * (getDevicePushTokenAsync returns the native FCM token on Android), and
- * registers it with the backend so the server can send status updates
- * ("Ambulance assigned", "Driver arrived", "On the way to hospital",
- * "Trip complete") even when the app is backgrounded or killed.
- *
- * Best-effort: every failure is swallowed so push setup can never block the
- * app. No-ops on a simulator/emulator (no FCM) and if the OS denies
- * permission. Safe to call repeatedly (idempotent server-side upsert).
- *
- * v1.2.8 · silent dismiss-on-death. When a booking dies (cancelled, no driver,
- * re-dispatched, expired) the server sends a DATA-ONLY message:
- *   { type: "dismiss", bookingId: "<uuid>" }
- * We never want to *show* that as a banner; we want it to silently pull the
- * stale status notification out of the tray. We handle it on two paths:
- *   - foreground: an addNotificationReceivedListener fires while the app is open;
- *   - background/killed: a registered notification task (expo-task-manager).
- * Both funnel into dismissForBooking(), which matches presented notifications by
- * data.bookingId OR by Android tag (the presented request identifier) and
- * dismisses only those. We never dismiss-all.
- */
+import { useEffect, useState } from "react";
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
+import * as TaskManager from "expo-task-manager";
 import { Platform } from "react-native";
-import { me } from "./api";
+import { me, getToken, API_BASE } from "./api";
 
-// Show foreground notifications too (not just background) so a patient who's
-// staring at the map still gets the banner + sound on a status change.
+export type PushStatus = "checking" | "ready" | "denied" | "unavailable" | "error";
+let status: PushStatus = "checking";
+const listeners = new Set<(value: PushStatus) => void>();
+const publish = (value: PushStatus) => { status = value; listeners.forEach(listener => listener(value)); };
+export function usePushStatus() {
+  const [value, setValue] = useState(status);
+  useEffect(() => { listeners.add(setValue); return () => { listeners.delete(setValue); }; }, []);
+  return value;
+}
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true
-  })
+  handleNotification: async notification => {
+    const visible = notification.request.content.data?.type !== "dismiss";
+    return { shouldShowAlert: visible, shouldPlaySound: visible, shouldSetBadge: false, shouldShowBanner: visible, shouldShowList: visible };
+  }
 });
 
-let _registered = false;
-
-export async function registerPushToken(): Promise<void> {
-  if (_registered) return;
-  try {
-    if (!Device.isDevice) return; // emulators have no FCM
-    const existing = await Notifications.getPermissionsAsync();
-    let granted = existing.granted || existing.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
-    if (!granted) {
-      const req = await Notifications.requestPermissionsAsync();
-      granted = req.granted;
-    }
-    if (!granted) return;
-    if (Platform.OS === "android") {
-      await Notifications.setNotificationChannelAsync("default", {
-        name: "Jeevan Rakshak alerts",
-        importance: Notifications.AndroidImportance.HIGH,
-        sound: "default"
-      });
-    }
-    const tokenResp = await Notifications.getDevicePushTokenAsync();
-    const token = tokenResp?.data ? String(tokenResp.data) : null;
-    if (!token) return;
-    await me.registerPushToken(token);
-    _registered = true;
-    // v1.2.8: wire the silent dismiss handlers once we're permitted + registered.
-    setupDismissHandlers();
-  } catch {
-    /* best-effort — never block app start */
-  }
-}
-
-// ---------------------------------------------------------------------------
-// v1.2.8: silent dismiss-on-death
-// ---------------------------------------------------------------------------
-
 const DISMISS_TASK = "jr-user-dismiss-notification";
-
-// Pull the dismiss bookingId out of an arbitrary notification data payload.
-// FCM data values arrive as strings; we only act on type === "dismiss".
 function dismissBookingIdFrom(data: Record<string, unknown> | null | undefined): string | null {
-  if (!data) return null;
-  if (String(data.type) !== "dismiss") return null;
-  const id = data.bookingId;
-  return id != null && String(id).length > 0 ? String(id) : null;
+  return data?.type === "dismiss" && typeof data.bookingId === "string" ? data.bookingId : null;
+}
+async function dismissForBooking(bookingId: string) {
+  const presented = await Notifications.getPresentedNotificationsAsync();
+  for (const notification of presented) {
+    if (notification.request.content.data?.bookingId === bookingId || notification.request.identifier === bookingId) {
+      try { await Notifications.dismissNotificationAsync(notification.request.identifier); }
+      catch (error) { console.error("[push] could not dismiss stale ride notification", error); }
+    }
+  }
+}
+// Background tasks must be defined while the entry module loads, before any UI mounts.
+TaskManager.defineTask(DISMISS_TASK, async ({ data, error }: { data?: any; error?: unknown }) => {
+  if (error) { console.error("[push] background notification task failed", error); return; }
+  const payload = data?.notification?.data ?? data?.notification?.request?.content?.data ?? data?.data;
+  const bookingId = dismissBookingIdFrom(payload);
+  if (bookingId) {
+    try { await dismissForBooking(bookingId); }
+    catch (cause) { console.error("[push] background dismiss failed", cause); }
+  }
+});
+let registeredSession: string | null = null;
+let registering: Promise<void> | null = null;
+let received: Notifications.EventSubscription | null = null;
+let tokenChanged: Notifications.EventSubscription | null = null;
+
+let registrationGeneration = 0;
+async function bounded<T>(operation: Promise<T>, milliseconds: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try { return await Promise.race([operation, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Notification service timed out")), milliseconds); })]); }
+  finally { if (timer) clearTimeout(timer); }
 }
 
-// Remove the tray notification(s) for exactly this booking. Matches a presented
-// notification when its data.bookingId equals bookingId OR (Android) its request
-// identifier (= the FCM tag) equals bookingId. Never dismiss-all.
-async function dismissForBooking(bookingId: string): Promise<void> {
+export async function revokePushSession(session: string | null): Promise<void> {
+  registrationGeneration += 1;
+  teardownPushDismissHandlers();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4000);
   try {
-    const presented = await Notifications.getPresentedNotificationsAsync();
-    for (const n of presented) {
-      const data = (n.request?.content?.data ?? null) as Record<string, unknown> | null;
-      const dataBookingId = data?.bookingId != null ? String(data.bookingId) : null;
-      const tag = n.request?.identifier ?? null; // Android: the notification tag
-      if (dataBookingId === bookingId || tag === bookingId) {
-        try {
-          await Notifications.dismissNotificationAsync(n.request.identifier);
-        } catch {
-          /* one stale entry failing to clear shouldn't block the rest */
-        }
-      }
-    }
-  } catch {
-    /* best-effort — never throw out of a notification callback */
-  }
+    const results = await Promise.allSettled([
+      session ? fetch(`${API_BASE}/api/v1/me/push-token`, { method: "DELETE", headers: { Authorization: `Bearer ${session}` }, signal: controller.signal }).then(response => { if (!response.ok && response.status !== 401) throw new Error(`Push revocation HTTP ${response.status}`); }) : Promise.resolve(),
+      Device.isDevice ? bounded(Notifications.unregisterForNotificationsAsync(), 4000) : Promise.resolve(),
+      bounded(Notifications.dismissAllNotificationsAsync(), 4000)
+    ]);
+    for (const result of results) if (result.status === "rejected") console.warn("[push] logout notification cleanup unavailable", result.reason);
+    if (results[0].status === "rejected" && results[1].status === "rejected") throw new Error("Notification access could not be revoked while offline");
+  } finally { clearTimeout(timer); }
 }
 
-let _receivedSub: Notifications.EventSubscription | null = null;
-let _taskRegistered = false;
-
-function setupDismissHandlers(): void {
-  // Foreground path: fires for every notification received while the app is
-  // open. A dismiss message has no visible content; we just clear the matching
-  // tray entry and return.
-  if (!_receivedSub) {
-    _receivedSub = Notifications.addNotificationReceivedListener((notification) => {
-      const data = (notification.request?.content?.data ?? null) as Record<string, unknown> | null;
-      const bookingId = dismissBookingIdFrom(data);
-      if (bookingId) void dismissForBooking(bookingId);
-    });
-  }
-
-  // Background/killed path: a notification task runs even when no JS UI is
-  // mounted. This requires expo-task-manager (a peer of expo-notifications); if
-  // it isn't installed in this build we silently skip it and rely on the
-  // foreground path. Guarded require keeps typecheck + runtime safe either way.
-  if (!_taskRegistered) {
+export function registerPushToken(): Promise<void> {
+  if (registering) return registering;
+  const generation = registrationGeneration;
+  registering = (async () => {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const TaskManager = require("expo-task-manager");
-      if (TaskManager && typeof TaskManager.defineTask === "function") {
-        TaskManager.defineTask(DISMISS_TASK, ({ data, error }: { data?: any; error?: unknown }) => {
-          if (error || !data) return;
-          // The notification payload location varies by platform; probe both.
-          const payload =
-            data?.notification?.data ??
-            data?.notification?.request?.content?.data ??
-            data?.data ??
-            null;
-          const bookingId = dismissBookingIdFrom(payload as Record<string, unknown> | null);
-          if (bookingId) void dismissForBooking(bookingId);
-        });
-        void Notifications.registerTaskAsync(DISMISS_TASK);
-        _taskRegistered = true;
-      }
-    } catch {
-      /* expo-task-manager not present — foreground listener still covers the open-app case */
-    }
-  }
+      const session = await getToken();
+      if (!session) throw new Error("Push registration requires a session");
+      if (!Device.isDevice) { publish("unavailable"); return; }
+      const existing = await Notifications.getPermissionsAsync();
+      const permission = existing.granted ? existing : await Notifications.requestPermissionsAsync();
+      if (!permission.granted) { registeredSession = null; publish("denied"); return; }
+      if (registeredSession === session) { publish("ready"); return; }
+      publish("checking");
+      if (Platform.OS === "android") await Notifications.setNotificationChannelAsync("default", {
+        name: "Jeevan Rakshak alerts", importance: Notifications.AndroidImportance.HIGH, sound: "default"
+      });
+      const response = await bounded(Notifications.getDevicePushTokenAsync(), 15000);
+      if (!response?.data) throw new Error("FCM did not return a device token");
+      if (generation !== registrationGeneration || session !== await getToken()) throw new Error("Account changed during push registration");
+      await me.registerPushToken(String(response.data));
+      if (generation !== registrationGeneration || session !== await getToken()) throw new Error("Account changed while saving push registration");
+      await Notifications.registerTaskAsync(DISMISS_TASK);
+      if (!received) received = Notifications.addNotificationReceivedListener(notification => {
+        const bookingId = dismissBookingIdFrom(notification.request.content.data);
+        if (bookingId) void dismissForBooking(bookingId).catch(error => console.error("[push] foreground dismiss failed", error));
+      });
+      if (!tokenChanged) tokenChanged = Notifications.addPushTokenListener(() => {
+        registeredSession = null;
+        void registerPushToken().catch(error => console.error("[push] token refresh failed", error));
+      });
+      registeredSession = session;
+      publish("ready");
+    } catch (error) { publish("error"); console.error("[push] registration failed", error); throw error; }
+  })().finally(() => { registering = null; });
+  return registering;
 }
-
-// Teardown for the added foreground listener + background task. Call on unmount
-// of the owning component so we don't leak a subscription across reloads.
-export function teardownPushDismissHandlers(): void {
-  if (_receivedSub) {
-    Notifications.removeNotificationSubscription(_receivedSub);
-    _receivedSub = null;
-  }
-  if (_taskRegistered) {
-    void Notifications.unregisterTaskAsync(DISMISS_TASK).catch(() => {
-      /* best-effort */
-    });
-    _taskRegistered = false;
-  }
+export function teardownPushDismissHandlers() {
+  received?.remove(); received = null; tokenChanged?.remove(); tokenChanged = null;
+  registeredSession = null; publish("checking");
+  // Keep the registered background task for system delivery after the UI exits.
 }

@@ -9,6 +9,19 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: jr_release_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: local-integration-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,7 +39,59 @@ jobs:
           cache: pnpm
 
       - name: Install
-        run: pnpm install
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Typecheck
         run: pnpm check
+
+      - name: Ops session security
+        run: node --test apps/admin-web/test/admin-session.test.cjs
+
+      - name: Native release configuration
+        run: node scripts/check-native-release.cjs
+
+      - name: Route progression regression
+        run: node --test packages/ui/test/*.test.cjs
+
+      - name: Offline driver queue regression
+        run: node --test apps/driver-app/test/locationQueue.test.cjs
+
+      - name: Isolated booking and permissions regression
+        env:
+          DATABASE_URL: postgres://postgres:local-integration-only@127.0.0.1:5432/jr_release_test
+          NODE_ENV: development
+          API_PORT: "4100"
+          SOCKET_PORT: "4101"
+          SOCKET_BASE_URL: http://127.0.0.1:4101
+          TEST_SOCKET_BASE: http://127.0.0.1:4101
+          FLAG_GOOGLE_PLACES_ENABLED: "false"
+          FLAG_GOOGLE_ETA_ENABLED: "false"
+          FLAG_GOOGLE_DISPATCH_ENABLED: "false"
+          FLAG_GEOFENCE_ENABLED: "false"
+          TEST_IDENTITIES_FILE: /tmp/jr-ci-identities.json
+        run: |
+          export JWT_SECRET="$(openssl rand -hex 32)"
+          export INTERNAL_API_SECRET="$(openssl rand -hex 32)"
+          export ADMIN_API_KEY="$(openssl rand -hex 32)"
+          node --import ./packages/db/node_modules/tsx/dist/loader.mjs packages/db/src/migrate.ts
+          node --import ./services/api-server/node_modules/tsx/dist/loader.mjs services/api-server/src/main.ts > /tmp/jr-ci-api.log 2>&1 &
+          api_pid=$!
+          node --import ./services/api-server/node_modules/tsx/dist/loader.mjs services/socket-server/src/server.ts > /tmp/jr-ci-socket.log 2>&1 &
+          socket_pid=$!
+          trap 'kill "$api_pid" "$socket_pid"' EXIT
+          ready=false
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4100/health/db > /dev/null && curl --fail --silent http://127.0.0.1:4101/health > /dev/null; then ready=true; break; fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then cat /tmp/jr-ci-api.log; exit 1; fi
+          node services/api-server/test/release.integration.cjs
+          node services/api-server/test/location-batch.integration.cjs
+          node services/api-server/test/business.integration.cjs
+          node services/api-server/test/support.integration.cjs
+          node services/api-server/test/startup.integration.cjs
+          node services/api-server/test/access.integration.cjs
+          node services/api-server/test/admin-bookings.integration.cjs
+          node services/api-server/test/admin-drivers.integration.cjs
+          node services/api-server/test/admin-users.integration.cjs
+          node services/api-server/test/observability.integration.cjs

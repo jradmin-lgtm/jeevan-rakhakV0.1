@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { verifyAdminSession } from "./lib/adminSession";
 
 /**
  * Edge middleware — first line of defence on the admin dashboard.
@@ -57,7 +58,7 @@ function isHospitalDashboardPath(pathname: string): boolean {
   return pathname === "/h" || pathname.startsWith("/h/");
 }
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
     return NextResponse.next();
@@ -77,7 +78,7 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(hLogin);
   }
   const session = req.cookies.get(SESSION_COOKIE)?.value;
-  if (session === SESSION_SECRET) {
+  if (await verifyAdminSession(session, SESSION_SECRET)) {
     return NextResponse.next();
   }
   const loginUrl = req.nextUrl.clone();

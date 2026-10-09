@@ -2,7 +2,7 @@ import "./src/env-check";
 import React, { useEffect, useState } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, View, Text, Pressable } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { colors, ErrorBoundary, AppDialogHost, configureGoogleSignIn, signOutFromGoogle } from "@jr/ui";
 import { Booking, getToken, me, clearToken, getCachedProfile, setCachedProfile } from "./src/api";
@@ -43,10 +43,17 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
   const [hydrated, setHydrated] = useState(false);
+  const [startupError, setStartupError] = useState<string | null>(null);
+  const [startupAttempt, setStartupAttempt] = useState(0);
   const [profile, setProfile] = useState<any>(null);
   const [googlePending, setGooglePending] = useState<GooglePending | null>(null);
 
   useEffect(() => {
+    let active = true;
+    setStartupError(null);
+    const startupTimeout = setTimeout(() => {
+      if (active) setStartupError("Startup is taking too long. Please retry.");
+    }, 15_000);
     (async () => {
       // Load persisted language preference before anything renders so the
       // splash + login already speak the user's language. ~5ms AsyncStorage
@@ -57,11 +64,7 @@ export default function App() {
       // Continue with Google button.
       try {
         configureGoogleSignIn();
-      } catch {
-        /* missing webClientId only surfaces in dev — caught and ignored so
-         * the rest of the app still boots. The login screen also re-tries
-         * configure() lazily, so a real misconfiguration surfaces there. */
-      }
+      } catch (error) { console.warn("App.tsx.App failed", error instanceof Error ? error.message : String(error)); }
       const token = await getToken();
       if (token) {
         // v1.1.0 (CR#12): a valid stored token means the user is logged in.
@@ -71,14 +74,14 @@ export default function App() {
         // Login screen on an explicit 401 (token actually invalid) — handled
         // below — or when there's no token at all.
         const cached = await getCachedProfile();
-        if (cached) setProfile(cached);
+        if (cached && active) setProfile(cached);
         const TIMEOUT_MS = 4000;
         try {
           const r = await Promise.race<any>([
             me.get(),
             new Promise((_res, rej) => setTimeout(() => rej(new Error("hydrate_timeout")), TIMEOUT_MS))
           ]);
-          if (r?.profile) {
+          if (active && r?.profile) {
             setProfile(r.profile);
             void setCachedProfile(r.profile);
           }
@@ -86,21 +89,25 @@ export default function App() {
           // 401 = token genuinely invalid (revoked / rotated secret) → sign
           // out so the user re-authenticates. Any other error (timeout, cold
           // start, offline) keeps the cached session and retries later.
-          if (e?.status === 401) {
+          if (active && e?.status === 401) {
             await clearToken();
             setProfile(null);
           }
           /* else: keep cached profile; HomeScreen.refresh() picks up later */
         }
       }
-      setHydrated(true);
-    })();
-  }, []);
+      if (active) { clearTimeout(startupTimeout); setStartupError(null); setHydrated(true); }
+    })().catch(error => {
+      console.error("App startup failed", error);
+      if (active) { clearTimeout(startupTimeout); setStartupError("The app could not start. Please retry."); }
+    });
+    return () => { active = false; clearTimeout(startupTimeout); };
+  }, [startupAttempt]);
 
   // v1.1.0 push: once we have an authenticated profile, register the FCM
   // token so status updates reach the patient even when backgrounded.
   useEffect(() => {
-    if (profile) void registerPushToken();
+    if (profile) void registerPushToken().catch(error => console.error("[push] startup registration unavailable", error));
   }, [profile]);
   // v1.2.8: tear down the silent dismiss-on-death listeners ONLY on app
   // unmount — not on every profile change (which was removing the handler).
@@ -111,7 +118,10 @@ export default function App() {
       <ErrorBoundary>
         <SafeAreaProvider>
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.bg }}>
-            <ActivityIndicator color={colors.primary} />
+            {startupError ? <View style={{ padding: 24, alignItems: "center" }}>
+              <Text accessibilityRole="alert" style={{ color: colors.textPrimary, textAlign: "center", marginBottom: 16 }}>{startupError}</Text>
+              <Pressable accessibilityRole="button" onPress={() => setStartupAttempt(value => value + 1)} style={{ backgroundColor: colors.primary, padding: 16, borderRadius: 12 }}><Text style={{ color: "white" }}>Retry startup</Text></Pressable>
+            </View> : <ActivityIndicator color={colors.primary} />}
           </View>
         </SafeAreaProvider>
       </ErrorBoundary>

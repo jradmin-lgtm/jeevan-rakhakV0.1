@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { View } from "react-native";
-import { Button, Card, EmptyState, Pill, PulseDot, Text, colors, dialog, space } from "@jr/ui";
+import { Button, Card, MotionView, EmptyState, Pill, PulseDot, Text, colors, dialog, space } from "@jr/ui";
 import { IncomingRequest } from "../api";
-import { prettyEmergency } from "../screens/DashboardScreen";
+import { prettyEmergency } from "../formatEmergency";
 import { useT } from "../i18n";
 
 type LatLng = { lat: number; lng: number };
@@ -137,9 +137,10 @@ function IncomingRow({
   const dist = distanceKm(myPos, req.pickup_lat, req.pickup_lng);
 
   return (
-    <Card
-      padding="md"
-      style={req.is_sos ? { borderColor: colors.danger, borderWidth: 1.5 } : undefined}
+    <MotionView>
+    <Card flat
+      padding="lg"
+      style={{ borderRadius: 20, borderColor: req.is_sos ? colors.danger : colors.border, borderWidth: req.is_sos ? 1.5 : 1 }}
     >
       <View style={{ gap: space.sm }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
@@ -147,8 +148,8 @@ function IncomingRow({
             {req.is_sos ? <PulseDot size={8} color={colors.danger} rings={1} /> : null}
             <Pill
               label={req.is_sos ? t("incoming.sos_badge") : t("incoming.normal_badge")}
-              color={req.is_sos ? colors.danger : colors.primary}
-              bg={req.is_sos ? "rgba(239,68,68,0.12)" : colors.primaryFaint}
+              color={req.is_sos ? colors.danger : colors.textPrimary}
+              bg={req.is_sos ? colors.primaryFaint : colors.bg}
             />
           </View>
           <View style={{ alignItems: "flex-end" }}>
@@ -161,10 +162,14 @@ function IncomingRow({
           </View>
         </View>
 
-        <Text variant="body" weight="semi">{prettyEmergency(req.emergency_type, t)}</Text>
+        <Text variant="heading" weight="bold">{prettyEmergency(req.emergency_type, t)}</Text>
+        <Text variant="tiny" weight="bold">{t("trip.address")}</Text>
         <Text variant="small" tone="secondary">
           {req.pickup_address ?? `${req.pickup_lat.toFixed(4)}, ${req.pickup_lng.toFixed(4)}`}
         </Text>
+
+        <Text variant="tiny" weight="bold">{t("trip.landmark")}</Text>
+        <Text variant="small" tone="secondary">{req.pickup_landmark ?? t("trip.landmark_unavailable")}</Text>
 
         {deferred ? (
           // v1.3.0 (D2): read-only deferred mode. The row is non-actionable —
@@ -189,7 +194,7 @@ function IncomingRow({
               <Button
                 label={t("incoming.reject")}
                 onPress={doReject}
-                variant="outline"
+                variant="ghost"
                 fullWidth
                 disabled={busy}
               />
@@ -199,6 +204,7 @@ function IncomingRow({
                 label={t("incoming.accept")}
                 onPress={() => onAccept && run(() => onAccept(req))}
                 loading={busy}
+                style={{ backgroundColor: req.is_sos ? colors.primaryDark : colors.textPrimary }}
                 fullWidth
                 size="lg"
                 testID={`incoming-accept-${req.id}`}
@@ -208,5 +214,6 @@ function IncomingRow({
         )}
       </View>
     </Card>
+    </MotionView>
   );
 }

@@ -130,18 +130,18 @@ export default function DownloadApkPage() {
     try {
       const saved = localStorage.getItem(LANG_KEY);
       if (saved === "hi" || saved === "en") setLang(saved);
-    } catch { /* ignored */ }
+    } catch (error) { console.warn("page.tsx.DownloadApkPage failed"); }
     fetch("/api/dl/visit", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: "{}",
       keepalive: true,
-    }).catch(() => {});
+    }).catch((error) => { console.warn("page.tsx.DownloadApkPage failed"); });
   }, []);
 
   function switchLang(next: Lang) {
     setLang(next);
-    try { localStorage.setItem(LANG_KEY, next); } catch { /* ignored */ }
+    try { localStorage.setItem(LANG_KEY, next); } catch (error) { console.warn("page.tsx.switchLang failed"); }
   }
 
   useEffect(() => {

@@ -338,3 +338,41 @@ export async function getPlaceDetails(placeId: string, sessionToken: string): Pr
 
   return { lat: loc.lat, lng: loc.lng, formattedAddress: json.result?.formatted_address ?? "" };
 }
+
+type ResolvedLocation = { address: string; landmark: string | null };
+const locationCache = new Map<string, { expires: number; value: Promise<ResolvedLocation | null> }>();
+export async function resolveLocation(lat: number, lng: number): Promise<ResolvedLocation | null> {
+  const cacheKey = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+  const cached = locationCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) return cached.value;
+  const value = resolveLocationUncached(lat, lng);
+  if (locationCache.size >= 256) locationCache.delete(locationCache.keys().next().value!);
+  locationCache.set(cacheKey, { expires: Date.now() + 5 * 60_000, value });
+  const result = await value;
+  if (!result) locationCache.delete(cacheKey);
+  return result;
+}
+async function resolveLocationUncached(lat: number, lng: number): Promise<ResolvedLocation | null> {
+  const key = config.maps.google.apiKey;
+  if (!key) return null;
+  try {
+    const [geo, nearby] = await Promise.all([
+      fetchWithTimeout(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&language=en&key=${key}`),
+      fetchWithTimeout(`https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=150&language=en&key=${key}`)
+    ]);
+    if (!geo?.ok) return null;
+    const data: any = await geo.json();
+    void recordApiUsage("geocoding", 1, data.status === "OK", data.status === "OK" ? undefined : data.status);
+    if (data.status !== "OK" || !data.results?.[0]?.formatted_address) return null;
+    let landmark: string | null = null;
+    if (nearby?.ok) {
+      const places: any = await nearby.json();
+      const ok = ["OK", "ZERO_RESULTS"].includes(places.status);
+      void recordApiUsage("places_nearby", 1, ok, ok ? undefined : places.status);
+      const candidates = (places.results ?? []).filter((p: any) => p.name && p.geometry?.location && p.types?.some((t: string) => ["point_of_interest", "establishment", "hospital"].includes(t)));
+      candidates.sort((a: any, b: any) => ((a.geometry.location.lat - lat) ** 2 + (a.geometry.location.lng - lng) ** 2) - ((b.geometry.location.lat - lat) ** 2 + (b.geometry.location.lng - lng) ** 2));
+      landmark = candidates[0]?.name ?? null;
+    }
+    return { address: data.results[0].formatted_address, landmark };
+  } catch (err) { console.warn("[google-maps] location resolution failed", err); return null; }
+}

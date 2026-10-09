@@ -7,6 +7,7 @@ import { sql as pgClient } from "@jr/db";
 import { registerHealthRoutes } from "./routes/health";
 import { registerAuthRoutes } from "./routes/auth";
 import { registerMeRoutes } from "./routes/me";
+import { registerLocationBatchRoutes } from "./routes/location-batch";
 import { registerBookingRoutes } from "./routes/bookings";
 import { registerDriverRoutes } from "./routes/drivers";
 import { registerAdminRoutes } from "./routes/admin";
@@ -16,6 +17,7 @@ import { registerDownloadRoutes } from "./routes/download";
 import { registerPlacesRoutes } from "./routes/places";
 import { registerMapConfigRoutes } from "./routes/map-config";
 import { emitEvent } from "./events";
+import { expirePendingBookings } from "./booking-maintenance";
 import { runDatabaseBackup } from "./backup";
 
 declare module "@fastify/jwt" {
@@ -41,6 +43,8 @@ const app = Fastify({
 function assertProductionReady() {
   if (config.env !== "production") return;
   const problems: string[] = [];
+  if (["1", "true"].includes((process.env.RATE_LIMIT_BYPASS ?? "").toLowerCase())) problems.push("RATE_LIMIT_BYPASS must be disabled in production");
+  for (const [name, value] of [["JWT_SECRET", config.jwtSecret], ["INTERNAL_API_SECRET", config.internalApiSecret], ["ADMIN_API_KEY", config.adminApiKey]]) if (value.length < 32) problems.push(`${name} must contain at least 32 characters`);
   if (config.jwtSecret.startsWith("dev-secret"))    problems.push("JWT_SECRET is still the dev default");
   if (config.internalApiSecret.startsWith("dev-"))  problems.push("INTERNAL_API_SECRET is still the dev default");
   if (config.adminApiKey.startsWith("dev-"))        problems.push("ADMIN_API_KEY is still the dev default");
@@ -90,7 +94,23 @@ async function bootstrap() {
     try {
       await request.jwtVerify();
     } catch {
-      reply.code(401).send({ error: "unauthorized" });
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const { role, sub, hospitalId } = request.user;
+    if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(sub ?? "")) return reply.code(401).send({ error: "invalid_identity" });
+    try {
+      if (role === "user" || role === "driver") {
+        const rows = role === "user"
+          ? await pgClient`SELECT disabled FROM users WHERE id = ${sub}`
+          : await pgClient`SELECT disabled FROM drivers WHERE id = ${sub}`;
+        if (!rows[0] || rows[0].disabled) return reply.code(401).send({ error: "account_unavailable" });
+      } else if (role === "hospital" && hospitalId === sub) {
+        const [hospital] = await pgClient`SELECT portal_enabled, portal_password_hash FROM hospitals WHERE id = ${sub}`;
+        if (!hospital?.portal_enabled || !hospital.portal_password_hash) return reply.code(401).send({ error: "portal_disabled" });
+      } else return reply.code(403).send({ error: "unsupported_role" });
+    } catch (error) {
+      request.log.error({ error }, "Account access check failed");
+      return reply.code(503).send({ error: "account_check_unavailable" });
     }
   });
 
@@ -104,7 +124,7 @@ async function bootstrap() {
   app.decorate("requireHospital", async function (request: any, reply: any) {
     try {
       await request.jwtVerify();
-      if (request.user?.role !== "hospital" || !request.user?.hospitalId) {
+      if (request.user?.role !== "hospital" || !request.user?.hospitalId || request.user.sub !== request.user.hospitalId) {
         return reply.code(403).send({ error: "hospital_only" });
       }
       // Revocation check (v1.2.1 RBAC fix): portalEnabled is only verified at
@@ -126,6 +146,7 @@ async function bootstrap() {
   await registerAuthRoutes(app);
   await registerMeRoutes(app);
   await registerBookingRoutes(app);
+  await registerLocationBatchRoutes(app);
   await registerDriverRoutes(app);
   await registerAdminRoutes(app);
   await registerHospitalRoutes(app);
@@ -303,6 +324,10 @@ async function bootstrap() {
     // (coupon + ₹0 in pilot). Normal flow auto-marks paid at /complete since
     // the patient saw the fare upfront. `paid_at IS NULL` is the derived
     // "awaiting payment" state — no new status column needed.
+    const [paymentSchema] = await pgClient`SELECT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='bookings' AND column_name='paid_at'
+    ) AS existed`;
     await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS paid_inr    integer`;
     await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS paid_at     timestamptz`;
     await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS paid_coupon text`;
@@ -310,7 +335,7 @@ async function bootstrap() {
     // ₹0 via PILOT100) don't reappear as "awaiting payment" in ride history.
     // Uses `completed_at` when present, otherwise `created_at` — `bookings`
     // doesn't carry a generic `updated_at` (only the per-state timestamps).
-    await pgClient`
+    if (!paymentSchema.existed) await pgClient`
       UPDATE bookings
          SET paid_at = COALESCE(completed_at, created_at),
              paid_inr = 0
@@ -403,6 +428,14 @@ async function bootstrap() {
     // single-value patient_condition column (never dropped/altered — every
     // read site falls back to wrapping the old column in a 1-item array).
     await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS patient_conditions jsonb`;
+    await pgClient`ALTER TYPE emergency_type ADD VALUE IF NOT EXISTS 'REFERRAL_AMBULANCE'`;
+    await pgClient`ALTER TYPE emergency_type ADD VALUE IF NOT EXISTS 'OPD_AMBULANCE'`;
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS attendant_name text`;
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS attendant_relation text`;
+    await pgClient`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS pickup_landmark text`;
+    await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS bookings_one_active_user ON bookings(user_id) WHERE status IN ('REQUESTED','ACCEPTED','ARRIVED','PICKED_UP')`;
+    await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS bookings_one_active_driver ON bookings(driver_id) WHERE driver_id IS NOT NULL AND status IN ('ACCEPTED','ARRIVED','PICKED_UP')`;
+    await pgClient`CREATE INDEX IF NOT EXISTS driver_locations_booking_time ON driver_locations(booking_id, recorded_at)`;
     // ---- v1.2.1 ----
     // CR#3: admin-only recoverable copy of the portal password (for the
     // hospitals-dashboard "view password" display). Never crosses the public
@@ -597,6 +630,11 @@ async function bootstrap() {
   }
 
   app.setErrorHandler((err: any, req, reply) => {
+    const cause = err?.cause ?? err;
+    if (cause?.code === "23505" && /bookings_one_active/.test(String(cause.constraint_name ?? cause.constraint ?? ""))) {
+      return reply.code(409).send({ error: "active_ride_conflict", message: "An active ride already exists. Refresh before retrying." });
+    }
+    if (cause?.code === "22P02") return reply.code(400).send({ error: "invalid_identifier" });
     // Respect status codes set by Fastify plugins (rate-limit → 429, JWT → 401, etc.)
     if (err?.statusCode && err.statusCode >= 400 && err.statusCode < 500) {
       return reply
@@ -637,11 +675,13 @@ async function bootstrap() {
   // Free) — this is a durable, separate copy so a bad migration or an
   // accidental destructive op still has a recovery path beyond Neon's own
   // retention window. Never blocks startup or a request; failures just log.
-  void runDatabaseBackup().catch((err) => app.log.warn({ err }, "[backup] initial run failed"));
+  void runDatabaseBackup().catch((err) => app.log.error({ err }, "[backup] initial run failed"));
   setInterval(() => {
-    void runDatabaseBackup().catch((err) => app.log.warn({ err }, "[backup] scheduled run failed"));
+    void runDatabaseBackup().catch((err) => app.log.error({ err }, "[backup] scheduled run failed"));
   }, 6 * 60 * 60 * 1000);
 
+  const maintenanceTimer = setInterval(() => { void expirePendingBookings(app).catch((err) => app.log.error({ err }, "[maintenance] booking expiry failed")); }, 30_000);
+  app.addHook("onClose", async () => { clearInterval(maintenanceTimer); });
   await app.listen({ host: "0.0.0.0", port: config.apiPort });
   app.log.info(`api-server listening on :${config.apiPort}`);
   // Mark a clean boot in the timeline.
@@ -656,7 +696,7 @@ async function bootstrap() {
   // ops can intervene via admin. Run AFTER listen so we don't block boot.
   try {
     const { resumeOnBoot } = await import("./sos-cascade.js");
-    void resumeOnBoot(app);
+    await resumeOnBoot(app);
   } catch (err) {
     app.log.warn({ err }, "[sos] resumeOnBoot import failed");
   }

@@ -24,9 +24,7 @@ export function SupportNavBadge() {
         const data = await res.json();
         if (!alive) return;
         setOpen(Number(data?.open ?? 0));
-      } catch {
-        /* keep last good */
-      }
+      } catch (error) { console.warn("SupportNavBadge.tsx.tick failed"); }
     };
     void tick();
     const id = setInterval(tick, POLL_MS);

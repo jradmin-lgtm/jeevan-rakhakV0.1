@@ -143,13 +143,11 @@ export async function signInWithGoogle(): Promise<{
  * Google picker doesn't default to the previous account. Swallows errors
  * because a failed sign-out shouldn't trap the user inside the app.
  */
-export async function signOutFromGoogle(): Promise<void> {
+export async function signOutFromGoogle(strict = false): Promise<void> {
   try {
     configureGoogleSignIn();
     await GoogleSignin.signOut();
-  } catch {
-    /* ignore — logout is fire-and-forget by design */
-  }
+  } catch (error) { console.warn("googleSignIn.ts.signOutFromGoogle failed", error instanceof Error ? error.message : String(error)); if (strict) throw error; }
 }
 
 /**
@@ -168,6 +166,6 @@ export async function switchGoogleAccount(): Promise<{
   picture: string | null;
   sub: string | null;
 }> {
-  await signOutFromGoogle();
+  await signOutFromGoogle(true);
   return signInWithGoogle();
 }

@@ -176,13 +176,13 @@ export function HospitalsManager({ initial, apiBase }: { initial: Hospital[]; ap
 
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Add hospital</h3>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} style={inp} />
-          <input placeholder="City" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} style={inp} />
-          <input placeholder="Latitude" value={form.lat} onChange={(e) => setForm({ ...form, lat: e.target.value })} style={inp} />
-          <input placeholder="Longitude" value={form.lng} onChange={(e) => setForm({ ...form, lng: e.target.value })} style={inp} />
-          <input placeholder="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} style={{ ...inp, gridColumn: "1 / -1" }} />
-          <input placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} style={inp} />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+          <input aria-label="Hospital name" placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} style={inp} />
+          <input aria-label="City" placeholder="City" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} style={inp} />
+          <input aria-label="Latitude" placeholder="Latitude" value={form.lat} onChange={(e) => setForm({ ...form, lat: e.target.value })} style={inp} />
+          <input aria-label="Longitude" placeholder="Longitude" value={form.lng} onChange={(e) => setForm({ ...form, lng: e.target.value })} style={inp} />
+          <input aria-label="Address" placeholder="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} style={{ ...inp, gridColumn: "1 / -1" }} />
+          <input aria-label="Phone" placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} style={inp} />
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
             <input type="checkbox" checked={form.isDefault} onChange={(e) => setForm({ ...form, isDefault: e.target.checked })} />
             Set as default destination
@@ -222,8 +222,8 @@ function HospitalRow({ h, busy, onPatch }: { h: Hospital; busy: boolean; onPatch
         </button>
       </td>
       <td style={{ padding: "6px 8px", display: "flex", gap: 4, alignItems: "center" }}>
-        <input value={lat} onChange={(e) => setLat(e.target.value)} style={{ ...inp, width: 90 }} />
-        <input value={lng} onChange={(e) => setLng(e.target.value)} style={{ ...inp, width: 90 }} />
+        <input aria-label="Hospital latitude" value={lat} onChange={(e) => setLat(e.target.value)} style={{ ...inp, width: 90 }} />
+        <input aria-label="Hospital longitude" value={lng} onChange={(e) => setLng(e.target.value)} style={{ ...inp, width: 90 }} />
         {dirty ? (
           <button
             disabled={busy}
@@ -270,9 +270,7 @@ function PortalRow({
       await navigator.clipboard.writeText(h.portalPasswordPlain);
       setCopied(true);
       copyTimer.current = setTimeout(() => setCopied(false), 1200);
-    } catch {
-      /* clipboard unavailable — no-op */
-    }
+    } catch (error) { console.warn("HospitalsManager.tsx.copy failed"); }
   };
 
   return (

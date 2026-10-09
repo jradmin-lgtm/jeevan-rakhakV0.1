@@ -203,7 +203,7 @@ export function CancelRideSheet({ bookingId, patientPhone, onCancelled, onClose 
                   <Button
                     label={t("cancel.call_patient")}
                     variant="outline"
-                    onPress={() => Linking.openURL(`tel:${patientPhone}`).catch(() => {})}
+                    onPress={() => Linking.openURL(`tel:${patientPhone}`).catch(error => { console.warn("cancel_patient_call_failed", error?.message); void dialog.alert("Call unavailable / कॉल नहीं खुली", patientPhone); })}
                     fullWidth
                   />
                 ) : null}

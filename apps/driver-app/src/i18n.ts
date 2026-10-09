@@ -17,6 +17,75 @@ export const STORAGE_KEY = "jr.lang.driver";
 type Dict = Record<string, string>;
 
 const en: Dict = {
+  "auth.google.app_role": "Driver app",
+  "auth.google.hero": "Ready for your next ride.",
+  "auth.google.hero_hint": "Receive requests, reach the patient and keep every trip connected.",
+  "auth.google.link_failed": "The privacy policy could not open. Check your internet connection and retry.",
+
+  "status.REQUESTED": "Awaiting acceptance",
+  "status.ACCEPTED": "Ride accepted",
+  "status.ARRIVED": "At pickup",
+  "status.PICKED_UP": "On trip",
+  "status.COMPLETED": "Completed",
+  "status.CANCELLED": "Cancelled",
+  "status.TIMED_OUT": "No driver found",
+  "history.load_failed": "Trip history could not refresh. Check your connection and retry.",
+  "history.retry": "Retry history",
+
+  "trip.gps_active": "GPS active",
+  "trip.gps_captured": "Location captured {n}s ago. Check Location sync for delivery status.",
+  "trip.stop_location_failed": "Location sharing could not stop. Close the app and disable its location permission in phone settings.",
+
+  "dashboard.live_city": "Live in {city}",
+  "dashboard.quick_actions": "Your workspace",
+  "dashboard.account_options": "Account and privacy",
+
+  "map_picker.renderer_failed": "The map could not load. Retry, or update Android System WebView in the Play Store.",
+  "map_picker.retry_map": "Retry map",
+  "map_picker.back": "Close map",
+  "map_picker.clear_search": "Clear search",
+
+  "offline.storage_error": "This ride could not be saved for offline use. Check device storage and retry.",
+  "offline.saved_ride": "Saved ride. Reconnecting to confirm the latest status. You can reopen the ride and view its saved details.",
+  "offline.refresh_failed": "Updates are unavailable. Saved ride details may be out of date. Reconnect to confirm changes.",
+  "trip.route_cached": "Saved road route · distance and ETA may be out of date. Map tiles may be unavailable offline.",
+
+  "alerts.title": "Ride alert sounds",
+  "alerts.ready": "Priority alerts are configured",
+  "alerts.needs_setup": "Check alert permissions and sound",
+  "alerts.checking": "Checking alert settings…",
+  "alerts.manage": "Manage sounds and permissions",
+  "alerts.hide": "Hide settings",
+  "alerts.description": "SOS uses the bundled buzzer. Ambulance bookings use your device ringtone. Both use alarm volume for priority alerts.",
+  "alerts.notification_status": "Notifications:",
+  "alerts.priority_status": "Do Not Disturb priority access:",
+  "alerts.enabled": "Enabled",
+  "alerts.disabled": "Needs attention",
+  "alerts.volume_zero": "Alarm volume is muted. Increase it to hear ride alerts.",
+  "alerts.restrictive_mode": "Your current Do Not Disturb mode can restrict alerts. Check the phone settings and test both sounds.",
+  "alerts.allow_notifications": "Allow notifications",
+  "alerts.allow_priority": "Allow priority alerts",
+  "alerts.sos_settings": "SOS buzzer settings",
+  "alerts.booking_settings": "Booking ringtone settings",
+  "alerts.volume_settings": "Sound and volume settings",
+  "alerts.test_sos": "Test buzzer",
+  "alerts.test_booking": "Test ringtone",
+  "alerts.test_sos_title": "SOS buzzer test",
+  "alerts.test_booking_title": "Booking ringtone test",
+  "alerts.test_body": "Test alert only. No ambulance has been requested.",
+  "alerts.test_sent": "Test notification sent. If you did not hear it, check the sound and permission settings.",
+  "alerts.limit": "Silent mode and Do Not Disturb behaviour depend on your phone, channel settings and alarm volume. Keep notifications enabled and test after changing settings.",
+  "alerts.check_failed": "Alert settings could not be checked. Reopen the app and try again.",
+  "alerts.action_failed": "Could not complete this alert action. Check the phone notification settings and try again.",
+
+  "sync.full": "Offline location storage is full. Reconnect so new points can be saved.",
+  "sync.title": "Location sync",
+  "sync.pending": "{count} saved location points are waiting to sync.",
+  "sync.retry_hint": "Your route is saved on this phone. Reconnect to sync it.",
+  "sync.retry": "Retry sync",
+  "sync.expired": "{count} points were older than 24 hours and could not be added to route history.",
+  "sync.storage_error": "Location storage is unavailable. Reopen the app and check device storage.",
+
   // Login
   "login.title": "Driver sign in",
   "login.subtitle": "Enter your registered mobile",
@@ -37,7 +106,7 @@ const en: Dict = {
   "auth.google.subtitle": "Sign in with your Google account to continue",
   "auth.google.button": "Continue with Google",
   "auth.google.busy": "Signing in…",
-  "auth.google.why_google": "We use Google sign-in for your security. Your number is verified once and stays linked to your Google account.",
+  "auth.google.why_google": "Sign in securely with Google. Add a contact number so the care team can reach you.",
   "auth.google.error_cancelled": "Sign-in cancelled.",
   "auth.google.error_play_services": "Google Play Services isn't available on this device. Update it from the Play Store and try again.",
   "auth.google.error_email_used": "This Google account is already registered as a driver.",
@@ -106,6 +175,9 @@ const en: Dict = {
   // Dashboard
   "dashboard.hi": "Hi",
   "dashboard.welcome_sub": "Welcome to Jeevan Rakshak",
+  "dashboard.on_trip": "ON A TRIP",
+  "dashboard.location_delayed": "Dispatch location is delayed. Check location permission and signal so nearby requests can reach you.",
+  "dashboard.sign_out_failed": "Could not safely stop location sharing. Please try signing out again.",
   "dashboard.online": "ONLINE",
   "dashboard.offline": "OFFLINE",
   "dashboard.receiving": "You are receiving requests",
@@ -210,6 +282,7 @@ const en: Dict = {
   "support.message_placeholder": "Describe your issue or feedback (min 5 characters)",
   "support.category_label": "Type",
   "support.category.ISSUE": "Issue",
+  "support.category.DOC_UPDATE": "Document update",
   "support.category.FEEDBACK": "Feedback",
   "support.ride_label": "Link a trip (optional)",
   "support.ride_none": "No specific trip",
@@ -260,6 +333,16 @@ const en: Dict = {
   "emergency.cardiac": "Cardiac",
   "emergency.breathing_distress": "Breathing distress",
   "emergency.pregnancy_neonatal": "Pregnancy / Neonatal",
+  "trip.address": "Address",
+  "trip.landmark": "Landmark",
+  "trip.landmark_unavailable": "No landmark resolved. Use the exact pickup pin.",
+  "trip.background_unavailable": "Background location permission is unavailable. Keep this app open to share your location.",
+  "trip.location_delivery_failed": "Location sharing failed. Check permissions and connection.",
+  "trip.route_traffic": "Traffic-aware route estimate",
+  "trip.route_road": "Road estimate. Live traffic unavailable.",
+  "trip.route_estimate": "Approximate estimate. Route unavailable.",
+  "emergency.referral": "Referral Ambulance",
+  "emergency.opd": "OPD Ambulance",
   "emergency.critical_transfer": "Critical transfer",
 
   "dashboard.launch_banner_subtitle": "Serving {city} within {km} km of {hospital}",
@@ -307,7 +390,7 @@ const en: Dict = {
   "profile.not_on_file": "Not on file",
   "profile.row_licence": "Licence",
   "profile.vehicle_update_note": "Vehicle and licence updates require admin approval. Contact ops to change these.",
-  "profile.support_footer": "Need help? support@jeevanrakshak.app",
+  "profile.support_footer": "Need help? contact.jeevanrakshak@gmail.com",
   "profile.manage_documents": "Update licence / Aadhar / PAN",
   "share.card_title": "Share with friends",
   "share.card_body": "Know another driver? Help them get onboarded faster.",
@@ -320,14 +403,18 @@ const en: Dict = {
   "doc_update.header_subtitle": "Licence, Aadhar and PAN updates are reviewed by admin",
   "doc_update.explainer": "Submit a new photo if this document was renewed or the details changed. An admin will review before it replaces the one on file.",
   "doc_update.status_pending": "Pending review",
-  "doc_update.pending_since": "Your request is with admin. You'll be notified once it's reviewed.",
+  "doc_update.status_approved": "Approved",
+  "doc_update.status_rejected": "Not approved",
+  "doc_update.review_approved": "Your new document is on file.",
+  "doc_update.review_rejected": "Check Help for the review reply, then submit a clearer or corrected photo.",
+  "doc_update.pending_since": "Your request is with admin. Refresh this page to check the result.",
   "doc_update.submitted_title": "Request submitted",
   "doc_update.submitted_body": "An admin will review your new photo shortly.",
   "doc_update.already_pending_title": "Already submitted",
   "doc_update.already_pending_body": "You already have a request pending review for this document.",
   "doc_update.error_title": "Could not submit",
   "doc_update.error_body": "Please try again or contact support.",
-  "doc_update.footer": "Need help? support@jeevanrakshak.app",
+  "doc_update.footer": "Need help? contact.jeevanrakshak@gmail.com",
 
   "splash.tagline": "Save lives. Earn while you do.",
 
@@ -414,6 +501,10 @@ const en: Dict = {
   "trip.drop_required_hint": "Set the drop hospital above to enable this button.",
   "trip.mark_complete_title": "Mark trip complete?",
   "trip.mark_complete_body": "Confirm patient has been handed over to hospital staff.",
+  "trip.progress.ACCEPTED": "Drive",
+  "trip.progress.ARRIVED": "Arrive",
+  "trip.progress.PICKED_UP": "Pickup",
+  "trip.progress.COMPLETED": "Drop off",
   "trip.stage_hint": "Tap the button as you complete each stage.",
   "trip.update_error_title": "Could not update",
   "trip.back_to_dashboard": "Back to dashboard",
@@ -495,6 +586,75 @@ const en: Dict = {
 };
 
 const hi: Dict = {
+  "auth.google.app_role": "ड्राइवर ऐप",
+  "auth.google.hero": "अगली राइड के लिए तैयार।",
+  "auth.google.hero_hint": "अनुरोध पाएँ, मरीज़ तक पहुँचें और राइड की जानकारी साझा करें।",
+  "auth.google.link_failed": "गोपनीयता नीति नहीं खुल सकी। इंटरनेट कनेक्शन जाँचकर फिर प्रयास करें।",
+
+  "status.REQUESTED": "स्वीकृति की प्रतीक्षा",
+  "status.ACCEPTED": "राइड स्वीकार की",
+  "status.ARRIVED": "पिकअप पर",
+  "status.PICKED_UP": "राइड जारी",
+  "status.COMPLETED": "पूरा हुआ",
+  "status.CANCELLED": "रद्द हुआ",
+  "status.TIMED_OUT": "ड्राइवर नहीं मिला",
+  "history.load_failed": "राइड का इतिहास नहीं खुल सका। कनेक्शन जाँचकर फिर प्रयास करें।",
+  "history.retry": "फिर प्रयास करें",
+
+  "trip.gps_active": "GPS चालू",
+  "trip.gps_captured": "स्थान {n} सेकंड पहले मिला। भेजे जाने की स्थिति लोकेशन सिंक में देखें।",
+  "trip.stop_location_failed": "स्थान साझा करना बंद नहीं हो सका। ऐप बंद करें और फोन की सेटिंग में इसकी लोकेशन अनुमति बंद करें।",
+
+  "dashboard.live_city": "{city} में सेवा चालू",
+  "dashboard.quick_actions": "आपके कार्य",
+  "dashboard.account_options": "खाता और गोपनीयता",
+
+  "map_picker.renderer_failed": "नक्शा नहीं खुल सका। फिर प्रयास करें या Play Store में Android System WebView अपडेट करें।",
+  "map_picker.retry_map": "नक्शा फिर खोलें",
+  "map_picker.back": "नक्शा बंद करें",
+  "map_picker.clear_search": "खोज साफ़ करें",
+
+  "offline.storage_error": "राइड को ऑफलाइन उपयोग के लिए सहेजा नहीं जा सका। फोन में खाली जगह जाँचकर फिर प्रयास करें।",
+  "offline.saved_ride": "सहेजी गई राइड। नई स्थिति के लिए कनेक्शन की कोशिश जारी है। राइड खोलकर सहेजी गई जानकारी देख सकते हैं।",
+  "offline.refresh_failed": "नई जानकारी उपलब्ध नहीं है। सहेजी गई राइड की स्थिति पुरानी हो सकती है। बदलाव की पुष्टि के लिए दोबारा कनेक्ट करें।",
+  "trip.route_cached": "सहेजा हुआ रास्ता · दूरी और समय पुराने हो सकते हैं। ऑफलाइन में नक्शे के कुछ हिस्से उपलब्ध नहीं हो सकते।",
+
+  "alerts.title": "राइड की अलर्ट ध्वनि",
+  "alerts.ready": "प्राथमिकता अलर्ट की सेटिंग तैयार है",
+  "alerts.needs_setup": "अलर्ट की अनुमति और ध्वनि जाँचें",
+  "alerts.checking": "अलर्ट सेटिंग जाँची जा रही है…",
+  "alerts.manage": "ध्वनि और अनुमति प्रबंधित करें",
+  "alerts.hide": "सेटिंग छिपाएँ",
+  "alerts.description": "SOS में ऐप का बज़र बजेगा। सामान्य बुकिंग में फोन की रिंगटोन बजेगी। दोनों प्राथमिकता अलर्ट के लिए अलार्म वॉल्यूम का उपयोग करते हैं।",
+  "alerts.notification_status": "नोटिफिकेशन:",
+  "alerts.priority_status": "डू नॉट डिस्टर्ब की प्राथमिकता अनुमति:",
+  "alerts.enabled": "चालू",
+  "alerts.disabled": "ध्यान दें",
+  "alerts.volume_zero": "अलार्म वॉल्यूम बंद है। राइड अलर्ट सुनने के लिए इसे बढ़ाएँ।",
+  "alerts.restrictive_mode": "फोन का डू नॉट डिस्टर्ब मोड अलर्ट रोक सकता है। सेटिंग जाँचें और दोनों ध्वनियों का परीक्षण करें।",
+  "alerts.allow_notifications": "नोटिफिकेशन की अनुमति दें",
+  "alerts.allow_priority": "प्राथमिकता अलर्ट की अनुमति दें",
+  "alerts.sos_settings": "SOS बज़र सेटिंग",
+  "alerts.booking_settings": "बुकिंग रिंगटोन सेटिंग",
+  "alerts.volume_settings": "ध्वनि और वॉल्यूम सेटिंग",
+  "alerts.test_sos": "बज़र जाँचें",
+  "alerts.test_booking": "रिंगटोन जाँचें",
+  "alerts.test_sos_title": "SOS बज़र का परीक्षण",
+  "alerts.test_booking_title": "बुकिंग रिंगटोन का परीक्षण",
+  "alerts.test_body": "यह केवल परीक्षण है। कोई एम्बुलेंस नहीं बुलाई गई है।",
+  "alerts.test_sent": "परीक्षण नोटिफिकेशन भेजा गया। आवाज़ नहीं आई तो ध्वनि और अनुमति की सेटिंग जाँचें।",
+  "alerts.limit": "साइलेंट और डू नॉट डिस्टर्ब में आवाज़ आपके फोन, अलर्ट सेटिंग और अलार्म वॉल्यूम पर निर्भर है। नोटिफिकेशन चालू रखें और बदलाव के बाद परीक्षण करें।",
+  "alerts.check_failed": "अलर्ट सेटिंग की जाँच नहीं हो सकी। ऐप दोबारा खोलकर प्रयास करें।",
+  "alerts.action_failed": "अलर्ट का यह कार्य पूरा नहीं हुआ। फोन की नोटिफिकेशन सेटिंग जाँचकर फिर प्रयास करें।",
+
+  "sync.full": "ऑफलाइन लोकेशन स्टोरेज भर गया है। नए पॉइंट सेव करने के लिए इंटरनेट से जुड़ें।",
+  "sync.title": "लोकेशन सिंक",
+  "sync.pending": "{count} सेव किए हुए लोकेशन पॉइंट सिंक होने बाकी हैं।",
+  "sync.retry_hint": "रूट इस फ़ोन में सेव है। सिंक करने के लिए इंटरनेट से जुड़ें।",
+  "sync.retry": "फिर से सिंक करें",
+  "sync.expired": "{count} पॉइंट 24 घंटे से पुराने थे और रूट इतिहास में नहीं जोड़े जा सके।",
+  "sync.storage_error": "लोकेशन स्टोरेज उपलब्ध नहीं है। ऐप दोबारा खोलें और फ़ोन का स्टोरेज जाँचें।",
+
   "login.title": "ड्राइवर साइन इन",
   "login.subtitle": "अपना पंजीकृत मोबाइल नंबर दर्ज करें",
   "login.mobile": "मोबाइल नंबर",
@@ -514,7 +674,7 @@ const hi: Dict = {
   "auth.google.subtitle": "जारी रखने के लिए अपने Google खाते से साइन इन करें",
   "auth.google.button": "Google से जारी रखें",
   "auth.google.busy": "साइन इन हो रहा है…",
-  "auth.google.why_google": "आपकी सुरक्षा के लिए हम Google साइन-इन का उपयोग करते हैं। आपका नंबर एक बार सत्यापित होता है और आपके Google खाते से जुड़ा रहता है।",
+  "auth.google.why_google": "Google से सुरक्षित साइन-इन करें। संपर्क नंबर जोड़ें ताकि सहायता टीम आपसे बात कर सके।",
   "auth.google.error_cancelled": "साइन इन रद्द किया गया।",
   "auth.google.error_play_services": "इस डिवाइस पर Google Play Services उपलब्ध नहीं है। Play Store से अपडेट करके फिर से कोशिश करें।",
   "auth.google.error_email_used": "यह Google खाता पहले से ड्राइवर के रूप में पंजीकृत है।",
@@ -579,6 +739,9 @@ const hi: Dict = {
 
   "dashboard.hi": "नमस्ते",
   "dashboard.welcome_sub": "Jeevan Rakshak में आपका स्वागत है",
+  "dashboard.on_trip": "यात्रा जारी है",
+  "dashboard.location_delayed": "डिस्पैच के लिए लोकेशन देर से मिल रही है। आस-पास के अनुरोध पाने के लिए लोकेशन की अनुमति और नेटवर्क जाँचें।",
+  "dashboard.sign_out_failed": "लोकेशन शेयरिंग बंद नहीं हो पाई। कृपया फिर से साइन आउट करें।",
   "dashboard.online": "ऑनलाइन",
   "dashboard.offline": "ऑफलाइन",
   "dashboard.receiving": "आप अनुरोध प्राप्त कर रहे हैं",
@@ -681,6 +844,7 @@ const hi: Dict = {
   "support.message_placeholder": "अपनी समस्या या प्रतिक्रिया बताएँ (कम से कम 5 अक्षर)",
   "support.category_label": "प्रकार",
   "support.category.ISSUE": "समस्या",
+  "support.category.DOC_UPDATE": "दस्तावेज़ अपडेट",
   "support.category.FEEDBACK": "प्रतिक्रिया",
   "support.ride_label": "एक यात्रा जोड़ें (वैकल्पिक)",
   "support.ride_none": "कोई विशेष यात्रा नहीं",
@@ -729,6 +893,16 @@ const hi: Dict = {
   "emergency.cardiac": "हृदय संबंधी",
   "emergency.breathing_distress": "साँस लेने में तकलीफ",
   "emergency.pregnancy_neonatal": "गर्भावस्था / नवजात",
+  "trip.address": "पता",
+  "trip.landmark": "लैंडमार्क",
+  "trip.landmark_unavailable": "लैंडमार्क नहीं मिला। सटीक पिकअप पिन का उपयोग करें।",
+  "trip.background_unavailable": "पृष्ठभूमि में स्थान की अनुमति उपलब्ध नहीं है। स्थान साझा करने के लिए ऐप खुला रखें।",
+  "trip.location_delivery_failed": "स्थान साझा नहीं हो सका। अनुमति और कनेक्शन जाँचें।",
+  "trip.route_traffic": "यातायात के अनुसार मार्ग अनुमान",
+  "trip.route_road": "सड़क मार्ग का अनुमान। लाइव यातायात उपलब्ध नहीं है।",
+  "trip.route_estimate": "अनुमानित समय। मार्ग उपलब्ध नहीं है।",
+  "emergency.referral": "रेफरल एम्बुलेंस",
+  "emergency.opd": "ओपीडी एम्बुलेंस",
   "emergency.critical_transfer": "गंभीर स्थानांतरण",
 
   "dashboard.launch_banner_subtitle": "{city} में {hospital} से {km} किमी के दायरे में सेवा उपलब्ध",
@@ -776,7 +950,7 @@ const hi: Dict = {
   "profile.not_on_file": "रिकॉर्ड में नहीं",
   "profile.row_licence": "लाइसेंस",
   "profile.vehicle_update_note": "वाहन और लाइसेंस में बदलाव के लिए एडमिन की मंज़ूरी ज़रूरी है। बदलने के लिए ऑप्स टीम से संपर्क करें।",
-  "profile.support_footer": "मदद चाहिए? support@jeevanrakshak.app",
+  "profile.support_footer": "मदद चाहिए? contact.jeevanrakshak@gmail.com",
   "profile.manage_documents": "लाइसेंस / आधार / PAN अपडेट करें",
   "share.card_title": "दोस्तों के साथ शेयर करें",
   "share.card_body": "किसी और ड्राइवर को जानते हैं? उन्हें जल्दी जुड़ने में मदद करें।",
@@ -787,14 +961,18 @@ const hi: Dict = {
   "doc_update.header_subtitle": "लाइसेंस, आधार और PAN अपडेट एडमिन द्वारा समीक्षा किए जाते हैं",
   "doc_update.explainer": "अगर यह दस्तावेज़ नवीनीकृत हुआ है या विवरण बदला है तो नई फोटो जमा करें। मौजूदा दस्तावेज़ बदलने से पहले एडमिन इसकी समीक्षा करेंगे।",
   "doc_update.status_pending": "समीक्षा लंबित",
-  "doc_update.pending_since": "आपका अनुरोध एडमिन के पास है। समीक्षा होने पर आपको सूचित किया जाएगा।",
+  "doc_update.status_approved": "स्वीकृत",
+  "doc_update.status_rejected": "स्वीकृत नहीं",
+  "doc_update.review_approved": "आपका नया दस्तावेज़ रिकॉर्ड में है।",
+  "doc_update.review_rejected": "समीक्षा का जवाब सहायता में देखें, फिर साफ़ या सही फोटो जमा करें।",
+  "doc_update.pending_since": "आपका अनुरोध एडमिन के पास है। परिणाम देखने के लिए पेज रीफ़्रेश करें।",
   "doc_update.submitted_title": "अनुरोध जमा हुआ",
   "doc_update.submitted_body": "एडमिन जल्द ही आपकी नई फोटो की समीक्षा करेंगे।",
   "doc_update.already_pending_title": "पहले से जमा है",
   "doc_update.already_pending_body": "इस दस्तावेज़ के लिए आपका अनुरोध पहले से समीक्षा में है।",
   "doc_update.error_title": "जमा नहीं हो सका",
   "doc_update.error_body": "कृपया फिर से कोशिश करें या सहायता से संपर्क करें।",
-  "doc_update.footer": "मदद चाहिए? support@jeevanrakshak.app",
+  "doc_update.footer": "मदद चाहिए? contact.jeevanrakshak@gmail.com",
 
   "splash.tagline": "जिंदगियाँ बचाएं, साथ में कमाई भी करें।",
 
@@ -879,6 +1057,10 @@ const hi: Dict = {
   "trip.drop_required_hint": "इस बटन को सक्षम करने के लिए ऊपर ड्रॉप अस्पताल सेट करें।",
   "trip.mark_complete_title": "यात्रा पूरी हुई मानें?",
   "trip.mark_complete_body": "पुष्टि करें कि मरीज़ अस्पताल स्टाफ को सौंपा गया है।",
+  "trip.progress.ACCEPTED": "रवाना",
+  "trip.progress.ARRIVED": "पहुँचे",
+  "trip.progress.PICKED_UP": "मरीज़ साथ",
+  "trip.progress.COMPLETED": "अस्पताल",
   "trip.stage_hint": "जैसे-जैसे हर चरण पूरा करें, बटन दबाएँ।",
   "trip.update_error_title": "अपडेट नहीं हो सका",
   "trip.back_to_dashboard": "डैशबोर्ड पर वापस जाएँ",
@@ -972,18 +1154,14 @@ export async function hydrateLang(): Promise<void> {
     if (stored === "en" || stored === "hi") {
       currentLang = stored;
     }
-  } catch {
-    /* default */
-  }
+  } catch (error) { console.warn("i18n.ts.hydrateLang failed", error instanceof Error ? error.message : String(error)); }
 }
 
 export async function setLang(next: Lang): Promise<void> {
   currentLang = next;
   try {
     await AsyncStorage.setItem(STORAGE_KEY, next);
-  } catch {
-    /* best-effort */
-  }
+  } catch (error) { console.warn("i18n.ts.setLang failed", error instanceof Error ? error.message : String(error)); }
   listeners.forEach((fn) => fn());
 }
 

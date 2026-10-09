@@ -23,7 +23,7 @@ async function reapTimedOutBookings() {
     await db
       .update(bookings)
       .set({ status: "TIMED_OUT", cancelledAt: new Date() })
-      .where(eq(bookings.id, row.id));
+      .where(and(eq(bookings.id, row.id), eq(bookings.status, "REQUESTED"), eq(bookings.isSos, false)));
     console.log(`[worker] booking ${row.id} timed out`);
   }
 }

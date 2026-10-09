@@ -16,21 +16,24 @@ export function LangToggle() {
     <Pressable
       onPress={() => void setLang(lang === "en" ? "hi" : "en")}
       accessibilityLabel="Switch language"
-      hitSlop={8}
+      accessibilityRole="button"
+      hitSlop={4}
       style={{
         flexDirection: "row",
         alignItems: "center",
         gap: 4,
         paddingHorizontal: 12,
-        paddingVertical: 6,
-        backgroundColor: "rgba(30,94,255,0.10)",
+        paddingVertical: 8,
+        minHeight: 44,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
         borderRadius: 999
       }}
     >
-      <Text variant="small">🌐</Text>
-      <Text variant="small" weight="bold" style={{ color: lang === "en" ? colors.accent : "#94A3B8" }}>EN</Text>
+      <Text variant="small" weight="bold" style={{ color: lang === "en" ? colors.accent : colors.textMuted }}>EN</Text>
       <Text variant="small" tone="muted">|</Text>
-      <Text variant="small" weight="bold" style={{ color: lang === "hi" ? colors.accent : "#94A3B8" }}>हि</Text>
+      <Text variant="small" weight="bold" style={{ color: lang === "hi" ? colors.accent : colors.textMuted }}>हि</Text>
     </Pressable>
   );
 }

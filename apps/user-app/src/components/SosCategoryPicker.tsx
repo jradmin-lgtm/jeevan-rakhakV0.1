@@ -2,7 +2,7 @@ import React from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Text, colors, radius, space } from "@jr/ui";
 import { EmergencyType } from "../api";
-import { EMERGENCY_KEYS } from "../constants/emergencyCategories";
+import { SOS_CATEGORIES } from "../constants/emergencyCategories";
 import { useT } from "../i18n";
 
 /**
@@ -27,7 +27,7 @@ export function SosCategoryPicker({ visible, onClose, onSelect }: Props) {
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel={t("common.cancel")} />
+        <Pressable accessibilityRole="button" style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel={t("common.cancel")} />
         <View style={styles.sheet}>
           <View style={styles.handle} />
           <View style={styles.head}>
@@ -37,15 +37,17 @@ export function SosCategoryPicker({ visible, onClose, onSelect }: Props) {
                 {t("sos.picker_subtitle")}
               </Text>
             </View>
-            <Pressable onPress={onClose} accessibilityLabel={t("common.cancel")} hitSlop={10}>
+            <Pressable accessibilityRole="button" onPress={onClose} accessibilityLabel={t("common.cancel")} hitSlop={10}>
               <Text variant="heading" tone="secondary">✕</Text>
             </Pressable>
           </View>
 
           <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-            {EMERGENCY_KEYS.map((e) => (
+            {SOS_CATEGORIES.map((e) => (
               <Pressable
                 key={e.key}
+                accessibilityRole="button"
+                accessibilityLabel={t(e.labelKey)}
                 onPress={() => onSelect(e.key)}
                 android_ripple={{ color: "rgba(0,0,0,0.04)" }}
                 style={styles.tile}

@@ -26,37 +26,10 @@ const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 // alongside the public-facing APK files.
 const BACKUP_FOLDER_ID = process.env.DB_BACKUP_FOLDER_ID || "1zjoheWt2K7GP3v_-AUetnbCKBFq11H7G";
 
-// Every operational table. Deliberately excludes nothing — driver_documents'
-// bytea column IS included (base64-encoded below) so a real KYC photo isn't
-// a re-upload-only recovery path. hospitals is included too even though it's
-// rarely edited; a full backup should mean full, not "everything except the
-// one table we assumed was safe" — the driver_documents outage above was
-// exactly a case of an assumption like that turning out wrong later.
-const BACKUP_TABLES = [
-  "hospitals", "users", "drivers", "driver_hospitals", "driver_documents",
-  "driver_document_updates", "bookings", "booking_events",
-  "booking_cancellations", "sos_dispatch_attempts", "safety_alerts",
-  "safety_alert_acks", "support_tickets", "support_ticket_messages",
-  "otp_codes", "driver_heartbeats", "driver_locations", "system_events",
-  "app_events"
-];
-
-let _auth: GoogleAuth | null = null;
-let _tried = false;
-
-function getAuth(): GoogleAuth | null {
-  if (!_tried) {
-    _tried = true;
-    const raw = process.env.DRIVE_SA_JSON;
-    if (raw) {
-      try {
-        _auth = new GoogleAuth({ credentials: JSON.parse(raw), scopes: [DRIVE_SCOPE] });
-      } catch (err) {
-        console.warn("[backup] DRIVE_SA_JSON parse failed — DB backups disabled", err);
-      }
-    }
-  }
-  return _auth;
+function getAuth(): GoogleAuth {
+  const raw = process.env.DRIVE_SA_JSON;
+  if (!raw) throw new Error("DRIVE_SA_JSON missing: database backup unavailable");
+  return new GoogleAuth({ credentials: JSON.parse(raw), scopes: [DRIVE_SCOPE] });
 }
 
 function serializeRow(row: Record<string, unknown>): Record<string, unknown> {
@@ -69,23 +42,31 @@ function serializeRow(row: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
-/** Dump every table to one JSON blob and upload it to the private backup folder. */
+/** One repeatable-read snapshot keeps related rows consistent during live writes. */
+export async function buildDatabaseSnapshot() {
+  return pgClient.begin("isolation level repeatable read read only", async tx => {
+    const dump: { takenAt: string; formatVersion: number; tables: Record<string, unknown[]> } = {
+      takenAt: new Date().toISOString(), formatVersion: 2, tables: {}
+    };
+    const tables = await tx`SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`;
+    for (const { tablename } of tables) {
+      const rows = await tx.unsafe(`SELECT * FROM "${String(tablename).replace(/"/g, '""')}"`);
+      dump.tables[tablename] = rows.map(serializeRow);
+    }
+    return dump;
+  });
+}
+let running = false;
 export async function runDatabaseBackup(): Promise<void> {
+  if (running) throw new Error("database backup already running");
+  running = true;
+  try {
   const auth = getAuth();
-  if (!auth) return; // DRIVE_SA_JSON unset — no-op, same fail-open convention as drive.ts
-
-  const dump: { takenAt: string; tables: Record<string, unknown[]> } = {
-    takenAt: new Date().toISOString(),
-    tables: {}
-  };
-  for (const t of BACKUP_TABLES) {
-    const rows = await pgClient.unsafe(`SELECT * FROM ${t}`);
-    dump.tables[t] = rows.map(serializeRow);
-  }
+  const dump = await buildDatabaseSnapshot();
 
   const client = await auth.getClient();
   const token = (await client.getAccessToken()).token;
-  if (!token) return;
+  if (!token) throw new Error("Drive backup access token unavailable");
 
   const name = `jr-db-backup-${dump.takenAt.replace(/[:.]/g, "-")}.json`;
   const metadata = JSON.stringify({ name, parents: [BACKUP_FOLDER_ID] });
@@ -100,12 +81,13 @@ export async function runDatabaseBackup(): Promise<void> {
     {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": `multipart/related; boundary=${boundary}` },
+      signal: AbortSignal.timeout(120_000),
       body: multipart
     }
   );
   if (!res.ok) {
-    console.warn("[backup] Drive upload failed", res.status, (await res.text()).slice(0, 300));
-    return;
+    throw new Error(`Drive backup upload failed: HTTP ${res.status}`);
   }
   console.log(`[backup] wrote ${name} (${(body.length / 1024).toFixed(0)}KB)`);
+  } finally { running = false; }
 }

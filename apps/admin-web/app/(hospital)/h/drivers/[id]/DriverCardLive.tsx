@@ -34,6 +34,7 @@ type DriverProfile = {
   vehicleNumber?: string | null;
   status: string;
   rating?: number | null;
+  ratingCount?: number;
   lastLat?: number | null;
   lastLng?: number | null;
   kycVerified?: boolean | null;
@@ -91,6 +92,9 @@ function rowTime(r: RideRow): string {
 
 export function DriverCardLive({ driverId }: { driverId: string }) {
   const [data, setData] = useState<DriverCard | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const loadingRef = useRef(false);
+  const requestRef = useRef<AbortController | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<number>(Date.now());
   const [showTicket, setShowTicket] = useState(false);
@@ -99,20 +103,29 @@ export function DriverCardLive({ driverId }: { driverId: string }) {
   const aliveRef = useRef(true);
 
   const fetchCard = useCallback(async () => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+    const controller = new AbortController();
+    requestRef.current = controller;
     try {
-      const res = await fetch(`/api/hospital-proxy/api/v1/hospital/drivers/${driverId}`, { cache: "no-store" });
+      const res = await fetch(`/api/hospital-proxy/api/v1/hospital/drivers/${driverId}`, { cache: "no-store", signal: controller.signal });
       if (res.status === 404) {
         if (aliveRef.current) setNotFound(true);
         return;
       }
-      if (!res.ok) return;
+      if (!res.ok) throw new Error(`Driver refresh failed: HTTP ${res.status}`);
       const json: DriverCard = await res.json();
       if (!aliveRef.current) return;
       setData(json);
+      setLoadError(false);
+      setNotFound(false);
       setUpdatedAt(Date.now());
-    } catch {
-      /* keep last good */
-    }
+    } catch (error) {
+      if (aliveRef.current && !controller.signal.aborted) {
+        console.warn("Hospital driver refresh failed", error);
+        setLoadError(true);
+      }
+    } finally { loadingRef.current = false; }
   }, [driverId]);
 
   useEffect(() => {
@@ -127,6 +140,7 @@ export function DriverCardLive({ driverId }: { driverId: string }) {
     return () => {
       aliveRef.current = false;
       clearInterval(id);
+      requestRef.current?.abort();
       unsub();
     };
   }, [fetchCard, subscribe]);
@@ -135,7 +149,7 @@ export function DriverCardLive({ driverId }: { driverId: string }) {
     return <div className="card muted">Driver not associated with your hospital.</div>;
   }
   if (!data) {
-    return <div className="card muted">Loading driver…</div>;
+    return <div className="card muted">{loadError ? <>Could not load this driver. <button onClick={() => void fetchCard()}>Retry</button></> : "Loading driver…"}</div>;
   }
 
   const d = data.driver;
@@ -144,13 +158,14 @@ export function DriverCardLive({ driverId }: { driverId: string }) {
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
+      {loadError ? <div role="alert" className="card" style={{ color: "var(--danger)" }}>Updates unavailable. Showing the last loaded data. <button onClick={() => void fetchCard()}>Retry</button></div> : null}
       {/* Header — name, vehicle, live status, rating, verified badge (read-only). */}
       <div className="card" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <span style={{ fontSize: 18, fontWeight: 700 }}>{d.name ?? "Unnamed driver"}</span>
           <span className="muted" style={{ fontSize: 13 }}>· {d.vehicleNumber ?? "No vehicle #"}</span>
           <span style={{ background: chip.bg, color: chip.fg, fontWeight: 700, fontSize: 11, padding: "3px 10px", borderRadius: 999 }}>{chip.label}</span>
-          <span className="muted" style={{ fontSize: 13 }}>⭐ {(d.rating ?? 5).toFixed(1)}</span>
+          <span className="muted" style={{ fontSize: 13 }}>{(d.ratingCount ?? 0) > 0 && d.rating != null ? `★ ${d.rating.toFixed(1)}` : "Not rated"}</span>
           {d.kycVerified ? (
             <span style={{ background: "rgba(16,185,129,0.12)", color: "var(--success)", fontWeight: 700, fontSize: 11, padding: "3px 10px", borderRadius: 999 }}>✓ Verified</span>
           ) : (
@@ -159,8 +174,8 @@ export function DriverCardLive({ driverId }: { driverId: string }) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <span className="muted" style={{ fontSize: 12 }}>
-            <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "var(--success)", marginRight: 6 }} />
-            Live · {formatTimeIST(updatedAt)}
+            <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: loadError ? "var(--danger)" : "var(--success)", marginRight: 6 }} />
+            {loadError ? "Last update" : "Live"} · {formatTimeIST(updatedAt)}
           </span>
           <button
             type="button"

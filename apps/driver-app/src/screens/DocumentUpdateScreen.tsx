@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import { ActivityIndicator, Pressable, RefreshControl, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { AppHeader, Button, Card, Screen, Text, colors, dialog, radius, space } from "@jr/ui";
 import { driver as driverApi } from "../api";
@@ -28,7 +28,9 @@ function docLabel(docType: string, t: (key: string) => string): string {
 }
 
 export function DocumentUpdateScreen({ onBack }: Props) {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const [loadError, setLoadError] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [requests, setRequests] = useState<ReissueRequest[] | null>(null);
   const [busyType, setBusyType] = useState<string | null>(null);
   // 2026-08: identity proof is Aadhar OR PAN (driver's choice at onboarding,
@@ -40,31 +42,27 @@ export function DocumentUpdateScreen({ onBack }: Props) {
     : ["licence"];
 
   const refresh = async () => {
+    setRefreshing(true);
+    setLoadError(false);
     try {
-      const r = await driverApi.docReissueRequests();
+      const [r, documents] = await Promise.all([driverApi.docReissueRequests(), driverApi.kycDocuments()]);
       setRequests(r.requests);
-    } catch {
-      setRequests((prev) => prev ?? []);
+      const docs = documents.documents ?? {};
+      setIdentityDocType(docs.pan?.[1] && !docs.aadhar?.[1] ? "pan" : "aadhar");
+    } catch (error: any) {
+      console.warn("document_update_load_failed", error?.message);
+      setLoadError(true);
+    } finally {
+      setRefreshing(false);
     }
   };
-
-  useEffect(() => {
-    void refresh();
-    (async () => {
-      try {
-        const r = await driverApi.kycDocuments();
-        const docs = r.documents ?? {};
-        setIdentityDocType(docs.pan?.[1] && !docs.aadhar?.[1] ? "pan" : "aadhar");
-      } catch {
-        setIdentityDocType("aadhar");
-      }
-    })();
-  }, []);
+  useEffect(() => { void refresh(); }, []);
 
   const pendingFor = (docType: string) =>
     (requests ?? []).find((r) => r.docType === docType && r.status === "PENDING");
 
   const request = async (docType: (typeof REISSUE_DOC_TYPES)[number], source: "camera" | "gallery") => {
+    if (busyType || loadError) return;
     setBusyType(docType);
     try {
       const perm =
@@ -103,44 +101,50 @@ export function DocumentUpdateScreen({ onBack }: Props) {
   };
 
   return (
-    <Screen>
-      <AppHeader title={t("doc_update.header_title")} subtitle={t("doc_update.header_subtitle")} onBack={onBack} right={<LangToggle />} />
+    <Screen refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.primary} />} header={<AppHeader title={t("doc_update.header_title")} subtitle={t("doc_update.header_subtitle")} onBack={onBack} right={<LangToggle />} />}>
+      <Button label={lang === "hi" ? "स्थिति रीफ़्रेश करें" : "Refresh status"} variant="ghost" onPress={refresh} disabled={refreshing || busyType !== null} />
+      {loadError ? <Card>
+        <Text variant="small" tone="danger">{lang === "hi" ? "दस्तावेज़ की स्थिति लोड नहीं हुई।" : "Could not load document status."}</Text>
+        <Button label={lang === "hi" ? "फिर कोशिश करें" : "Retry"} onPress={refresh} variant="outline" />
+      </Card> : null}
 
-      {requests === null ? (
+      {requests === null && !loadError ? (
         <View style={{ paddingVertical: space.lg, alignItems: "center" }}>
           <ActivityIndicator color={colors.primary} />
         </View>
       ) : (
-        docTypesToShow.map((docType) => {
+        requests === null ? null : docTypesToShow.map((docType) => {
           const pending = pendingFor(docType);
+          const latest = pending ?? (requests ?? []).filter(r => r.docType === docType).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
           const busy = busyType === docType;
           return (
             <Card key={docType}>
               <View style={{ gap: space.sm }}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
                   <Text variant="label" tone="secondary">{docLabel(docType, t)}</Text>
-                  {pending ? (
-                    <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: "rgba(245,158,11,0.15)" }}>
-                      <Text variant="tiny" weight="semi" style={{ color: "#B45309" }}>{t("doc_update.status_pending")}</Text>
+                  {latest ? (
+                    <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: latest.status === "APPROVED" ? "#DCFCE7" : latest.status === "REJECTED" ? "#FEE2E2" : "#FEF3C7" }}>
+                      <Text variant="tiny" weight="semi" style={{ color: latest.status === "APPROVED" ? "#166534" : latest.status === "REJECTED" ? "#991B1B" : "#92400E" }}>{t(`doc_update.status_${latest.status.toLowerCase()}`)}</Text>
                     </View>
                   ) : null}
                 </View>
                 <Text variant="tiny" tone="muted">{t("doc_update.explainer")}</Text>
+                {latest && latest.status !== "PENDING" ? <Text variant="small" tone={latest.status === "REJECTED" ? "danger" : "secondary"}>{t(`doc_update.review_${latest.status.toLowerCase()}`)}</Text> : null}
                 {pending ? (
                   <Text variant="tiny" tone="muted">{t("doc_update.pending_since")}</Text>
                 ) : (
                   <View style={{ flexDirection: "row", gap: space.sm }}>
                     <Pressable
                       onPress={() => request(docType, "camera")}
-                      disabled={busy}
-                      style={{ flex: 1, paddingVertical: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: "center" }}
+                      accessibilityRole="button" disabled={busyType !== null || loadError}
+                      style={{ minHeight: 44, justifyContent: "center", flex: 1, paddingVertical: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: "center" }}
                     >
                       {busy ? <ActivityIndicator size="small" color={colors.primary} /> : <Text variant="small" weight="semi">{t("kyc.doc.camera")}</Text>}
                     </Pressable>
                     <Pressable
                       onPress={() => request(docType, "gallery")}
-                      disabled={busy}
-                      style={{ flex: 1, paddingVertical: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: "center" }}
+                      accessibilityRole="button" disabled={busyType !== null || loadError}
+                      style={{ minHeight: 44, justifyContent: "center", flex: 1, paddingVertical: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: "center" }}
                     >
                       <Text variant="small" weight="semi">{t("kyc.doc.gallery")}</Text>
                     </Pressable>

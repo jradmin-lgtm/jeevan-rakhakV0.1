@@ -11,3 +11,10 @@ export const EMERGENCY_KEYS: { key: EmergencyType; labelKey: string; subKey: str
   { key: "PREGNANCY_NEONATAL",         labelKey: "emergency.pregnancy.label",        subKey: "emergency.pregnancy.sub",        emoji: "✿" },
   { key: "GENERAL_CRITICAL_TRANSFER",  labelKey: "emergency.critical_transfer.label", subKey: "emergency.critical_transfer.sub", emoji: "→" }
 ];
+
+export const SOS_CATEGORIES = EMERGENCY_KEYS.filter((e) => e.key !== "GENERAL_CRITICAL_TRANSFER");
+export const BOOKING_CATEGORIES: typeof EMERGENCY_KEYS = [
+  EMERGENCY_KEYS.find((e) => e.key === "PREGNANCY_NEONATAL")!,
+  { key: "REFERRAL_AMBULANCE", labelKey: "emergency.referral.label", subKey: "emergency.referral.sub", emoji: "→" },
+  { key: "OPD_AMBULANCE", labelKey: "emergency.opd.label", subKey: "emergency.opd.sub", emoji: "+" }
+];

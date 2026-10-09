@@ -1,3 +1,4 @@
+import { HospitalNav } from "./HospitalNav";
 import { cookies } from "next/headers";
 import { HospitalLogoutButton } from "./HospitalLogoutButton";
 import { HospitalSocketProvider } from "./HospitalSocketProvider";
@@ -33,7 +34,7 @@ export default async function HospitalLayout({ children }: any) {
     <HospitalSocketProvider token={token}>
     <HospitalSessionGuard />
     <div className="shell">
-      <aside className="sidebar" style={{ background: "linear-gradient(180deg, #0F2A28 0%, #134E48 100%)" }}>
+      <aside className="sidebar hospital-sidebar">
         <div className="brand">
           <div className="brand-mark" style={{ background: "#0F766E", animation: "none" }}>
             JR
@@ -43,16 +44,10 @@ export default async function HospitalLayout({ children }: any) {
             <small>HOSPITAL PORTAL</small>
           </div>
         </div>
-        <nav>
-          <a className="active" href="/h">Dashboard</a>
-          <a href="/h/drivers">Drivers</a>
-          <a href="/h/rides">Rides</a>
-          <a href="/h/feedbacks">Feedbacks</a>
-          <a href="/h/help">Help &amp; Support</a>
-        </nav>
-        <div className="footer" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <HospitalNav />
+        <div className="hospital-footer" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <HospitalLogoutButton />
-          <span style={{ opacity: 0.5 }}>Jeevan Rakshak Hospital Portal · v1.2.8</span>
+          <span style={{ color: "#B8D7D2", fontSize: 11 }}>Jeevan Rakshak Hospital Portal</span>
         </div>
       </aside>
       <main className="content">{children}</main>

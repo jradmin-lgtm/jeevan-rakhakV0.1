@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Animated, FlatList, RefreshControl, View } from "react-native";
 import {
   AppHeader,
+  Button,
   Card,
   EmptyState,
   IconBadge,
@@ -33,6 +34,8 @@ export function HistoryScreen({ onBack, onOpen }: { onBack: () => void; onOpen: 
   const { t } = useT();
   const [items, setItems] = useState<Booking[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [hasData, setHasData] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -40,6 +43,9 @@ export function HistoryScreen({ onBack, onOpen }: { onBack: () => void; onOpen: 
     try {
       const r = await bookingsApi.mine();
       setItems(r.bookings);
+      setLoadError(false); setHasData(true);
+    } catch (error) {
+      console.warn("[history] refresh failed", error); setLoadError(true);
     } finally {
       setRefreshing(false);
       setLoaded(true);
@@ -60,6 +66,7 @@ export function HistoryScreen({ onBack, onOpen }: { onBack: () => void; onOpen: 
         />
       </View>
 
+      {loadError ? <View style={{ paddingHorizontal: space.lg, gap: space.sm, paddingBottom: space.md }}><Text variant="small" tone="danger">{t("history.load_failed")}</Text><Button label={t("history.retry")} variant="neutral" onPress={() => void refresh()} loading={refreshing} /></View> : null}
       {!loaded ? (
         <View style={{ paddingHorizontal: space.lg, gap: space.md }}>
           {[0, 1, 2].map((i) => (
@@ -78,7 +85,7 @@ export function HistoryScreen({ onBack, onOpen }: { onBack: () => void; onOpen: 
           keyExtractor={(b) => b.id}
           contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: space.xxl, gap: space.md }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
-          ListEmptyComponent={
+          ListEmptyComponent={loadError ? null :
             <EmptyState
               title={t("history.empty_title")}
               description={t("history.empty_description")}
@@ -113,7 +120,7 @@ function HistoryRow({ item, index, onOpen }: { item: Booking; index: number; onO
           <View style={{ flex: 1, gap: space.sm }}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
               <Pill label={prettyEmergency(item.emergencyType, t)} color={decor.tint} bg={decor.tintBg} />
-              <StatusBadge status={item.status} />
+              <StatusBadge label={t(`status.${item.status}`)} status={item.status} />
             </View>
             {item.displayId ? (
               <Text variant="tiny" tone="muted">#{item.displayId}</Text>

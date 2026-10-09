@@ -28,9 +28,7 @@ export function SafetyBanner() {
         const data = await res.json();
         if (!alive) return;
         setActive(Number(data?.active ?? 0));
-      } catch {
-        /* keep last good */
-      }
+      } catch (error) { console.warn("SafetyBanner.tsx.tick failed"); }
     };
     void tick();
     const id = setInterval(tick, POLL_MS);

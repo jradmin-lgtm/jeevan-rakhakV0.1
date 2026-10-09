@@ -93,9 +93,7 @@ export function AlertsClient({ initialHealth, initialEvents, apiBase, embedded }
         setEvents(data.events ?? []);
       }
       setLastRefresh(Date.now());
-    } catch {
-      /* keep last good state */
-    } finally {
+    } catch (error) { console.warn("AlertsClient.tsx.refresh failed"); } finally {
       setRefreshing(false);
     }
   }, [apiBase, level]);

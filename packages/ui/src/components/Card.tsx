@@ -10,7 +10,7 @@ type Props = {
   flat?: boolean;
 };
 
-function CardInner({ children, onPress, style, padding = "lg", flat }: Props) {
+function CardInner({ children, onPress, style, padding = "lg", flat = true }: Props) {
   const inner = (
     <View
       style={[
@@ -27,6 +27,7 @@ function CardInner({ children, onPress, style, padding = "lg", flat }: Props) {
     return (
       <Pressable
         onPress={onPress}
+        accessibilityRole="button"
         android_ripple={{ color: "rgba(0,0,0,0.04)" }}
         style={({ pressed }) => (pressed ? { opacity: 0.92 } : null)}
       >

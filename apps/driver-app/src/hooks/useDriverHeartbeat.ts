@@ -1,74 +1,39 @@
-import { useEffect, useRef } from "react";
-import { AppState, AppStateStatus } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { AppState } from "react-native";
 import * as Location from "expo-location";
 import { driver as driverApi } from "../api";
 
-/**
- * v1.0.15 — "I'm online" heartbeat for the SOS cascade engine.
- *
- * While the driver is online AND the app is foregrounded, ping
- * POST /api/v1/driver/heartbeat every 60s with the current GPS. The server
- * upserts into the `driver_heartbeats` table, which the cascade engine reads
- * (with a 5-min staleness window) to pick the nearest available drivers when
- * a patient hits SOS.
- *
- * Battery: pauses when backgrounded; resumes when foregrounded. Stops cleanly
- * when the driver toggles offline.
- *
- * Permissions: re-uses whatever foreground-location permission the app
- * already asked for during onboarding / trip GPS. No additional prompts.
- */
 export function useDriverHeartbeat(online: boolean) {
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
-
+  const [error, setError] = useState(false);
+  const busy = useRef(false);
   useEffect(() => {
-    const start = () => {
-      if (timerRef.current) return;
-      const tick = async () => {
-        // Re-check AppState every tick — covers the race where AppState
-        // changes between subscription dispatch and the timer firing.
-        if (appStateRef.current !== "active") return;
-        try {
-          const perm = await Location.getForegroundPermissionsAsync();
-          if (perm.status !== "granted") return;
-          const fix = await Location.getLastKnownPositionAsync()
-            ?? await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          if (!fix) return;
-          await driverApi.heartbeat(fix.coords.latitude, fix.coords.longitude);
-        } catch {
-          // Heartbeat is best-effort. A missed beat is fine — the server's
-          // 5-min staleness window tolerates short outages.
-        }
-      };
-      // Immediate first tick (don't wait 60s for the first ping after
-      // toggling online — the server needs to see us in the eligible list).
-      void tick();
-      timerRef.current = setInterval(tick, 60_000);
+    let active = true;
+    const tick = async () => {
+      if (!online || AppState.currentState !== "active" || busy.current) return;
+      busy.current = true;
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const permission = await Location.getForegroundPermissionsAsync();
+        if (!permission.granted) throw new Error("Location permission is required for dispatch");
+        const cached = await Location.getLastKnownPositionAsync({ maxAge: 30_000, requiredAccuracy: 200 });
+        const fix = cached ?? await Promise.race([
+          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+          new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("Dispatch location timed out")), 15_000); })
+        ]);
+        if (!active) return;
+        if (Date.now() - fix.timestamp > 60_000) throw new Error("Dispatch location is stale");
+        await driverApi.heartbeat(fix.coords.latitude, fix.coords.longitude, fix.timestamp);
+        if (active) setError(false);
+      } catch (cause) {
+        console.warn("[dispatch] heartbeat failed", cause);
+        if (active) setError(true);
+      } finally { if (timeout) clearTimeout(timeout); busy.current = false; }
     };
-    const stop = () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-
-    if (online && appStateRef.current === "active") {
-      start();
-    }
-
-    const sub = AppState.addEventListener("change", (next) => {
-      appStateRef.current = next;
-      if (next === "active" && online) {
-        start();
-      } else {
-        stop();
-      }
-    });
-
-    return () => {
-      sub.remove();
-      stop();
-    };
+    if (!online) setError(false);
+    void tick();
+    const timer = setInterval(() => void tick(), 60_000);
+    const sub = AppState.addEventListener("change", state => { if (state === "active") void tick(); });
+    return () => { active = false; clearInterval(timer); sub.remove(); };
   }, [online]);
+  return error;
 }

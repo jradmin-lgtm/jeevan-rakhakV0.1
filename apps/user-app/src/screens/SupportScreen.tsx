@@ -57,7 +57,8 @@ function LangToggle() {
     <Pressable
       onPress={() => void setLang(lang === "en" ? "hi" : "en")}
       accessibilityLabel={t("common.switch_language")}
-      style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "rgba(30,94,255,0.10)", borderRadius: 999 }}
+      accessibilityRole="button"
+      style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "rgba(30,94,255,0.10)", borderRadius: 999 }}
     >
       <Text variant="small" weight="bold" style={{ color: lang === "en" ? colors.accent : colors.textMuted }}>EN</Text>
       <Text variant="small" tone="muted">|</Text>
@@ -83,6 +84,8 @@ function ListView({ onBack, onOpen, t }: { onBack: () => void; onOpen: (id: stri
   const [items, setItems] = useState<SupportTicket[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [listError, setListError] = useState(false);
+  const [rideError, setRideError] = useState(false);
 
   // Raise form state.
   const [message, setMessage] = useState("");
@@ -107,8 +110,10 @@ function ListView({ onBack, onOpen, t }: { onBack: () => void; onOpen: (id: stri
       const r = await ticketsApi.list();
       if (!mounted.current) return;
       setItems(r.tickets);
-    } catch {
-      /* keep prior list — next pull/refresh retries */
+      setListError(false);
+    } catch (error: any) {
+      console.warn("support_list_load_failed", error?.message);
+      if (mounted.current) setListError(true);
     } finally {
       if (mounted.current) {
         setRefreshing(false);
@@ -129,8 +134,10 @@ function ListView({ onBack, onOpen, t }: { onBack: () => void; onOpen: (id: stri
       const r = await bookingsApi.mine();
       if (!mounted.current) return;
       setRides(r.bookings.filter((b) => b.status === "COMPLETED"));
-    } catch {
-      if (mounted.current) setRides([]);
+      setRideError(false);
+    } catch (error: any) {
+      console.warn("support_rides_load_failed", error?.message);
+      if (mounted.current) setRideError(true);
     }
   }, [rides]);
 
@@ -169,8 +176,10 @@ function ListView({ onBack, onOpen, t }: { onBack: () => void; onOpen: (id: stri
   }, [message, category, rideId, refresh, t]);
 
   return (
-    <Screen refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}>
-      <AppHeader title={t("support.title")} subtitle={t("support.subtitle")} onBack={onBack} right={<LangToggle />} />
+    <Screen refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
+      header={<AppHeader title={t("support.title")} subtitle={t("support.subtitle")} onBack={onBack} right={<LangToggle />} />}
+    >
+      {listError || rideError ? <Text variant="small" tone="danger" accessibilityRole="alert">{t("support.thread_load_error")}</Text> : null}
 
       <Card>
         <View style={{ gap: space.md }}>
@@ -185,6 +194,7 @@ function ListView({ onBack, onOpen, t }: { onBack: () => void; onOpen: (id: stri
                 return (
                   <Pressable
                     key={c}
+                    accessibilityRole="radio" accessibilityState={{ checked: active }}
                     onPress={() => setCategory(c)}
                     style={[segStyles.pill, active && segStyles.pillActive]}
                     android_ripple={{ color: "rgba(229,50,43,0.1)" }}
@@ -204,6 +214,7 @@ function ListView({ onBack, onOpen, t }: { onBack: () => void; onOpen: (id: stri
             onChangeText={setMessage}
             placeholder={t("support.message_placeholder")}
             multiline
+            maxLength={4000}
             style={{ minHeight: 88, textAlignVertical: "top", paddingTop: space.md }}
           />
 
@@ -270,6 +281,7 @@ function ListView({ onBack, onOpen, t }: { onBack: () => void; onOpen: (id: stri
 function RideChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
     <Pressable
+      accessibilityRole="radio" accessibilityState={{ checked: active }}
       onPress={onPress}
       style={[segStyles.chip, active && segStyles.pillActive]}
       android_ripple={{ color: "rgba(229,50,43,0.1)" }}
@@ -366,7 +378,7 @@ function ThreadView({ ticketId, onBack, t }: { ticketId: string; onBack: () => v
     } catch {
       // Keep a loaded thread on a transient poll failure; only the FIRST load
       // surfaces a friendly error so a blank screen never strands the user.
-      if (mounted.current && !loadedRef.current) setError(true);
+      if (mounted.current) setError(true);
     } finally {
       loadedRef.current = true;
       if (mounted.current) setLoaded(true);
@@ -393,6 +405,7 @@ function ThreadView({ ticketId, onBack, t }: { ticketId: string; onBack: () => v
       void dialog.alert(t("support.thread_title"), t("support.reply_too_short"));
       return;
     }
+    if (sendingRef.current) return;
     setSending(true);
     sendingRef.current = true;
     try {
@@ -459,7 +472,7 @@ function ThreadView({ ticketId, onBack, t }: { ticketId: string; onBack: () => v
                 <Skeleton width="40%" height={14} />
               </View>
             </Card>
-          ) : error ? (
+          ) : error && messages.length === 0 ? (
             <Card flat>
               <EmptyState title={t("support.thread_title")} description={t("support.thread_load_error")} />
             </Card>
@@ -471,6 +484,7 @@ function ThreadView({ ticketId, onBack, t }: { ticketId: string; onBack: () => v
             messages.map((m) => <Bubble key={m.id} message={m} t={t} />)
           )}
 
+          {error && messages.length > 0 ? <Text variant="small" tone="danger">{t("support.thread_load_error")}</Text> : null}
           {resolved ? (
             <Card flat>
               <Text variant="small" tone="secondary">{t("support.resolved_notice")}</Text>
@@ -486,6 +500,7 @@ function ThreadView({ ticketId, onBack, t }: { ticketId: string; onBack: () => v
                 onChangeText={setReply}
                 placeholder={t("support.reply_placeholder")}
                 multiline
+                maxLength={4000}
                 style={{ minHeight: 64, textAlignVertical: "top", paddingTop: space.md }}
               />
               <Button
@@ -551,6 +566,8 @@ const segStyles = {
     alignItems: "center" as const
   },
   chip: {
+    minHeight: 44,
+    justifyContent: "center" as const,
     paddingVertical: space.sm,
     paddingHorizontal: space.md,
     borderRadius: 999,

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Share, View } from "react-native";
 import { AppHeader, Button, Card, IconBadge, Input, Screen, Text, colors, space, dialog } from "@jr/ui";
 import { me } from "../api";
@@ -19,7 +19,9 @@ export function MedicalProfileScreen({
   onBack: () => void;
   onUpdated?: (profile: any) => void;
 }) {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const dirty = useRef(false);
+  const [loadError, setLoadError] = useState(false);
   const [profile, setProfile] = useState<any>(initial);
   const [name, setName] = useState<string>(initial?.name ?? "");
   const [bloodGroup, setBloodGroup] = useState<string>(initial?.bloodGroup ?? "");
@@ -28,21 +30,25 @@ export function MedicalProfileScreen({
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    let active = true;
     me.get()
       .then((r) => {
+        if (!active || dirty.current) return;
         setProfile(r.profile);
         setName(r.profile.name ?? "");
         setBloodGroup(r.profile.bloodGroup ?? "");
         setAllergies(r.profile.allergies ?? "");
         setEmergencyContact(r.profile.emergencyContact ?? "");
       })
-      .catch(() => {});
+      .catch(error => { console.warn("medical_profile_load_failed", error?.message); if (active) setLoadError(true); });
+    return () => { active = false; };
   }, []);
 
   const save = async () => {
+    if (busy || !name.trim()) return;
     setBusy(true);
     try {
-      const r = await me.update({ name, bloodGroup, allergies, emergencyContact });
+      const r = await me.update({ name: name.trim(), bloodGroup: bloodGroup.trim(), allergies: allergies.trim(), emergencyContact: emergencyContact.trim() });
       setProfile(r.profile);
       onUpdated?.(r.profile);
       void dialog.alert(t("common.saved_title"), t("medical.saved_body"));
@@ -57,21 +63,25 @@ export function MedicalProfileScreen({
   const shareApp = async () => {
     try {
       await Share.share({ message: t("share.message").replace("{link}", SHARE_LINK) });
-    } catch {
-      /* user dismissed the share sheet — nothing to do */
+    } catch (error: any) {
+      console.warn("profile_share_failed", error?.message);
+      void dialog.alert(lang === "hi" ? "शेयर नहीं हुआ" : "Could not share", t("common.try_again_short"));
     }
   };
 
   return (
-    <Screen>
-      <AppHeader title={t("home.medical_profile")} subtitle={t("medical.subtitle")} onBack={onBack} />
+    <Screen
+      header={<AppHeader title={t("home.medical_profile")} subtitle={t("medical.subtitle")} onBack={onBack} />}
+      footer={<Button label={t("common.save")} onPress={save} loading={busy} disabled={busy || !name.trim()} fullWidth size="lg" testID="save-profile" />}
+    >
+      {loadError ? <Text variant="small" tone="secondary">{lang === "hi" ? "नवीनतम जानकारी लोड नहीं हुई। सहेजने से पहले विवरण जाँचें।" : "Could not refresh your profile. Check the details before saving."}</Text> : null}
 
       <Card flat>
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
           <IconBadge glyph="◉" bg="rgba(30,94,255,0.10)" color={colors.accent} size={44} />
           <View style={{ flex: 1 }}>
             <Text variant="label" tone="secondary">{t("medical.account_label")}</Text>
-            <Text variant="body" weight="semi">{profile?.phone ?? "-"}</Text>
+            <Text variant="body" weight="semi">{profile?.phone ?? "·"}</Text>
           </View>
         </View>
       </Card>
@@ -82,23 +92,22 @@ export function MedicalProfileScreen({
             <IconBadge glyph="✚" bg={colors.primaryFaint} color={colors.primary} size={36} />
             <Text variant="label" tone="secondary">{t("medical.edit_details_label")}</Text>
           </View>
-          <Input label={t("profile_setup.name_label")} value={name} onChangeText={setName} placeholder={t("medical.name_placeholder")} />
-          <Input label={t("medical.blood_group_label")} value={bloodGroup} onChangeText={setBloodGroup} placeholder={t("medical.blood_group_placeholder")} autoCapitalize="characters" />
+          <Input label={t("profile_setup.name_label")} value={name} onChangeText={value => { dirty.current = true; setName(value); }} placeholder={t("medical.name_placeholder")} />
+          <Input label={t("medical.blood_group_label")} value={bloodGroup} onChangeText={value => { dirty.current = true; setBloodGroup(value); }} placeholder={t("medical.blood_group_placeholder")} autoCapitalize="characters" />
           <Input
             label={t("medical.allergies_label")}
             value={allergies}
-            onChangeText={setAllergies}
+            onChangeText={value => { dirty.current = true; setAllergies(value); }}
             placeholder={t("medical.allergies_placeholder")}
             multiline
           />
           <Input
             label={t("medical.emergency_contact_label")}
             value={emergencyContact}
-            onChangeText={setEmergencyContact}
+            onChangeText={value => { dirty.current = true; setEmergencyContact(value); }}
             keyboardType="phone-pad"
             placeholder={t("medical.emergency_contact_placeholder")}
           />
-          <Button label={t("common.save")} onPress={save} loading={busy} fullWidth size="lg" testID="save-profile" />
         </View>
       </Card>
 

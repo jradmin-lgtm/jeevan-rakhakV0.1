@@ -69,9 +69,7 @@ export function HospitalMap({ ambulance, destination, routePath = null, height =
     };
     try {
       frame.contentWindow.postMessage({ type: "jr:map:update", payload }, "*");
-    } catch {
-      /* iframe not ready yet — next poll re-pushes */
-    }
+    } catch (error) { console.warn("HospitalMap.tsx.HospitalMap failed"); }
   }, [ambulance?.lat, ambulance?.lng, ambulance?.label, destination?.lat, destination?.lng, destination?.label, routeKey]);
 
   return (

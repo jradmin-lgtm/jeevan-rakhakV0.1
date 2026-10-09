@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { adminFetch } from "../../../lib/adminFetch";
 import { formatIST } from "../../../lib/dates";
@@ -20,67 +20,74 @@ type Driver = {
   status: string;
   kycVerified: boolean;
   rating: number;
+  ratingCount?: number;
   lastSeenAt?: string | null;
   isDemo?: boolean;
   disabled?: boolean;
 };
 
-export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Driver[]; apiBase: string }) {
+export function DriversList({ initialDrivers, initialError, apiBase }: { initialDrivers: Driver[]; initialError?: string; apiBase: string }) {
+  const [loadError, setLoadError] = useState(initialError ?? "");
   const [status, setStatus] = useState<string>("all");
   const [query, setQuery] = useState<string>("");
   const [rows, setRows] = useState<Driver[]>(initialDrivers);
   const [preset, setPreset] = useState<Preset>("30d");
   const [range, setRange] = useState<DateRange>(presetToRange("30d"));
 
+  const [search, setSearch] = useState("");
+  const [cursors, setCursors] = useState<string[]>([""]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [total, setTotal] = useState<number | null>(null);
+  const [summary, setSummary] = useState<{ total: number; online: number; onTrip: number } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const cursor = cursors[cursors.length - 1];
   useEffect(() => {
-    let alive = true;
+    const timer = setTimeout(() => { setSearch(query.trim()); setCursors([""]); }, 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+  const paramsFor = (next = "", limit = 100) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (status !== "all") params.set("status", status);
+    if (range.since) params.set("since", range.since);
+    if (range.until) params.set("until", range.until);
+    if (search) params.set("q", search);
+    if (next) params.set("cursor", next);
+    return params;
+  };
+  useEffect(() => {
+    let alive = true, running = false;
+    const controller = new AbortController();
     const fetchRows = async () => {
+      if (running) return;
+      running = true; setLoading(true);
       try {
-        const params = new URLSearchParams();
-        if (range.since) params.set("since", range.since);
-        if (range.until) params.set("until", range.until);
-        const qs = params.toString();
-        const res = await adminFetch(`${apiBase}/api/v1/admin/drivers${qs ? "?" + qs : ""}`);
-        // The same-origin proxy resolves (not throws) a JSON error body on a
-        // transient 401/502 cold start — skip this tick so a blip can't wipe
-        // the live rows. A later good poll repaints them.
-        if (!res.ok) return;
+        const res = await adminFetch(`${apiBase}/api/v1/admin/drivers?${paramsFor(cursor)}`, { signal: controller.signal });
+        if (!res.ok) throw new Error(`Driver updates are unavailable (${res.status}). Showing the last loaded data. Retrying automatically.`);
         const data = await res.json();
-        if (!alive) return;
-        setRows(data.drivers ?? []);
-      } catch {
-        /* keep last good */
-      }
+        if (alive) { setRows(data.drivers); setNextCursor(data.nextCursor); setTotal(data.total); setSummary(data.summary); setLoadError(""); }
+      } catch (error) {
+        if (alive) setLoadError(error instanceof Error ? error.message : "Driver updates are unavailable. Retrying automatically.");
+      } finally { running = false; if (alive) setLoading(false); }
     };
     void fetchRows();
     const id = setInterval(fetchRows, 5000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, [apiBase, range.since, range.until]);
-
-  const filtered = useMemo(() => {
-    let out = rows;
-    if (status !== "all") out = out.filter((d) => d.status === status);
-    if (query) {
-      const q = query.toLowerCase();
-      out = out.filter(
-        (d) =>
-          (d.name ?? "").toLowerCase().includes(q) ||
-          d.phone.includes(q) ||
-          (d.vehicleNumber ?? "").toLowerCase().includes(q) ||
-          (d.email ?? "").toLowerCase().includes(q)
-      );
-    }
-    return out;
-  }, [rows, status, query]);
-
-  const onlineCount = rows.filter((d) => d.status !== "OFFLINE").length;
-  const onTripCount = rows.filter((d) => d.status === "ON_TRIP").length;
-
-  const exportCsv = () => {
-    downloadCsv(filtered, [
+    return () => { alive = false; clearInterval(id); controller.abort(); };
+  }, [apiBase, status, range.since, range.until, search, cursor]);
+  const filtered = rows;
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const exportRows: Driver[] = [];
+      let next = "";
+      do {
+        const res = await adminFetch(`${apiBase}/api/v1/admin/drivers?${paramsFor(next, 500)}`);
+        if (!res.ok) throw new Error(`CSV export failed (${res.status}). Please retry.`);
+        const data = await res.json();
+        exportRows.push(...data.drivers);
+        next = data.nextCursor ?? "";
+      } while (next);
+    downloadCsv(exportRows, [
       { header: "Driver ID", value: (d) => d.id },
       { header: "Phone", value: (d) => d.phone },
       { header: "Email", value: (d) => d.email ?? "" },
@@ -91,9 +98,11 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
       { header: "Licence", value: (d) => d.licenseNumber ?? "" },
       { header: "Status", value: (d) => d.status },
       { header: "KYC", value: (d) => d.kycVerified ? "Verified" : "Pending" },
-      { header: "Rating", value: (d) => d.rating?.toFixed(1) ?? "" },
+      { header: "Rating", value: (d) => (d.ratingCount ?? 0) > 0 ? d.rating.toFixed(1) : "Not rated" },
       { header: "Last seen (IST)", value: (d) => d.lastSeenAt ? formatIST(d.lastSeenAt) : "" }
     ], "jr-drivers");
+    } catch (error) { setLoadError(error instanceof Error ? error.message : "CSV export failed. Please retry."); }
+    finally { setExporting(false); }
   };
 
   return (
@@ -101,16 +110,17 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
       <div className="page-header">
         <div>
           <h1>Drivers</h1>
-          <p>{rows.length} in range · {onlineCount} online · {onTripCount} on trip</p>
+          <p>{summary ? `${summary.total} in range · ${summary.online} online · ${summary.onTrip} on trip` : "Loading driver totals…"}</p>
         </div>
-        <button onClick={exportCsv} style={{ background: "transparent", border: "1px solid var(--border, #E2E8F0)", color: "var(--ink, #0F172A)", padding: "8px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>⬇ Download CSV</button>
+        <button onClick={exportCsv} disabled={exporting} style={{ background: "transparent", border: "1px solid var(--border, #E2E8F0)", color: "var(--ink, #0F172A)", padding: "8px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{exporting ? "Preparing CSV…" : "Download CSV"}</button>
       </div>
       <div style={{ marginBottom: 12 }}>
-        <DateRangePicker preset={preset} range={range} onChange={(p, r) => { setPreset(p); setRange(r); }} />
+        <DateRangePicker preset={preset} range={range} onChange={(p, r) => { setPreset(p); setRange(r); setCursors([""]); }} />
       </div>
 
+      {loadError ? <div role="alert" className="card" style={{ marginBottom: 12, color: "var(--danger)" }}>{loadError}</div> : null}
       <div className="filter-bar">
-        <select value={status} onChange={(e) => setStatus(e.target.value)}>
+        <select value={status} onChange={(e) => { setStatus(e.target.value); setCursors([""]); }}>
           <option value="all">All statuses</option>
           <option value="AVAILABLE">Available</option>
           <option value="ON_TRIP">On trip</option>
@@ -123,7 +133,7 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
           onChange={(e) => setQuery(e.target.value)}
           style={{ flex: 1, minWidth: 240 }}
         />
-        <span className="muted" style={{ fontSize: 12 }}>{filtered.length} match</span>
+        <span className="muted" style={{ fontSize: 12 }}>{total === null ? "Loading…" : `${total} match · ${rows.length} on this page`}</span>
       </div>
 
       <div className="card" style={{ padding: 0 }}>
@@ -145,7 +155,7 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
               {filtered.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="muted" style={{ padding: 24, textAlign: "center" }}>
-                    No drivers match the current filters.
+                    {loading ? "Loading drivers…" : loadError ? "Driver records could not be loaded." : "No drivers match the current filters."}
                   </td>
                 </tr>
               ) : (
@@ -179,7 +189,7 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
                         {d.kycVerified ? "Verified" : "Pending"}
                       </span>
                     </td>
-                    <td>⭐ {d.rating?.toFixed(1) ?? "5.0"}</td>
+                    <td>{(d.ratingCount ?? 0) > 0 ? `★ ${d.rating.toFixed(1)}` : "Not rated"}</td>
                     <td className="mono muted">{d.lastSeenAt ? formatIST(d.lastSeenAt) : "-"}</td>
                     <td>
                       {d.disabled ? (
@@ -206,6 +216,11 @@ export function DriversList({ initialDrivers, apiBase }: { initialDrivers: Drive
             </tbody>
           </table>
         </div>
+      </div>
+      <div style={{ display: "flex", gap: 16, alignItems: "center", justifyContent: "center", padding: 16 }}>
+        <button disabled={cursors.length === 1 || loading} onClick={() => setCursors((v) => v.slice(0, -1))}>Previous</button>
+        <span>Page {cursors.length}</span>
+        <button disabled={!nextCursor || loading} onClick={() => { if (nextCursor) setCursors((v) => [...v, nextCursor]); }}>Next</button>
       </div>
     </>
   );

@@ -27,7 +27,7 @@ function usePollCount(path: string, ms: number): number {
         const data = await res.json();
         if (!alive) return;
         setN(Number(data?.active ?? data?.open ?? 0));
-      } catch { /* keep last good */ }
+      } catch (error) { console.warn("Sidebar.tsx.tick failed"); }
     };
     void tick();
     const id = setInterval(tick, ms);
@@ -57,11 +57,11 @@ export function Sidebar() {
   const tickets = usePollCount("/api/v1/admin/tickets/count", 30000);
 
   useEffect(() => {
-    try { if (localStorage.getItem(COLLAPSE_KEY) === "1") setCollapsed(true); } catch { /* ignored */ }
+    try { if (localStorage.getItem(COLLAPSE_KEY) === "1") setCollapsed(true); } catch (error) { console.warn("Sidebar.tsx.Sidebar failed"); }
   }, []);
   useEffect(() => {
     document.body.classList.toggle("nav-collapsed", collapsed);
-    try { localStorage.setItem(COLLAPSE_KEY, collapsed ? "1" : "0"); } catch { /* ignored */ }
+    try { localStorage.setItem(COLLAPSE_KEY, collapsed ? "1" : "0"); } catch (error) { console.warn("Sidebar.tsx.Sidebar failed"); }
     return () => { document.body.classList.remove("nav-collapsed"); };
   }, [collapsed]);
 

@@ -119,15 +119,16 @@ export function TicketThread({ ticketId, showStatus = false }: { ticketId: strin
         if (aliveRef.current) setNotFound(true);
         return;
       }
-      if (!res.ok) return;
+      if (!res.ok) throw new Error("Ticket refresh failed");
       const json = await res.json();
       if (!aliveRef.current) return;
       setTicket(json.ticket ?? null);
+      setError(previous => previous?.startsWith("Ticket updates are interrupted.") ? null : previous);
       const next: ThreadMessage[] = Array.isArray(json.messages) ? json.messages : [];
       setMessages((prev) => (sameMessages(prev, next) ? prev : next));
       setLoaded(true);
     } catch {
-      /* keep last good */
+      if (aliveRef.current) setError("Ticket updates are interrupted. Please retry or refresh this page.");
     }
   }, [ticketId]);
 

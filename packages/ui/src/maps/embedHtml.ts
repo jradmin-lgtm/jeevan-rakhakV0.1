@@ -1,3 +1,4 @@
+import { LEAFLET_JS, LEAFLET_CSS } from "./leafletAssets";
 import type { MapProviderConfig } from "../components/MapEmbed";
 
 /**
@@ -21,8 +22,8 @@ export type InitShape = {
  */
 const SHARED_CSS = `
 html,body,#map{height:100%;margin:0;padding:0;background:#eef2f7;font-family:-apple-system,Roboto,sans-serif}
-.leaflet-control-zoom,.leaflet-bottom.leaflet-right,.leaflet-control-attribution{display:none !important}
-.jr-pin{transform:translate(-50%,-100%);pointer-events:none}
+.leaflet-control-attribution{font-size:9px;background:rgba(255,255,255,.9)}
+.jr-pin{pointer-events:none}.jr-pin .label{max-width:150px;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
 .jr-pin .label{background:#E5322B;color:#fff;font-weight:700;padding:5px 10px;border-radius:14px;font-size:11px;letter-spacing:.3px;box-shadow:0 6px 14px rgba(229,50,43,.35), 0 2px 4px rgba(0,0,0,.2);white-space:nowrap;display:inline-block}
 .jr-pin .label.driver{background:#1E5EFF;box-shadow:0 6px 14px rgba(30,94,255,.35), 0 2px 4px rgba(0,0,0,.2)}
 .jr-pin .label.drop{background:#0F172A;box-shadow:0 6px 14px rgba(15,23,42,.35), 0 2px 4px rgba(0,0,0,.2)}
@@ -30,6 +31,7 @@ html,body,#map{height:100%;margin:0;padding:0;background:#eef2f7;font-family:-ap
 .jr-pin .dot.driver{background:#1E5EFF;box-shadow:0 0 0 4px rgba(30,94,255,.18), 0 4px 10px rgba(0,0,0,.25)}
 .jr-pin .dot.drop{background:#0F172A;box-shadow:0 0 0 4px rgba(15,23,42,.18), 0 4px 10px rgba(0,0,0,.25)}
 .jr-pin .pulse{position:absolute;top:50%;left:50%;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:#1E5EFF;animation:jrPulse 1.6s ease-out infinite;opacity:.7}
+@media (prefers-reduced-motion: reduce){.jr-pin .pulse{animation:none;opacity:0}}
 @keyframes jrPulse {
   0% { transform:scale(1); opacity:.7 }
   100% { transform:scale(3.2); opacity:0 }
@@ -46,6 +48,9 @@ const PIN_JS = `
 // number, hospital name), so they are escaped before ever reaching innerHTML.
 // The label lands in TEXT position, never inside an attribute, but quotes are
 // escaped too so that stays true even if the markup is restructured later.
+window.addEventListener('error', function(event){
+  if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'jr:map:error', message:event.message || 'Map script error'}));
+});
 var JR_ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 function jrEscape(s){
   return String(s).replace(/[&<>"']/g, function(c){ return JR_ESC[c]; });
@@ -56,16 +61,16 @@ function jrPinHtml(label, kind){
   var safeKind = (kind === 'driver' || kind === 'drop' || kind === 'pickup') ? kind : '';
   var labelCls = 'label' + (safeKind ? ' ' + safeKind : '');
   var dotCls   = 'dot'   + (safeKind ? ' ' + safeKind : '');
-  var pulseHtml = safeKind === 'driver' ? '<span class="pulse"></span>' : '';
-  return '<div style="text-align:center"><span class="'+labelCls+'">'+jrEscape(label)+'</span><div class="'+dotCls+'">'+pulseHtml+'</div></div>';
+  var pulseHtml = '';
+  return '<div style="text-align:center;transform:translate(-50%,calc(-100% + 10px));width:max-content"><span class="'+labelCls+'">'+jrEscape(label)+'</span><div class="'+dotCls+'">'+pulseHtml+'</div></div>';
 }
-function jrReady(){
+function jrReady(){ window.__jrMapReady = true;
   if (window.ReactNativeWebView) {
-    try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'jr:map:ready' })); } catch (e) {}
+    try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'jr:map:ready', provider: window.__jrMapProvider })); } catch (e) { console.error("Map bridge update failed", e); }
   }
   // Replay an update that arrived before the renderer finished booting.
   if (window.jrPending && window.jrMap) {
-    try { window.jrMap.update(window.jrPending); } catch (e) {}
+    try { window.jrMap.update(window.jrPending); } catch (e) { console.error("Map bridge update failed", e); }
     window.jrPending = null;
   }
 }
@@ -81,6 +86,7 @@ function leafletBootJs(tileUrl: string, tileAttribution: string): string {
 window.__jrBootLeaflet = function(INIT){
   if (window.__jrLeafletBooted) return;
   window.__jrLeafletBooted = true;
+  window.__jrMapProvider = "osm";
 
   function start(){
     function makePin(label, kind){
@@ -91,8 +97,8 @@ window.__jrBootLeaflet = function(INIT){
     var initialDriver = (INIT.dLat != null && INIT.dLng != null) ? [INIT.dLat, INIT.dLng] : null;
     var initialDrop   = (INIT.drLat != null && INIT.drLng != null) ? [INIT.drLat, INIT.drLng] : null;
 
-    var map = L.map('map', { zoomControl: false, attributionControl: false, dragging: true, scrollWheelZoom: false, doubleClickZoom: false }).setView(pickup, 14);
-    L.tileLayer(${JSON.stringify(tileUrl)}, { attribution: ${JSON.stringify(tileAttribution)}, maxZoom: 19, detectRetina: true }).addTo(map);
+    var map = L.map('map', { zoomControl: true, attributionControl: true, dragging: true, scrollWheelZoom: true, doubleClickZoom: true, touchZoom: true }).setView(pickup, 14);
+    L.tileLayer(${JSON.stringify(tileUrl).replace(/</g, "\\u003c")}, { attribution: ${JSON.stringify(tileAttribution).replace(/</g, "\\u003c")}, maxZoom: 19, detectRetina: true }).on("tileerror", function(){ if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({ type: "jr:map:tiles-unavailable" })); }).on("tileload", function(){ if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({ type: "jr:map:tiles-available" })); }).addTo(map);
 
     var pickupMarker = L.marker(pickup, { icon: makePin(INIT.pLabel, 'pickup') }).addTo(map);
     var driverMarker = initialDriver ? L.marker(initialDriver, { icon: makePin(INIT.dLabel, 'driver') }).addTo(map) : null;
@@ -119,20 +125,27 @@ window.__jrBootLeaflet = function(INIT){
       if (trail) { trail.setLatLngs(trailCoords); }
       else { trail = L.polyline(trailCoords, { className: 'jr-trail', color: '#1E5EFF', weight: 3, opacity: .45 }).addTo(map); }
     }
+    var manuallyMoved = false;
+    map.on("dragstart zoomstart", function(e){ if (e.originalEvent) manuallyMoved = true; });
+    map.getContainer().addEventListener("touchstart", function(){ manuallyMoved = true; }, { passive: true });
+    map.getContainer().addEventListener("pointerdown", function(){ manuallyMoved = true; }, { passive: true });
+    map.getContainer().addEventListener("wheel", function(){ manuallyMoved = true; }, { passive: true });
     function fitAll(animate){
+      if (manuallyMoved || map.getContainer().clientWidth < 50 || map.getContainer().clientHeight < 50) return;
       var pts = [pickupMarker];
       if (driverMarker) pts.push(driverMarker);
       if (dropMarker) pts.push(dropMarker);
       if (navRoute) pts.push(navRoute);
       if (pts.length < 2) return;
-      map.fitBounds(L.featureGroup(pts).getBounds().pad(0.4), { animate: !!animate, duration: 0.7 });
+      map.fitBounds(L.featureGroup(pts).getBounds().pad(0.4), { maxZoom: 17, animate: !!animate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches, duration: 0.3 });
     }
     function animateMarkerTo(marker, target){
       if (!marker) return;
       var start = marker.getLatLng();
       var startLat = start.lat, startLng = start.lng, endLat = target[0], endLng = target[1];
       if (Math.abs(startLat - endLat) < 1e-6 && Math.abs(startLng - endLng) < 1e-6) return;
-      var dur = 1200, t0 = performance.now();
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { marker.setLatLng(target); refreshRoute(); return; }
+      var dur = 700, t0 = performance.now();
       function step(t){
         var p = Math.min(1, (t - t0) / dur);
         var e = 1 - Math.pow(1 - p, 3);
@@ -146,6 +159,15 @@ window.__jrBootLeaflet = function(INIT){
     if (INIT.routePath) setNavRoute(INIT.routePath);
     refreshRoute();
     fitAll(false);
+
+    // Native WebView can acquire its final size after this inline script runs.
+    // Re-measure before fitting, while retaining a user-controlled camera.
+    function resizeMap(){ map.invalidateSize({ pan: false }); fitAll(false); }
+    window.addEventListener("resize", resizeMap);
+    if (window.ResizeObserver) new ResizeObserver(resizeMap).observe(map.getContainer());
+    requestAnimationFrame(resizeMap);
+    setTimeout(resizeMap, 250);
+
 
     window.jrMap = {
       update: function(payload){
@@ -175,46 +197,33 @@ window.__jrBootLeaflet = function(INIT){
             if (!dropMarker) { dropMarker = L.marker(drpt, { icon: makePin(payload.drop.label || 'Drop', 'drop') }).addTo(map); fitAll(true); }
             else { animateMarkerTo(dropMarker, drpt); }
           } else if (dropMarker) { map.removeLayer(dropMarker); dropMarker = null; }
-          if (Object.prototype.hasOwnProperty.call(payload, 'routePath')) setNavRoute(payload.routePath || null);
+          if (Object.prototype.hasOwnProperty.call(payload, 'routePath')) setNavRoute(payload.routeProvider === 'google' && window.__jrMapProvider !== 'google' ? null : payload.routePath || null);
         } catch (e) {
-          // Don't crash the WebView on a bad update — drop it and keep the
-          // current frame visible.
+          console.error("Map position update failed", e);
+          if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type: "jr:map:error"}));
         }
       },
-      recenter: function(){ fitAll(true); }
+      recenter: function(){ manuallyMoved = false; fitAll(true); }
     };
     jrReady();
   }
 
   if (window.L) { start(); return; }
-  // Loaded on demand only when Google is unavailable, so the happy path never
-  // pays for Leaflet. Subresource-integrity hashes are the same pinned
-  // leaflet@1.9.4 digests this file carried before v2.2.0 — do not drop them
-  // when bumping the version, regenerate them.
-  var css = document.createElement('link');
-  css.rel = 'stylesheet';
-  css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-  css.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
-  css.crossOrigin = 'anonymous';
+  var css = document.createElement('style');
+  css.textContent = ${JSON.stringify(LEAFLET_CSS).replace(/</g, "\\u003c")};
   document.head.appendChild(css);
-  var s = document.createElement('script');
-  s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-  s.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
-  s.crossOrigin = 'anonymous';
-  s.onload = start;
-  // If the CDN is unreachable or the digest fails, there is nothing further to
-  // fall back to — surface it rather than spinning on a blank map.
-  s.onerror = function(){
-    var el = document.getElementById('map');
-    if (el) el.innerHTML = '<div style="display:flex;height:100%;align-items:center;justify-content:center;color:#64748B;font-size:13px">Map unavailable</div>';
-  };
-  document.body.appendChild(s);
+  var script = document.createElement('script');
+  script.textContent = ${JSON.stringify(LEAFLET_JS).replace(/</g, "\\u003c")};
+  document.body.appendChild(script);
+  start();
 };`;
 }
 
 /** Google Maps JavaScript API renderer — the real Google Maps UI. */
 const GOOGLE_BOOT_JS = `
 window.__jrBootGoogle = function(INIT){
+  if (window.__jrLeafletBooted) return;
+  window.__jrMapProvider = "google";
   var map = new google.maps.Map(document.getElementById('map'), {
     center: { lat: INIT.pLat, lng: INIT.pLng },
     zoom: 14,
@@ -229,6 +238,9 @@ window.__jrBootGoogle = function(INIT){
     // swallowed as a page scroll.
     gestureHandling: 'greedy'
   });
+
+  window.__jrGoogleMap = map;
+  google.maps.event.addListenerOnce(map, "tilesloaded", function(){ window.__jrGoogleTilesReady = true; });
 
   // Custom OverlayView pins: the map is Google's, the pins stay ours.
   function JrPin(latLng, label, kind){
@@ -289,7 +301,13 @@ window.__jrBootGoogle = function(INIT){
     if (trailCoords.length < 2) { if (trail) { trail.setMap(null); trail = null; } return; }
     if (trail) { trail.setPath(trailCoords); } else { trail = line(trailCoords, '#1E5EFF', 3, 0.45); }
   }
+  var manuallyMoved = false;
+  map.addListener("dragstart", function(){ manuallyMoved = true; });
+  map.getDiv().addEventListener("touchstart", function(){ manuallyMoved = true; }, { passive: true });
+  map.getDiv().addEventListener("pointerdown", function(){ manuallyMoved = true; }, { passive: true });
+  map.getDiv().addEventListener("wheel", function(){ manuallyMoved = true; }, { passive: true });
   function fitAll(){
+    if (manuallyMoved) return;
     var b = new google.maps.LatLngBounds();
     var n = 0;
     b.extend(pickupMarker.getPos()); n++;
@@ -304,6 +322,7 @@ window.__jrBootGoogle = function(INIT){
     if (!marker) return;
     var s = marker.getPos(), sLat = s.lat(), sLng = s.lng();
     if (Math.abs(sLat - lat) < 1e-6 && Math.abs(sLng - lng) < 1e-6) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { marker.setPos(ll(lat, lng)); refreshRoute(); return; }
     var dur = 1200, t0 = performance.now();
     function step(t){
       var p = Math.min(1, (t - t0) / dur);
@@ -345,19 +364,19 @@ window.__jrBootGoogle = function(INIT){
           if (!dropMarker) { dropMarker = new JrPin(ll(payload.drop.lat, payload.drop.lng), payload.drop.label || 'Drop', 'drop'); fitAll(); }
           else { animateMarkerTo(dropMarker, payload.drop.lat, payload.drop.lng); }
         } else if (dropMarker) { dropMarker.setMap(null); dropMarker = null; }
-        if (Object.prototype.hasOwnProperty.call(payload, 'routePath')) setNavRoute(payload.routePath || null);
+        if (Object.prototype.hasOwnProperty.call(payload, 'routePath')) setNavRoute(payload.routeProvider === 'google' && window.__jrMapProvider !== 'google' ? null : payload.routePath || null);
       } catch (e) {
-        // Don't crash the WebView on a bad update — drop it and keep the
-        // current frame visible.
+        console.error('Map position update failed');
+        if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'jr:map:error',message:'Position update failed'}));
       }
     },
-    recenter: function(){ fitAll(); }
+    recenter: function(){ manuallyMoved = false; fitAll(); }
   };
   jrReady();
 };`;
 
 export function buildEmbedHtml(init: InitShape, cfg: MapProviderConfig): string {
-  const initJson = JSON.stringify(init);
+  const initJson = JSON.stringify(init).replace(/</g, "\\u003c");
   const leaflet = leafletBootJs(cfg.tileUrl, cfg.tileAttribution);
 
   if (cfg.provider !== "google" || !cfg.googleBrowserKey) {
@@ -401,22 +420,26 @@ ${GOOGLE_BOOT_JS}
 // guard would see a live jrMap, skip the fallback, and leave a permanently
 // blank map. Verified against a deliberately invalid key.
 function jrForceFallback(){
+  if (window.__jrMapProvider === "osm" && window.jrMap) return;
+  if (window.__jrGoogleMap && window.google && google.maps) google.maps.event.clearInstanceListeners(window.__jrGoogleMap);
   window.jrMap = null;
   var el = document.getElementById('map');
   if (el) el.innerHTML = '';
   window.__jrLeafletBooted = false;
+  INIT.routePath = null;
+  if (window.jrPending) window.jrPending.routePath = null;
   window.__jrBootLeaflet(INIT);
 }
 // Tiles actually painted? .gm-style is Google's own wrapper, .leaflet-tile-pane
 // Leaflet's. Neither present means nothing rendered, whatever jrMap claims.
 function jrRendered(){
-  return !!(document.querySelector('.gm-style') || document.querySelector('.leaflet-tile-pane'));
+  return !!(window.__jrGoogleTilesReady || document.querySelector('.leaflet-tile-pane'));
 }
 window.gm_authFailure = jrForceFallback;
 window.jrGoogleInit = function(){
-  try { window.__jrBootGoogle(INIT); } catch (e) { jrForceFallback(); }
+  try { window.__jrBootGoogle(INIT); } catch (e) { console.error("Google map initialization failed; switching to backup map"); jrForceFallback(); }
 };
-setTimeout(function(){ if (!jrRendered()) jrForceFallback(); }, 6000);
+setTimeout(function(){ if (!jrRendered()) jrForceFallback(); }, 12000);
 </script>
 <!-- No subresource-integrity hash here, deliberately: the Maps JS bootstrap is
      generated per request (it varies by key, channel and rollout) and Google
@@ -424,7 +447,7 @@ setTimeout(function(){ if (!jrRendered()) jrForceFallback(); }, 6000);
      the map on their next push. The Leaflet fallback above IS pinned. -->
 <script async
   src="https://maps.googleapis.com/maps/api/js?key=${keyParam}&callback=jrGoogleInit&loading=async&v=weekly"
-  onerror="jrFallback()"></script>
+  onerror="jrForceFallback()"></script>
 </body></html>`;
 }
 

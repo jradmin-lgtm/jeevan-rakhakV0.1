@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Animated, Linking, Pressable, StyleSheet, View } from "react-native";
+import { Linking, Pressable, View } from "react-native";
 import * as Location from "expo-location";
-import { AppHeader, Button, Card, IconBadge, OutOfServiceArea, PulseDot, Screen, Text, colors, space, dialog } from "@jr/ui";
+import { AppHeader, Button, OutOfServiceArea, MotionView, Screen, Text, colors, space, dialog } from "@jr/ui";
 import { Booking, EmergencyType, bookings as bookingsApi, serviceArea as serviceAreaApi } from "../api";
 import { SUPPORT_PHONE, SUPPORT_PHONE_DISPLAY } from "@jr/ui";
 import { SosCategoryPicker } from "../components/SosCategoryPicker";
@@ -27,26 +27,25 @@ function haversineDistanceKm(lat1: number, lng1: number, lat2: number, lng2: num
 // is unavailable we now show an alert pointing the user at the support
 // mobile number so they can book over the phone.
 async function getPickup(): Promise<{ lat: number; lng: number } | null> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    const perm = await Location.requestForegroundPermissionsAsync();
-    if (perm.status !== "granted") return null;
-    const fix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+    const permission = await Location.requestForegroundPermissionsAsync();
+    if (!permission.granted) return null;
+    const last = await Location.getLastKnownPositionAsync({ maxAge: 30_000, requiredAccuracy: 200 });
+    const fix = last ?? await Promise.race([
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+      new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("SOS location timed out")), 12_000); })
+    ]);
+    if (Date.now() - fix.timestamp > 60_000 || (fix.coords.accuracy ?? Infinity) > 250) throw new Error("SOS location is not accurate enough");
     return { lat: fix.coords.latitude, lng: fix.coords.longitude };
-  } catch {
-    try {
-      const last = await Location.getLastKnownPositionAsync();
-      if (last) return { lat: last.coords.latitude, lng: last.coords.longitude };
-    } catch {
-      /* ignored */
-    }
-    return null;
-  }
+  } catch (error) { console.warn("[sos] current pickup unavailable", error); return null; }
+  finally { if (timeout) clearTimeout(timeout); }
 }
 
 export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: (b: Booking) => void }) {
   const { t } = useT();
   const [busy, setBusy] = useState(false);
-  const breathe = useRef(new Animated.Value(1)).current;
+  const dispatching = useRef(false);
   // v1.3.x (geofence): public service-area config. When enabled, we block an
   // SOS whose pickup falls outside radiusKm of the hospital center before
   // hitting the server (the server enforces the same rule as a fallback).
@@ -80,22 +79,9 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
           hospitalName: sa.hospitalName
         });
       })
-      .catch(() => {
-        /* keep-last-good — server still gatekeeps on POST */
-      });
+      .catch((error) => { console.warn("SosScreen.tsx.SosScreen failed", error instanceof Error ? error.message : String(error)); });
     return () => { mounted = false; };
   }, []);
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(breathe, { toValue: 1.06, duration: 900, useNativeDriver: true }),
-        Animated.timing(breathe, { toValue: 1, duration: 900, useNativeDriver: true })
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [breathe]);
 
   // 2026-08-17 bug fix: this used to hardcode emergencyType: "CARDIAC" for
   // every SOS regardless of what was actually happening, and gated dispatch
@@ -104,6 +90,8 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
   // confirmation (net tap count unchanged: tap SOS -> tap a category, same
   // as tap SOS -> tap "Send SOS" before) — dispatch takes the real category.
   const dispatch = async (emergencyType: EmergencyType) => {
+    if (dispatching.current) return;
+    dispatching.current = true;
     setPickerVisible(false);
     setBusy(true);
     try {
@@ -113,8 +101,8 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
           title: t("sos.location_unavailable_title"),
           message: t("sos.location_unavailable_body").replace("{phone}", SUPPORT_PHONE_DISPLAY),
           actions: [
-            { label: t("sos.allow_location"), onPress: () => Linking.openSettings().catch(() => {}) },
-            { label: t("sos.call_number").replace("{phone}", SUPPORT_PHONE_DISPLAY), onPress: () => Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {}) },
+            { label: t("sos.allow_location"), onPress: () => Linking.openSettings().catch(error => { console.error("[sos] settings unavailable", error); void dialog.alert(t("sos.failed_title"), t("common.please_try_again")); }) },
+            { label: t("sos.call_number").replace("{phone}", SUPPORT_PHONE_DISPLAY), onPress: () => Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(error => { console.error("[sos] phone action unavailable", error); void dialog.alert(t("sos.failed_title"), SUPPORT_PHONE_DISPLAY); }) },
             { label: t("common.cancel"), style: "cancel" }
           ]
         });
@@ -159,81 +147,33 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
         void dialog.alert(t("sos.failed_title"), e?.message ?? t("common.please_try_again"));
       }
     } finally {
-      setBusy(false);
+      dispatching.current = false; setBusy(false);
     }
   };
 
   return (
-    <Screen bg={colors.danger} padding={0} scroll={false}>
-      <View style={styles.headerWrap}>
-        <AppHeader title="" onBack={onBack} />
-      </View>
-
-      <View style={styles.content}>
-        <View style={styles.headlineWrap}>
-          <Text variant="title" tone="inverse" weight="bold" align="center">
-            {t("sos.headline")}
-          </Text>
-          <Text variant="body" tone="inverse" align="center" style={{ opacity: 0.92 }}>
-            {t("sos.headline_sub")}
-          </Text>
+    <Screen bg={colors.surface}>
+      <AppHeader title={t("sos.button_label")} onBack={busy ? undefined : onBack} />
+      <MotionView style={{ gap: space.lg }}>
+        <View style={{ gap: space.sm }}>
+          <Text variant="title" weight="bold">{t("sos.headline")}</Text>
+          <Text tone="secondary">{t("sos.headline_sub")}</Text>
         </View>
-
-        <View style={styles.ringWrap}>
-          <PulseDot size={140} color="#FFFFFF" rings={3} />
-          <Animated.View style={[styles.bigButton, { transform: [{ scale: breathe }] }]}>
-            <Pressable
-              onPress={() => setPickerVisible(true)}
-              android_ripple={{ color: "rgba(255,255,255,0.2)", borderless: true }}
-              style={styles.bigButtonInner}
-              disabled={busy}
-            >
-              <Text
-                variant="title"
-                tone="inverse"
-                weight="bold"
-                style={{ fontSize: 48, lineHeight: 56, letterSpacing: 1, textAlign: "center" }}
-              >
-                {t("sos.button_label")}
-              </Text>
-              <Text variant="small" tone="inverse" style={{ opacity: 0.92, marginTop: 4 }}>
-                {t("home.sos.tap")}
-              </Text>
-            </Pressable>
-          </Animated.View>
+        <Pressable accessibilityRole="button" accessibilityState={{ disabled: busy, busy }} accessibilityLabel={t("sos.button_label")}
+          onPress={() => setPickerVisible(true)} disabled={busy} testID="sos-open-categories"
+          style={({ pressed }) => ({ minHeight: 164, padding: 24, borderRadius: 20, backgroundColor: "#A51D24", justifyContent: "center", gap: 8, opacity: busy || pressed ? 0.75 : 1 })}>
+          <Text weight="bold" tone="inverse" style={{ fontSize: 44, lineHeight: 50 }}>{t("sos.button_label")} ↗</Text>
+          <Text tone="inverse">{busy ? t("sos.sending") : t("home.sos.tap")}</Text>
+        </Pressable>
+        <View style={{ gap: space.sm, paddingVertical: space.md }}>
+          <Text variant="heading">{t("sos.info_card_title")}</Text>
+          <Text tone="secondary">{t("sos.info_card_body")}</Text>
+          <Button label={t("emergency.disclaimer.title")} variant="neutral" onPress={() => void dialog.alert(t("emergency.disclaimer.title"), t("emergency.disclaimer.body"))} />
+          <Button label={t("sos.call_number").replace("{phone}", SUPPORT_PHONE_DISPLAY)} variant="outline" onPress={() => void Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(error => { console.error("[sos] phone action unavailable", error); void dialog.alert(t("sos.failed_title"), SUPPORT_PHONE_DISPLAY); })} />
+          <Button label={t("sos.cancel_and_back")} variant="ghost" onPress={onBack} disabled={busy} />
         </View>
+      </MotionView>
 
-        <Card style={styles.infoCard}>
-          <View style={{ gap: space.md }}>
-            <View style={{ flexDirection: "row", alignItems: "flex-start", gap: space.md }}>
-              <IconBadge glyph="!" bg="#FEE2E2" color={colors.danger} size={44} />
-              <View style={{ flex: 1 }}>
-                <Text variant="heading" weight="semi">{t("sos.info_card_title")}</Text>
-                <Text variant="small" tone="secondary" style={{ marginTop: 4 }}>
-                  {t("sos.info_card_body")}
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => dialog.alert(t("emergency.disclaimer.title"), t("emergency.disclaimer.body"))}
-                accessibilityRole="button"
-                accessibilityLabel={t("emergency.disclaimer.title")}
-                hitSlop={8}
-              >
-                <IconBadge glyph="i" size={26} bg={colors.primaryFaint} color={colors.primary} />
-              </Pressable>
-            </View>
-            <Button label={t("sos.cancel_and_back")} variant="outline" onPress={onBack} fullWidth />
-            {busy ? (
-              <Text variant="small" tone="secondary" align="center">{t("sos.sending")}</Text>
-            ) : null}
-          </View>
-        </Card>
-      </View>
-
-      {/* v1.3.x (geofence): out-of-area sheet with the EMERGENCY fallback. A
-        * stranded out-of-area SOS must get 108 + support prominently, so we
-        * pass emergency so the call-108 block is surfaced above the
-        * explanation. Non-blocking when not visible. */}
       <OutOfServiceArea
         visible={outOfAreaVisible}
         onClose={() => setOutOfAreaVisible(false)}
@@ -251,49 +191,3 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  headerWrap: { paddingHorizontal: space.lg, paddingTop: space.lg },
-  content: {
-    flex: 1,
-    paddingHorizontal: space.lg,
-    paddingBottom: space.xl,
-    gap: space.lg,
-    alignItems: "center",
-    justifyContent: "space-between"
-  },
-  headlineWrap: { gap: space.sm, paddingHorizontal: space.md, alignItems: "center" },
-  ringWrap: {
-    width: 240,
-    height: 240,
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative"
-  },
-  bigButton: {
-    position: "absolute",
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    backgroundColor: colors.danger,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 4,
-    borderColor: "rgba(255,255,255,0.3)",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 6
-  },
-  bigButtonInner: {
-    width: "100%",
-    height: "100%",
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  infoCard: {
-    backgroundColor: "#FFFFFF",
-    width: "100%"
-  }
-});

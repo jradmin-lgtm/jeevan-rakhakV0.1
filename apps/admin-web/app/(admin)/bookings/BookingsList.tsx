@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { adminFetch } from "../../../lib/adminFetch";
 import { formatIST } from "../../../lib/dates";
@@ -62,55 +62,68 @@ const CANCEL_OUTCOME_LABELS: Record<string, string> = {
   CLOSED: "Closed"
 };
 
-export function BookingsList({ initialBookings, apiBase }: { initialBookings: Booking[]; apiBase: string }) {
+export function BookingsList({ initialBookings, initialError, apiBase }: { initialBookings: Booking[]; initialError?: string; apiBase: string }) {
   const [status, setStatus] = useState<string>("all");
   const [query, setQuery] = useState<string>("");
   const [rows, setRows] = useState<Booking[]>(initialBookings);
   const [preset, setPreset] = useState<Preset>("30d");
   const [range, setRange] = useState<DateRange>(presetToRange("30d"));
 
+  const [search, setSearch] = useState("");
+  const [cursors, setCursors] = useState<string[]>([""]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [total, setTotal] = useState<number | null>(null);
+  const [error, setError] = useState(initialError ?? "");
+  const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const cursor = cursors[cursors.length - 1];
   useEffect(() => {
-    let alive = true;
+    const timer = setTimeout(() => { setSearch(query.trim()); setCursors([""]); }, 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+  const paramsFor = (next = "", limit = 100) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (status !== "all") params.set("status", status);
+    if (range.since) params.set("since", range.since);
+    if (range.until) params.set("until", range.until);
+    if (search) params.set("q", search);
+    if (next) params.set("cursor", next);
+    return params;
+  };
+  useEffect(() => {
+    let alive = true, running = false;
+    const controller = new AbortController();
     const fetchRows = async () => {
+      if (running) return;
+      running = true; setLoading(true);
       try {
-        const params = new URLSearchParams();
-        if (status !== "all") params.set("status", status);
-        if (range.since) params.set("since", range.since);
-        if (range.until) params.set("until", range.until);
-        const qs = params.toString();
-        const res = await adminFetch(`${apiBase}/api/v1/admin/bookings${qs ? "?" + qs : ""}`);
-        // The same-origin proxy resolves (not throws) a JSON error body on a
-        // transient 401/502 cold start — skip this tick so a blip can't wipe
-        // the live rows. A later good poll repaints them.
-        if (!res.ok) return;
+        const res = await adminFetch(`${apiBase}/api/v1/admin/bookings?${paramsFor(cursor)}`, { signal: controller.signal });
+        if (!res.ok) throw new Error(`Bookings could not refresh (${res.status}).`);
         const data = await res.json();
-        if (!alive) return;
-        setRows(data.bookings ?? []);
-      } catch {
-        /* keep last good */
-      }
+        if (alive) { setRows(data.bookings); setNextCursor(data.nextCursor); setTotal(data.total); setError(""); }
+      } catch (error) {
+        if (alive) setError(error instanceof Error ? error.message : "Bookings could not refresh. Please retry.");
+      } finally { running = false; if (alive) setLoading(false); }
     };
     void fetchRows();
     const id = setInterval(fetchRows, 5000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, [apiBase, status, range.since, range.until]);
+    return () => { alive = false; clearInterval(id); controller.abort(); };
+  }, [apiBase, status, range.since, range.until, search, cursor]);
+  const filtered = rows;
 
-  const filtered = useMemo(() => {
-    if (!query) return rows;
-    const q = query.toLowerCase();
-    return rows.filter(
-      (b) =>
-        (b.pickupAddress ?? "").toLowerCase().includes(q) ||
-        (b.dropAddress ?? "").toLowerCase().includes(q) ||
-        b.id.includes(q)
-    );
-  }, [rows, query]);
-
-  const exportCsv = () => {
-    downloadCsv(filtered, [
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const exportRows: Booking[] = [];
+      let next = "";
+      do {
+        const res = await adminFetch(`${apiBase}/api/v1/admin/bookings?${paramsFor(next, 500)}`);
+        if (!res.ok) throw new Error(`CSV export failed (${res.status}). Please retry.`);
+        const data = await res.json();
+        exportRows.push(...data.bookings);
+        next = data.nextCursor ?? "";
+      } while (next);
+      downloadCsv(exportRows, [
       { header: "Booking #", value: (b) => b.displayId ?? "" },
       { header: "Booking UUID", value: (b) => b.id },
       { header: "Created (IST)", value: (b) => formatIST(b.createdAt) },
@@ -126,6 +139,8 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
       { header: "Rating", value: (b) => b.rating ?? "" },
       { header: "Paramedic assessment", value: (b) => assessmentBadge(b.status, b.paramedicAssessment).label }
     ], "jr-bookings");
+    } catch (error) { setError(error instanceof Error ? error.message : "CSV export failed. Please retry."); }
+    finally { setExporting(false); }
   };
 
   return (
@@ -133,15 +148,15 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
       <div className="page-header">
         <div>
           <h1>Bookings</h1>
-          <p>{rows.length} in range</p>
+          <p>{total == null ? "Loading bookings" : `${total} in range`}</p>
         </div>
-        <button onClick={exportCsv} style={csvBtnStyle}>⬇ Download CSV</button>
+        <button onClick={exportCsv} disabled={exporting} style={csvBtnStyle}>{exporting ? "Preparing CSV…" : "Download CSV"}</button>
       </div>
       <div style={{ marginBottom: 12 }}>
         <DateRangePicker
           preset={preset}
           range={range}
-          onChange={(p, r) => { setPreset(p); setRange(r); }}
+          onChange={(p, r) => { setPreset(p); setRange(r); setCursors([""]); }}
         />
       </div>
 
@@ -152,7 +167,7 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
             <button
               key={s}
               type="button"
-              onClick={() => setStatus(s)}
+              onClick={() => { setStatus(s); setCursors([""]); }}
               style={statusChipStyle(active)}
             >
               {s === "all" ? "All" : shortStatus(s)}
@@ -164,14 +179,21 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
       <div className="filter-bar">
         <input
           type="text"
-          placeholder="Search pickup, drop, or booking id…"
+          aria-label="Search bookings"
+          placeholder="Search booking number, pickup or drop"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           style={{ flex: 1, minWidth: 240 }}
         />
-        <span className="muted" style={{ fontSize: 12 }}>{filtered.length} match</span>
+        <span className="muted" style={{ fontSize: 12 }}>{filtered.length} shown</span>
       </div>
 
+      {error ? <div role="alert" style={{ color: "#B42318", padding: "12px 0" }}>{error} Previously loaded rows may be out of date.</div> : null}
+      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
+        <button disabled={cursors.length === 1 || loading} onClick={() => setCursors((v) => v.slice(0, -1))}>Previous</button>
+        <span>Page {cursors.length}</span>
+        <button disabled={!nextCursor || loading} onClick={() => { if (nextCursor) setCursors((v) => [...v, nextCursor]); }}>Next</button>
+      </div>
       <div className="card" style={{ padding: 0 }}>
         <div style={{ overflowX: "auto" }}>
           <table className="table">
@@ -192,7 +214,7 @@ export function BookingsList({ initialBookings, apiBase }: { initialBookings: Bo
               {filtered.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="muted" style={{ padding: 24, textAlign: "center" }}>
-                    No bookings match the current filters.
+                    {loading ? "Loading bookings…" : error ? "Bookings unavailable. Refresh will retry automatically." : "No bookings match the current filters."}
                   </td>
                 </tr>
               ) : (

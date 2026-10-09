@@ -27,26 +27,34 @@ export async function fetchOsrmRoute(
   to: { lat: number; lng: number },
   opts?: { signal?: AbortSignal }
 ): Promise<OsrmRoute | null> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  opts?.signal?.addEventListener("abort", abort);
+  if (opts?.signal?.aborted) controller.abort();
+  const timeout = setTimeout(abort, 8000);
   try {
     const url =
       `${OSRM_BASE}/${from.lng},${from.lat};${to.lng},${to.lat}` +
       `?overview=full&geometries=geojson`;
-    const res = await fetch(url, { signal: opts?.signal });
-    if (!res.ok) return null;
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`Road route HTTP ${res.status}`);
     const data: any = await res.json();
     const route = data?.routes?.[0];
     const line = route?.geometry?.coordinates;
-    if (!Array.isArray(line) || line.length < 2) return null;
+    if (!Array.isArray(line) || line.length < 2 || !Number.isFinite(route.distance) || !Number.isFinite(route.duration) || route.distance < 0 || route.duration < 0) throw new Error("Road route response is incomplete");
+    if (line.some((point: unknown) => !Array.isArray(point) || point.length < 2 || !Number.isFinite(point[0]) || !Number.isFinite(point[1]) || Math.abs(point[0]) > 180 || Math.abs(point[1]) > 90)) throw new Error("Road route contains invalid coordinates");
     const coords = line.map(
       (c: [number, number]) => [c[1], c[0]] as [number, number]
     );
     return {
       coords,
-      distanceKm: Number(route.distance ?? 0) / 1000,
-      durationMin: Number(route.duration ?? 0) / 60
+      distanceKm: route.distance / 1000,
+      durationMin: route.duration / 60
     };
-  } catch {
-    // Network error / abort / throttle — caller falls back to haversine.
+  } catch (error) {
+    console.warn("Road route unavailable", error);
     return null;
+  } finally {
+    clearTimeout(timeout); opts?.signal?.removeEventListener("abort", abort);
   }
 }

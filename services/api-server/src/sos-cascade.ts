@@ -1,3 +1,4 @@
+import { realtimeRequest } from "./realtime-http";
 /**
  * SOS Cascading Dispatch Engine (v1.0.15)
  *
@@ -154,9 +155,10 @@ async function getEligibleDrivers(pickupLat: number, pickupLng: number): Promise
 
 async function emitToDriver(driverId: string, event: string, payload: unknown) {
   try {
-    await fetch(`${config.socketBaseUrl}/internal/emit-to-driver`, {
+    await realtimeRequest(`${config.socketBaseUrl}/internal/emit-to-driver`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-internal": config.internalApiSecret },
+      signal: AbortSignal.timeout(10_000),
       body: JSON.stringify({ driverId, event, payload })
     });
   } catch (err) {
@@ -169,7 +171,7 @@ async function emitToDriver(driverId: string, event: string, payload: unknown) {
 
 async function emitToUser(userId: string, event: string, payload: unknown) {
   try {
-    await fetch(`${config.socketBaseUrl}/internal/emit-to-user`, {
+    await realtimeRequest(`${config.socketBaseUrl}/internal/emit-to-user`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-internal": config.internalApiSecret },
       body: JSON.stringify({ userId, event, payload })
@@ -244,7 +246,7 @@ async function runWave(app: FastifyInstance, state: RunnerState): Promise<void> 
         "sos_new",
         { emergencyType: state.emergencyType, distanceKm: target.distanceKm },
         { bookingId: state.bookingId, kind: "sos" },
-        "sos_alerts"
+        "sos_alerts_v2"
       );
     } catch (err) {
       app.log.warn(
@@ -365,5 +367,19 @@ export async function resumeOnBoot(app: FastifyInstance): Promise<void> {
     } catch (err) {
       app.log.warn({ err, bookingId: b.id }, "[sos] resume failed");
     }
+  }
+}
+
+export async function offerPendingSosToDriver(app: FastifyInstance, driverId: string): Promise<void> {
+  const pending = await db.select().from(bookings).where(and(eq(bookings.status, "REQUESTED"), eq(bookings.isSos, true))).orderBy(bookings.createdAt).limit(50);
+  for (const b of pending) {
+    const candidates = await getEligibleDrivers(b.pickupLat, b.pickupLng);
+    const rank = candidates.findIndex((d) => d.driverId === driverId);
+    if (rank < 0 || rank >= MAX_DRIVERS) continue;
+    const [attempt] = await db.insert(sosDispatchAttempts).values({ bookingId: b.id, driverId, waveNumber: rank + 1, distanceKm: candidates[rank].distanceKm, pushedAt: new Date() }).onConflictDoNothing().returning();
+    if (!attempt) continue;
+    await emitToDriver(driverId, "sos:incoming", { bookingId: b.id, emergencyType: b.emergencyType, pickupLat: b.pickupLat, pickupLng: b.pickupLng, pickupAddress: b.pickupAddress, pickupLandmark: b.pickupLandmark, displayId: b.displayId, createdAt: b.createdAt, distanceKm: candidates[rank].distanceKm, waveNumber: rank + 1 });
+    await pushToDriver(driverId, "sos_new", { emergencyType: b.emergencyType, distanceKm: candidates[rank].distanceKm }, { bookingId: b.id, kind: "sos" }, "sos_alerts_v2");
+    app.log.info({ bookingId: b.id, driverId }, "[sos] eligible pending request offered on availability change");
   }
 }

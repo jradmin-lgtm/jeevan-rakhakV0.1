@@ -181,14 +181,14 @@ async function clearResponderCards(
 
 const raiseSchema = z.object({
   bookingId: z.string().uuid(),
-  lat: z.number(),
-  lng: z.number(),
+  lat: z.number().finite().min(-90).max(90),
+  lng: z.number().finite().min(-180).max(180),
   note: z.string().max(500).optional()
 });
 
 const ackSchema = z.object({
-  lat: z.number().optional(),
-  lng: z.number().optional()
+  lat: z.number().finite().min(-90).max(90).optional(),
+  lng: z.number().finite().min(-180).max(180).optional()
 });
 
 const resolveSchema = z.object({
@@ -202,8 +202,8 @@ export async function registerSafetyRoutes(app: FastifyInstance) {
     { preHandler: [(app as any).authenticate] },
     async (req: any, reply) => {
       const { sub, role } = req.user;
-      if (role !== "user" && role !== "driver") {
-        return reply.code(403).send({ error: "user_or_driver_only" });
+      if (role !== "driver") {
+        return reply.code(403).send({ error: "driver_only" });
       }
       const parsed = raiseSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -402,8 +402,8 @@ export async function registerSafetyRoutes(app: FastifyInstance) {
     { preHandler: [(app as any).authenticate] },
     async (req: any, reply) => {
       const { sub, role } = req.user;
-      if (role !== "user" && role !== "driver") {
-        return reply.code(403).send({ error: "user_or_driver_only" });
+      if (role !== "driver") {
+        return reply.code(403).send({ error: "driver_only" });
       }
       const id = String(req.params.id);
 

@@ -40,3 +40,13 @@ export {
   JrGoogleSignInError
 } from "./auth/googleSignIn";
 export type { JrSignInError } from "./auth/googleSignIn";
+
+export { newerFix, remainingRoute } from "./maps/tracking";
+
+export { MotionView } from "./components/MotionView";
+export { useReducedMotion } from "./hooks/useReducedMotion";
+
+export { createRideCache } from "./maps/rideCache";
+export type { CachedRide, CachedRoadRoute } from "./maps/rideCache";
+export { useRideRoute } from "./hooks/useRideRoute";
+export { GoogleSignInButton } from "./components/GoogleSignInButton";

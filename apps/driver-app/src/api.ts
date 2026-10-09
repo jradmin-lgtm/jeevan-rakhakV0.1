@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 declare const __DEV__: boolean;
-// Metro's inliner only handles direct `process.env.EXPO_PUBLIC_*` access.
+// Metro inlines public settings only through direct environment access.
 // Indirect (globalThis.process) leaves the value undefined on native Android.
 declare const process: { env: Record<string, string | undefined> };
 
@@ -31,17 +31,28 @@ export async function setToken(token: string) {
 }
 
 export async function clearToken() {
+  const location = await import("./backgroundLocation");
+  await location.stopBackgroundLocationTracking();
+  const previousSession = await getToken();
   inMemoryToken = null;
   await AsyncStorage.removeItem(TOKEN_KEY);
   await AsyncStorage.removeItem(PROFILE_KEY);
+  await AsyncStorage.removeItem("jr.driver.active-ride");
+  await AsyncStorage.removeItem("jr.driver.location-queue");
+  const push = await import("./push");
+  try { await push.revokePushSession(previousSession); }
+  catch (error) {
+    console.error("Logout completed, but notification cleanup failed", error);
+    const { dialog } = await import("@jr/ui");
+    void dialog.alert("Signed out / साइन आउट", "Notification access could not be cleared. Turn off this app’s notifications in device settings until you sign in again. / सूचना की अनुमति साफ़ नहीं हो सकी। दोबारा साइन इन करने तक डिवाइस सेटिंग में इस ऐप की सूचनाएँ बंद करें।");
+  }
+
 }
 
 export async function setCachedProfile(profile: unknown) {
   try {
     await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
-  } catch {
-    /* best-effort cache */
-  }
+  } catch (error) { console.warn("api.ts.setCachedProfile failed", error instanceof Error ? error.message : String(error)); }
 }
 
 export async function getCachedProfile(): Promise<any | null> {
@@ -61,12 +72,22 @@ export async function api<T = any>(path: string, opts: RequestOpts = {}): Promis
     const t = await getToken();
     if (t) headers.Authorization = `Bearer ${t}`;
   }
-  const res = await fetch(`${API_BASE}${path}`, {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
+  let res: Response;
+  let text: string;
+  try {
+  res = await fetch(`${API_BASE}${path}`, {
+    signal: controller.signal,
     method: opts.method ?? "GET",
     headers,
     body: opts.body ? JSON.stringify(opts.body) : undefined
   });
-  const text = await res.text();
+  text = await res.text();
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error("Connection timed out. Please retry.");
+    throw error;
+  } finally { clearTimeout(timeout); }
   const json = text ? JSON.parse(text) : {};
   if (!res.ok) {
     const err = new Error(json?.error ?? `request_failed_${res.status}`);
@@ -87,6 +108,7 @@ export type Booking = {
   pickupLat: number;
   pickupLng: number;
   pickupAddress?: string | null;
+  pickupLandmark?: string | null;
   dropLat?: number | null;
   dropLng?: number | null;
   dropAddress?: string | null;
@@ -101,6 +123,7 @@ export type Booking = {
   // patientCondition + patientNotes are intentionally NOT included — driver
   // app must never display them (medical-privacy rule per team feedback).
   paramedicAssessment?: Record<string, unknown> | null;
+  hasParamedicAssessment?: boolean;
   rating?: number | null;
   feedback?: string | null;
   ratingByDriver?: number | null;
@@ -173,18 +196,19 @@ export const driver = {
   // v1.0.15: "online" heartbeat for the SOS cascade engine. Driver app pings
   // every 60s while online + foregrounded. Server upserts into
   // driver_heartbeats so the cascade can pick nearest available drivers.
-  heartbeat: (lat: number, lng: number) =>
-    api<void>("/api/v1/driver/heartbeat", { method: "POST", body: { lat, lng } }),
+  heartbeat: (lat: number, lng: number, ts: number) =>
+    api<void>("/api/v1/driver/heartbeat", { method: "POST", body: { lat, lng, ts } }),
   pushLocation: (
     lat: number,
     lng: number,
     bookingId?: string,
     speedKmh?: number,
-    headingDeg?: number
+    headingDeg?: number,
+    ts?: number
   ) =>
     api<{ ok: true }>("/api/v1/driver/location", {
       method: "POST",
-      body: { lat, lng, bookingId, speedKmh, headingDeg }
+      body: { lat, lng, bookingId, speedKmh, headingDeg, ts }
     }),
   submitKyc: (data: {
     name?: string;
@@ -279,6 +303,7 @@ export type IncomingRequest = {
   pickup_lat: number;
   pickup_lng: number;
   pickup_address: string | null;
+  pickup_landmark?: string | null;
   patient_name: string | null;
   created_at: string;
   is_sos: boolean;
@@ -455,4 +480,16 @@ export const mapConfig = (): Promise<MapConfig> => {
       .catch(() => MAP_CONFIG_FALLBACK);
   }
   return mapConfigCache;
+};
+
+export const places = {
+  reverse: (lat: number, lng: number) => api<{ address: string; landmark: string | null }>(`/api/v1/places/reverse?lat=${lat}&lng=${lng}`),
+  autocomplete: (input: string, sessionToken: string) =>
+    api<{ available: boolean; predictions: { placeId: string; description: string }[] }>(
+      `/api/v1/places/autocomplete?input=${encodeURIComponent(input)}&sessionToken=${encodeURIComponent(sessionToken)}`
+    ),
+  details: (placeId: string, sessionToken: string) =>
+    api<{ available: boolean; lat?: number; lng?: number; formattedAddress?: string }>(
+      `/api/v1/places/details?placeId=${encodeURIComponent(placeId)}&sessionToken=${encodeURIComponent(sessionToken)}`
+    )
 };

@@ -38,6 +38,8 @@ type Props = {
    * configured on the server.
    */
   mapConfig?: MapProviderConfig | null;
+  routeProvider?: "google" | "osm";
+  onProviderChange?: (provider: "google" | "osm") => void;
 };
 
 /**
@@ -81,9 +83,14 @@ function MapEmbedInner({
   drop,
   height = 240,
   routePath = null,
-  mapConfig = null
+  mapConfig = null,
+  routeProvider = "osm",
+  onProviderChange
 }: Props) {
   const [loaded, setLoaded] = useState(false);
+  const [mapError, setMapError] = useState(false);
+  const [tilesUnavailable, setTilesUnavailable] = useState(false);
+  const [retry, setRetry] = useState(0);
   const webRef = useRef<WebView | null>(null);
 
   const cfg = mapConfig && mapConfig.provider ? mapConfig : OSM_FALLBACK;
@@ -108,7 +115,7 @@ function MapEmbedInner({
   // provider resolves AFTER first paint (fallback OSM -> server-provided
   // Google). Keying the WebView on the provider identity does exactly that,
   // and only that: coord updates still stream in without a reload.
-  const providerKey = `${cfg.provider}:${cfg.googleBrowserKey ? "k" : "nk"}`;
+  const providerKey = `${cfg.provider}:${cfg.googleBrowserKey}`;
 
   const html = useMemo(
     () => buildEmbedHtml(initialRef.current, cfg),
@@ -116,16 +123,21 @@ function MapEmbedInner({
     [providerKey]
   );
 
+  useEffect(() => { setLoaded(false); setMapError(false); setTilesUnavailable(false); }, [providerKey, retry]);
+  useEffect(() => {
+    if (loaded) { setMapError(false); return; }
+    const timeout = setTimeout(() => { console.error("Map renderer did not report ready within 20 seconds"); setMapError(true); }, 20_000);
+    // Some Android WebViews install the message bridge after the inline map
+    // script finishes. Probe readiness until the native side acknowledges it.
+    const probe = setInterval(() => webRef.current?.injectJavaScript("if (window.__jrMapReady && window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'jr:map:ready',provider:window.__jrMapProvider})); true;"), 1000);
+    return () => { clearTimeout(timeout); clearInterval(probe); };
+  }, [loaded, providerKey, retry]);
+
   // Push driver/pickup/drop updates into the WebView without rebuilding.
   // Each call runs JS inside the existing map → smooth animation.
   // Cheap stable key for the route geometry so the effect only re-injects
   // when the path actually changes (not on every parent re-render).
-  const routeKey = useMemo(() => {
-    if (!routePath || routePath.length === 0) return "";
-    const a = routePath[0];
-    const b = routePath[routePath.length - 1];
-    return `${routePath.length}:${a[0]},${a[1]}>${b[0]},${b[1]}`;
-  }, [routePath]);
+  const routeKey = useMemo(() => JSON.stringify(routePath), [routePath]);
 
   useEffect(() => {
     if (!loaded || !webRef.current) return;
@@ -133,6 +145,7 @@ function MapEmbedInner({
       pickup: { lat: pickup.lat, lng: pickup.lng, label: pickup.label ?? "Pickup" },
       driver: driver ? { lat: driver.lat, lng: driver.lng, label: driver.label ?? "Driver" } : null,
       drop: drop ? { lat: drop.lat, lng: drop.lng, label: drop.label ?? "Drop" } : null,
+      routeProvider,
       routePath: routePath && routePath.length > 1 ? routePath : null
     });
     // `true;` at the end suppresses the warning about non-undefined eval.
@@ -141,7 +154,7 @@ function MapEmbedInner({
     webRef.current.injectJavaScript(
       `(window.jrMap ? window.jrMap.update(${payload}) : (window.jrPending = ${payload})); true;`
     );
-  }, [loaded, pickup.lat, pickup.lng, pickup.label, driver?.lat, driver?.lng, driver?.label, drop?.lat, drop?.lng, drop?.label, routeKey, providerKey]);
+  }, [loaded, pickup.lat, pickup.lng, pickup.label, driver?.lat, driver?.lng, driver?.label, drop?.lat, drop?.lng, drop?.label, routeKey, routeProvider, providerKey]);
 
   const recenter = () => {
     if (!webRef.current) return;
@@ -150,13 +163,32 @@ function MapEmbedInner({
 
   return (
     <View style={[styles.wrap, { height }]}>
+      {tilesUnavailable ? <View style={{ position: "absolute", top: 4, left: 8, right: 8, zIndex: 2, backgroundColor: colors.surface, padding: 4 }}><Text variant="tiny">Road tiles unavailable. Showing saved route and pins.</Text></View> : null}
       <WebView
-        key={providerKey}
+        key={`${providerKey}:${retry}`}
         ref={webRef}
         originWhitelist={["*"]}
         source={{ html }}
+        onLoadEnd={() => webRef.current?.injectJavaScript("if (window.__jrMapReady && window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type: 'jr:map:ready',provider:window.__jrMapProvider})); true;")}
+        cacheEnabled
+        cacheMode="LOAD_DEFAULT"
+        applicationNameForUserAgent="JeevanRakshak/2.2.0 (+https://jr-admin.vercel.app)"
         style={styles.web}
-        onLoadEnd={() => setLoaded(true)}
+        onMessage={(event) => {
+          try {
+            const message = JSON.parse(event.nativeEvent.data);
+            if (message.type === "jr:map:ready") { setLoaded(true); setMapError(false); if (message.provider === "google" || message.provider === "osm") onProviderChange?.(message.provider); }
+            if (message.type === "jr:map:error") { console.error("Map renderer failed", message.message ?? "Position update failed"); setLoaded(false); setMapError(true); }
+            if (message.type === "jr:map:tiles-unavailable") setTilesUnavailable(true);
+            if (message.type === "jr:map:tiles-available") setTilesUnavailable(false);
+          } catch (error) { console.error("[map] invalid renderer message", error); }
+        }}
+        onError={() => { setLoaded(false); setMapError(true); }}
+        onRenderProcessGone={() => {
+          console.error("Map renderer stopped. User can restart it without leaving the ride.");
+          setLoaded(false); setMapError(true);
+        }}
+        onContentProcessDidTerminate={() => { setLoaded(false); setMapError(true); }}
         javaScriptEnabled
         domStorageEnabled
         scrollEnabled={false}
@@ -167,11 +199,15 @@ function MapEmbedInner({
         // to render blank/white on driver-app TripScreen once the driver
         // accepted a ride (Android 10+ regression with hardware-layered
         // WebViews inside frequently-re-rendered parents).
-        mixedContentMode="always"
+        mixedContentMode="never"
         setSupportMultipleWindows={false}
-        cacheEnabled
       />
-      {!loaded ? (
+      {!loaded && mapError ? (
+        <View style={styles.loading}>
+          <Text>Map unavailable. Check your connection.</Text>
+          <Pressable accessibilityRole="button" onPress={() => setRetry(value => value + 1)} style={{ padding: 14 }}><Text>Retry map</Text></Pressable>
+        </View>
+      ) : !loaded ? (
         <View style={styles.loading} pointerEvents="none">
           <ActivityIndicator size="small" color={colors.primary} />
           <Text variant="tiny" tone="muted" style={{ marginTop: space.xs }}>
@@ -179,7 +215,7 @@ function MapEmbedInner({
           </Text>
         </View>
       ) : (
-        <Pressable onPress={recenter} style={styles.recenterBtn} android_ripple={{ color: "rgba(229,50,43,0.12)", borderless: false }}>
+        <Pressable accessibilityLabel="Recenter map" accessibilityRole="button" onPress={recenter} style={styles.recenterBtn} android_ripple={{ color: "rgba(229,50,43,0.12)", borderless: false }}>
           <Text style={styles.recenterIcon}>⊕</Text>
         </Pressable>
       )}
@@ -205,9 +241,9 @@ const styles = StyleSheet.create({
   recenterBtn: {
     position: "absolute",
     right: 12,
-    bottom: 12,
-    width: 40,
-    height: 40,
+    bottom: 28,
+    width: 44,
+    height: 44,
     borderRadius: 20,
     backgroundColor: "#fff",
     alignItems: "center",

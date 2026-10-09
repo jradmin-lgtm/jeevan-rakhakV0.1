@@ -6,19 +6,20 @@ import { colors, radius, space } from "../tokens";
 type Props = {
   cityName: string;
   subtitle?: string;
+  title?: string;
 };
 
 /**
  * A slim, non-blocking ribbon that sits in the layout flow (not a modal/overlay).
  * Shows a small live dot plus "Live in <cityName>", with an optional muted subline.
  */
-function LaunchBannerInner({ cityName, subtitle }: Props) {
+function LaunchBannerInner({ cityName, subtitle, title }: Props) {
   return (
     <View style={styles.wrap}>
       <View style={styles.dot} />
       <View style={styles.copy}>
         <Text variant="small" weight="bold" tone="primary">
-          Live in {cityName}
+          {title ?? `Live in ${cityName}`}
         </Text>
         {subtitle ? (
           <Text variant="tiny" tone="muted" style={styles.subtitle}>
@@ -36,7 +37,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: space.sm,
-    backgroundColor: colors.primaryFaint,
+    backgroundColor: colors.bg,
     paddingHorizontal: space.lg,
     paddingVertical: space.sm,
     borderRadius: radius.md

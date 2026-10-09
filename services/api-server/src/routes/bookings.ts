@@ -1,3 +1,4 @@
+import { realtimeRequest } from "../realtime-http";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, count, desc, eq, isNull, sql as drizzleSql } from "drizzle-orm";
@@ -11,7 +12,7 @@ const MAX_ACTIVE_BOOKINGS_PER_USER = 1;
 import { config } from "@jr/config";
 import { haversineDistanceKm } from "@jr/utils";
 import { dismissPushToDriver, dismissPushToUser, pushToUser, sendPush } from "../push";
-import { getLiveRoute } from "../google-maps";
+import { getLiveRoute, resolveLocation } from "../google-maps";
 import { renderPushTemplate } from "../push-i18n";
 // v1.3.1: when a ride reaches a terminal state (COMPLETED / CANCELLED) any
 // still-ACTIVE in-ride safety alert for that booking is stale and must be
@@ -29,13 +30,15 @@ const bookingCreateSchema = z.object({
     "CARDIAC",
     "BREATHING_DISTRESS",
     "PREGNANCY_NEONATAL",
-    "GENERAL_CRITICAL_TRANSFER"
+    "GENERAL_CRITICAL_TRANSFER",
+    "REFERRAL_AMBULANCE",
+    "OPD_AMBULANCE"
   ]),
-  pickupLat: z.number(),
-  pickupLng: z.number(),
+  pickupLat: z.number().finite().min(-90).max(90),
+  pickupLng: z.number().finite().min(-180).max(180),
   pickupAddress: z.string().max(500).optional(),
-  dropLat: z.number().optional(),
-  dropLng: z.number().optional(),
+  dropLat: z.number().finite().min(-90).max(90).optional(),
+  dropLng: z.number().finite().min(-180).max(180).optional(),
   dropAddress: z.string().max(500).optional(),
   // Optional coupon the patient applied in the user app. Server validates it
   // against COUPONS below and stores the resulting discountInr + payableInr
@@ -45,12 +48,30 @@ const bookingCreateSchema = z.object({
   // Server treats SOS specially: skips the public pending pool, starts the
   // cascade engine, and defers payment to the post-completion screen.
   isSos: z.boolean().optional()
-});
+}).refine(value => (value.dropLat == null) === (value.dropLng == null), { message: "Destination latitude and longitude must be supplied together", path: ["dropLng"] });
 
 // v1.0.14: all fare logic lives in services/api-server/src/fare-config.ts.
 // `computeFare()` returns the full breakdown for /fares/quote, and
 // `computeFareTotal()` is the convenience shortcut for /bookings POST
 // (just the number to persist). Both are pure functions — no DB, no env.
+
+function bookingForRole(b: typeof bookings.$inferSelect, role: string) {
+  if (role === "hospital") { const { rideOtpCode, ...visible } = b; return visible; }
+  if (role !== "driver") return b;
+  const { rideOtpCode, patientCondition, patientConditions, patientNotes, paramedicAssessment, ...visible } = b;
+  return { ...visible, hasParamedicAssessment: !!paramedicAssessment };
+}
+
+async function canReadBooking(b: typeof bookings.$inferSelect, user: any): Promise<boolean> {
+  if (user.role === "hospital") {
+    if (!user.hospitalId || b.destHospitalId !== user.hospitalId) return false;
+    const [hospital] = await db.select({ enabled: hospitals.portalEnabled, password: hospitals.portalPasswordHash }).from(hospitals).where(eq(hospitals.id, user.hospitalId)).limit(1);
+    return !!hospital?.enabled && !!hospital.password;
+  }
+  return (user.role === "user" && b.userId === user.sub)
+    || (user.role === "driver" && b.driverId === user.sub)
+    || (user.role === "hospital" && !!user.hospitalId && b.destHospitalId === user.hospitalId);
+}
 
 export async function registerBookingRoutes(app: FastifyInstance) {
   // Service-area descriptor. PUBLIC (no auth) so the apps can render the launch
@@ -73,19 +94,19 @@ export async function registerBookingRoutes(app: FastifyInstance) {
   // exact number that will hit the bookings row. Auth-required so we don't
   // expose pricing publicly (could leak business model).
   const fareQuoteSchema = z.object({
-    pickupLat: z.number(),
-    pickupLng: z.number(),
-    dropLat: z.number().optional().nullable(),
-    dropLng: z.number().optional().nullable(),
+    pickupLat: z.number().finite().min(-90).max(90),
+    pickupLng: z.number().finite().min(-180).max(180),
+    dropLat: z.number().finite().min(-90).max(90).optional().nullable(),
+    dropLng: z.number().finite().min(-180).max(180).optional().nullable(),
     couponCode: z.string().max(40).optional().nullable(),
     // v1.0.13 (revised) — multipliers driven by these inputs. Optional so
     // older clients keep working (defaults: BLS vehicle, no emergency mult).
     vehicleType: z.string().max(16).optional().nullable(),
     emergencyType: z.string().max(40).optional().nullable()
-  });
+  }).refine(value => (value.dropLat == null) === (value.dropLng == null), { message: "Destination latitude and longitude must be supplied together", path: ["dropLng"] });
   app.post(
     "/api/v1/fares/quote",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate], config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 120, timeWindow: "1 minute" } } },
     async (req: any, reply) => {
       const parsed = fareQuoteSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -119,7 +140,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
   // the same list. Default hospital sorts first.
   app.get(
     "/api/v1/hospitals",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate], config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 120, timeWindow: "1 minute" } } },
     async (_req: any, reply) => {
       // v1.2.1 sec-fix: explicit safe-column select. A bare `db.select()`
       // here leaked portal_password_hash (+ username) to EVERY authenticated
@@ -147,7 +168,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
   // Create booking (user)
   app.post(
     "/api/v1/bookings",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate], config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 120, timeWindow: "1 minute" } } },
     async (req: any, reply) => {
       const { sub, role } = req.user;
       if (role !== "user") return reply.code(403).send({ error: "user_only" });
@@ -231,6 +252,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
 
       const isSos = data.isSos === true;
 
+      const resolvedPickup = await resolveLocation(data.pickupLat, data.pickupLng);
       const [created] = await db
         .insert(bookings)
         .values({
@@ -238,7 +260,8 @@ export async function registerBookingRoutes(app: FastifyInstance) {
           emergencyType: data.emergencyType,
           pickupLat: data.pickupLat,
           pickupLng: data.pickupLng,
-          pickupAddress: data.pickupAddress,
+          pickupAddress: resolvedPickup?.address ?? data.pickupAddress ?? `${data.pickupLat}, ${data.pickupLng}`,
+          pickupLandmark: resolvedPickup?.landmark ?? null,
           dropLat: data.dropLat,
           dropLng: data.dropLng,
           dropAddress: data.dropAddress,
@@ -266,7 +289,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         // pending list — only via the pushed SosIncomingModal.
         try {
           const { startCascade } = await import("../sos-cascade.js");
-          startCascade(app, created.id);
+          await startCascade(app, created.id);
         } catch (err) {
           // Fail-soft: if the cascade engine can't start (shouldn't happen),
           // log loudly and let ops handle it manually. The booking row is
@@ -277,7 +300,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       } else {
         // Normal flow: existing socket fan-out so it appears on driver Dashboard.
         try {
-          await fetch(`${config.socketBaseUrl}/internal/booking-created`, {
+          await realtimeRequest(`${config.socketBaseUrl}/internal/booking-created`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-internal": config.internalApiSecret },
             body: JSON.stringify({ bookingId: created.id })
@@ -297,11 +320,9 @@ export async function registerBookingRoutes(app: FastifyInstance) {
             for (const d of avail) {
               if (!d.t) continue;
               const { title, body } = renderPushTemplate("booking_new", d.lang);
-              void sendPush(d.t, title, body, { bookingId: created.id, kind: "booking" }, "booking_alerts");
+              void sendPush(d.t, title, body, { bookingId: created.id, kind: "booking" }, "booking_alerts_v2");
             }
-          } catch {
-            /* best-effort */
-          }
+          } catch (error) { console.warn("bookings.ts.registerBookingRoutes failed"); }
         })();
       }
 
@@ -317,14 +338,13 @@ export async function registerBookingRoutes(app: FastifyInstance) {
   // sees driver name + vehicle number on the live tracking card.
   app.get(
     "/api/v1/bookings/:id",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate], config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 120, timeWindow: "1 minute" } } },
     async (req: any, reply) => {
       const id = req.params.id as string;
       const { sub, role } = req.user;
       const [b] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
       if (!b) return reply.code(404).send({ error: "not_found" });
-      if (role === "user" && b.userId !== sub) return reply.code(403).send({ error: "forbidden" });
-      if (role === "driver" && b.driverId !== sub) return reply.code(403).send({ error: "forbidden" });
+      if (!await canReadBooking(b, req.user)) return reply.code(403).send({ error: "forbidden" });
 
       let driverProfile = null;
       let driverPosition = null;
@@ -337,7 +357,8 @@ export async function registerBookingRoutes(app: FastifyInstance) {
             phone: d.phone,
             vehicleNumber: d.vehicleNumber,
             vehicleType: d.vehicleType,
-            rating: d.rating
+            rating: d.rating,
+            ratingCount: d.ratingCount
           };
           if (d.lastLat != null && d.lastLng != null) {
             driverPosition = {
@@ -368,7 +389,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
           };
         }
       }
-      return reply.send({ booking: b, driverProfile, driverPosition, userProfile });
+      return reply.send({ booking: bookingForRole(b, role), driverProfile, driverPosition, userProfile });
     }
   );
 
@@ -381,14 +402,13 @@ export async function registerBookingRoutes(app: FastifyInstance) {
   // failure) tells the caller to keep using its current OSRM-based ETA.
   app.get(
     "/api/v1/bookings/:id/live-eta",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate], config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 120, timeWindow: "1 minute" } } },
     async (req: any, reply) => {
       const id = req.params.id as string;
       const { sub, role } = req.user;
       const [b] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
       if (!b) return reply.code(404).send({ error: "not_found" });
-      if (role === "user" && b.userId !== sub) return reply.code(403).send({ error: "forbidden" });
-      if (role === "driver" && b.driverId !== sub) return reply.code(403).send({ error: "forbidden" });
+      if (!await canReadBooking(b, req.user)) return reply.code(403).send({ error: "forbidden" });
 
       if (!config.googleLiveEtaEnabled || !b.driverId) {
         return reply.send({ available: false });
@@ -400,8 +420,10 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       // Before PICKED_UP the target is the pickup point (driver en route to
       // patient); dropLat/dropLng are only populated once the destination
       // hospital is auto-assigned at PICKED_UP (see schema.ts comment).
-      const destLat = b.dropLat ?? b.pickupLat;
-      const destLng = b.dropLng ?? b.pickupLng;
+      const pastPickup = b.status === "PICKED_UP";
+      const destLat = pastPickup ? b.dropLat ?? b.pickupLat : b.pickupLat;
+      const destLng = pastPickup ? b.dropLng ?? b.pickupLng : b.pickupLng;
+      if (!d.lastSeenAt || Date.now() - d.lastSeenAt.getTime() > 60_000) return reply.send({ available: false, reason: "stale_location" });
       const route = await getLiveRoute(d.lastLat, d.lastLng, destLat, destLng);
       if (!route) return reply.send({ available: false });
       // 2026-08-17: path = the decoded route polyline, so the caller can draw
@@ -411,7 +433,10 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         available: true,
         distanceKm: route.distanceKm,
         durationMin: route.durationMin,
-        path: route.path
+        path: route.path,
+        source: "google",
+        locationAt: d.lastSeenAt,
+        calculatedAt: new Date().toISOString()
       });
     }
   );
@@ -419,7 +444,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
   // List my bookings (user)
   app.get(
     "/api/v1/bookings/mine",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate], config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 120, timeWindow: "1 minute" } } },
     async (req: any, reply) => {
       const { sub, role } = req.user;
       const rows = await db
@@ -428,7 +453,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         .where(role === "user" ? eq(bookings.userId, sub) : eq(bookings.driverId, sub))
         .orderBy(desc(bookings.createdAt))
         .limit(50);
-      return reply.send({ bookings: rows });
+      return reply.send({ bookings: rows.map((b) => bookingForRole(b, req.user.role)) });
     }
   );
 
@@ -440,7 +465,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
   // first dispatch logic.
   app.get(
     "/api/v1/bookings/pending",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate], config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 120, timeWindow: "1 minute" } } },
     async (req: any, reply) => {
       const { role } = req.user;
       if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
@@ -456,7 +481,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         )
         .orderBy(desc(bookings.createdAt))
         .limit(20);
-      return reply.send({ bookings: rows });
+      return reply.send({ bookings: rows.map((b) => bookingForRole(b, req.user.role)) });
     }
   );
 
@@ -466,8 +491,8 @@ export async function registerBookingRoutes(app: FastifyInstance) {
     arrived: z.object({}),
     pickup: z.object({ code: z.string().regex(/^\d{4}$/, "OTP must be 4 digits") }),
     setDrop: z.object({
-      dropLat: z.number(),
-      dropLng: z.number(),
+      dropLat: z.number().finite().min(-90).max(90),
+      dropLng: z.number().finite().min(-180).max(180),
       dropAddress: z.string().max(500).optional()
     }),
     complete: z.object({ ratingByDriver: z.number().min(1).max(5).optional() }),
@@ -487,13 +512,13 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       payloadJson: payload ? JSON.stringify(payload) : null
     });
     try {
-      await fetch(`${config.socketBaseUrl}/internal/booking-event`, {
+      await realtimeRequest(`${config.socketBaseUrl}/internal/booking-event`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-internal": config.internalApiSecret },
         body: JSON.stringify({ bookingId, type, actor, payload })
       });
-    } catch {
-      /* swallow */
+    } catch (error) {
+      app.log.error({ error }, "Realtime delivery failed; saved booking state remains available through refresh");
     }
   }
 
@@ -505,7 +530,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
   async function emitToHospital(booking: { id: string; destHospitalId: string | null }) {
     if (!booking.destHospitalId) return;
     try {
-      await fetch(`${config.socketBaseUrl}/internal/emit-to-hospital`, {
+      await realtimeRequest(`${config.socketBaseUrl}/internal/emit-to-hospital`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-internal": config.internalApiSecret },
         body: JSON.stringify({
@@ -514,14 +539,14 @@ export async function registerBookingRoutes(app: FastifyInstance) {
           payload: { bookingId: booking.id }
         })
       });
-    } catch {
-      /* swallow */
+    } catch (error) {
+      app.log.error({ error }, "Realtime delivery failed; saved booking state remains available through refresh");
     }
   }
 
   app.post(
     "/api/v1/bookings/:id/accept",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate], config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 120, timeWindow: "1 minute" } } },
     async (req: any, reply) => {
       const { sub, role } = req.user;
       if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
@@ -553,7 +578,8 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       // second concurrent accept (the driver double-tapping, or a normal accept
       // racing an SOS accept) can never slip an overlapping ride through a
       // check-then-act gap. Covers BOTH normal and SOS accepts (same endpoint).
-      const [updated] = await db
+      const updated = await db.transaction(async tx => {
+        const [accepted] = await tx
         .update(bookings)
         .set({ driverId: sub, status: "ACCEPTED", acceptedAt: new Date() })
         .where(
@@ -569,6 +595,9 @@ export async function registerBookingRoutes(app: FastifyInstance) {
           )
         )
         .returning();
+        if (accepted) await tx.update(drivers).set({ status: "ON_TRIP", updatedAt: new Date() }).where(eq(drivers.id, sub));
+        return accepted;
+      });
       if (!updated) {
         // The guarded UPDATE matched no row. Figure out which condition failed
         // so the driver app shows the right message. If the driver already
@@ -588,10 +617,6 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         }
         return reply.code(409).send({ error: "already_taken" });
       }
-      await db
-        .update(drivers)
-        .set({ status: "ON_TRIP", updatedAt: new Date() })
-        .where(eq(drivers.id, sub));
       await emitBookingEvent(id, "booking.accepted", `driver:${sub}`);
       await emitToHospital(updated);
       // v1.1.0 push: wake the patient even if their app is backgrounded.
@@ -622,7 +647,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
           void dismissPushToDriver(sub, id);
           // Emit to the patient so LiveTrackingScreen flips out of the
           // "looking for ambulance" wait card.
-          await fetch(`${config.socketBaseUrl}/internal/emit-to-user`, {
+          await realtimeRequest(`${config.socketBaseUrl}/internal/emit-to-user`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-internal": config.internalApiSecret },
             body: JSON.stringify({
@@ -635,13 +660,13 @@ export async function registerBookingRoutes(app: FastifyInstance) {
           app.log.warn({ err, bookingId: id }, "[sos] post-accept cleanup failed");
         }
       }
-      return reply.send({ booking: updated });
+      return reply.send({ booking: bookingForRole(updated, role) });
     }
   );
 
   app.post(
     "/api/v1/bookings/:id/arrived",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate], config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 120, timeWindow: "1 minute" } } },
     async (req: any, reply) => {
       const { sub, role } = req.user;
       if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
@@ -649,19 +674,19 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       const [b] = await db
         .update(bookings)
         .set({ status: "ARRIVED", arrivedAt: new Date() })
-        .where(and(eq(bookings.id, id), eq(bookings.driverId, sub)))
+        .where(and(eq(bookings.id, id), eq(bookings.driverId, sub), eq(bookings.status, "ACCEPTED")))
         .returning();
-      if (!b) return reply.code(404).send({ error: "not_found_or_forbidden" });
+      if (!b) return reply.code(409).send({ error: "invalid_ride_state" });
       await emitBookingEvent(id, "booking.arrived", `driver:${sub}`);
       await emitToHospital(b);
       void pushToUser(b.userId, "driver_arrived", {}, { bookingId: id, status: "ARRIVED" });
-      return reply.send({ booking: b });
+      return reply.send({ booking: bookingForRole(b, role) });
     }
   );
 
   app.post(
     "/api/v1/bookings/:id/pickup",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate], config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 120, timeWindow: "1 minute" } } },
     async (req: any, reply) => {
       const { sub, role } = req.user;
       if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
@@ -676,7 +701,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       const [current] = await db
         .select()
         .from(bookings)
-        .where(and(eq(bookings.id, id), eq(bookings.driverId, sub)))
+        .where(and(eq(bookings.id, id), eq(bookings.driverId, sub), eq(bookings.status, "ARRIVED")))
         .limit(1);
       if (!current) return reply.code(404).send({ error: "not_found_or_forbidden" });
       if (current.status !== "ARRIVED") {
@@ -715,9 +740,9 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       const [b] = await db
         .update(bookings)
         .set({ status: "PICKED_UP", pickedUpAt: new Date(), ...destPatch })
-        .where(and(eq(bookings.id, id), eq(bookings.driverId, sub)))
+        .where(and(eq(bookings.id, id), eq(bookings.driverId, sub), eq(bookings.status, "ARRIVED")))
         .returning();
-      if (!b) return reply.code(404).send({ error: "not_found_or_forbidden" });
+      if (!b) return reply.code(409).send({ error: "invalid_ride_state" });
       await emitBookingEvent(id, "booking.picked_up", `driver:${sub}`, {
         destHospitalId: destPatch.destHospitalId ?? null
       });
@@ -725,7 +750,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       // dropAddress omitted (not defaulted to English text here) when unset —
       // the template's own per-language fallback ("the hospital" / "अस्पताल") applies.
       void pushToUser(b.userId, "en_route_hospital", b.dropAddress ? { dropAddress: b.dropAddress } : {}, { bookingId: id, status: "PICKED_UP" });
-      return reply.send({ booking: b });
+      return reply.send({ booking: bookingForRole(b, role) });
     }
   );
 
@@ -735,7 +760,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
   // PICKED_UP.
   app.post(
     "/api/v1/bookings/:id/set-drop",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate], config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 120, timeWindow: "1 minute" } } },
     async (req: any, reply) => {
       const { sub, role } = req.user;
       if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
@@ -751,7 +776,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
           dropLng: parsed.data.dropLng,
           dropAddress: parsed.data.dropAddress
         })
-        .where(and(eq(bookings.id, id), eq(bookings.driverId, sub)))
+        .where(and(eq(bookings.id, id), eq(bookings.driverId, sub), drizzleSql`${bookings.status} IN ('ACCEPTED','ARRIVED')`))
         .returning();
       if (!b) return reply.code(404).send({ error: "not_found_or_forbidden" });
       await emitBookingEvent(id, "booking.drop_set", `driver:${sub}`, {
@@ -759,56 +784,32 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         dropLng: parsed.data.dropLng,
         dropAddress: parsed.data.dropAddress
       });
-      return reply.send({ booking: b });
+      return reply.send({ booking: bookingForRole(b, role) });
     }
   );
 
   app.post(
     "/api/v1/bookings/:id/complete",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate], config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 120, timeWindow: "1 minute" } } },
     async (req: any, reply) => {
       const { sub, role } = req.user;
       if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
       const id = req.params.id as string;
-      const [b] = await db
-        .update(bookings)
-        .set({
-          status: "COMPLETED",
-          completedAt: new Date(),
-          fareFinalInr: undefined
-        })
-        .where(and(eq(bookings.id, id), eq(bookings.driverId, sub)))
-        .returning();
-      if (!b) return reply.code(404).send({ error: "not_found_or_forbidden" });
-      // Fall back to the minimum-fare floor when the booking row never got
-      // a quote (shouldn't happen post-v1.0.13 since /bookings POST always
-      // calls computeFareTotal, but legacy rows from pre-1.0.13 carry null).
-      const finalFare = b.fareEstimateInr ?? 300;
-      // Recompute discount + payable against the final fare. If a coupon was
-      // applied at creation the same rule runs again — covers the case where
-      // base fare gets a future recompute hook between create and complete.
-      const { discountInr, payableInr } = applyCoupon(finalFare, b.couponCode);
-      // v1.0.15: normal flow (non-SOS) auto-marks paid at completion since
-      // the patient saw + agreed to the fare upfront. SOS leaves paidAt NULL
-      // so LiveTrackingScreen routes to PaymentScreen for the post-completion
-      // coupon + Mark-paid flow.
-      const autoPay = b.isSos
-        ? {}
-        : { paidInr: payableInr, paidAt: new Date(), paidCoupon: b.couponCode ?? null };
-      await db
-        .update(bookings)
-        .set({ fareFinalInr: finalFare, discountInr, payableInr, ...autoPay })
-        .where(eq(bookings.id, id));
-      // v1.1.0 (CR#7): return the driver to AVAILABLE AND refresh lastSeenAt.
-      // Without the lastSeenAt bump, the worker's 90s stale-reap could flip a
-      // just-completed driver to OFFLINE before their Dashboard heartbeat
-      // re-armed — silently dropping them from the SOS dispatch pool after a
-      // few back-to-back rides. Bumping it here grants a fresh window each
-      // trip; the re-armed heartbeat then keeps it fresh.
-      await db
-        .update(drivers)
-        .set({ status: "AVAILABLE", lastSeenAt: new Date(), updatedAt: new Date() })
-        .where(eq(drivers.id, sub));
+      const b = await db.transaction(async tx => {
+        const [current] = await tx.select().from(bookings).where(and(eq(bookings.id, id), eq(bookings.driverId, sub))).limit(1).for("update");
+        if (!current || current.status !== "PICKED_UP") return null;
+        const finalFare = current.fareEstimateInr ?? 300;
+        const { discountInr, payableInr } = applyCoupon(finalFare, current.couponCode);
+        const [completed] = await tx.update(bookings).set({
+          status: "COMPLETED", completedAt: new Date(), fareFinalInr: finalFare, discountInr, payableInr,
+          ...(current.isSos ? {} : { paidInr: payableInr, paidAt: new Date(), paidCoupon: current.couponCode ?? null })
+        }).where(eq(bookings.id, id)).returning();
+        // Completing a ride does not manufacture a fresh GPS measurement.
+        await tx.update(drivers).set({ status: "AVAILABLE", updatedAt: new Date() }).where(eq(drivers.id, sub));
+        return completed;
+      });
+      if (!b) return reply.code(409).send({ error: "invalid_ride_state" });
+      const { fareFinalInr: finalFare, discountInr, payableInr } = b;
       await emitBookingEvent(id, "booking.completed", `driver:${sub}`, {
         finalFare,
         couponCode: b.couponCode,
@@ -829,15 +830,13 @@ export async function registerBookingRoutes(app: FastifyInstance) {
               .from(sosDispatchAttempts)
               .where(eq(sosDispatchAttempts.bookingId, id));
             for (const a of attempts) void dismissPushToDriver(a.driverId, id);
-          } catch {
-            /* best-effort */
-          }
+          } catch (error) { console.warn("bookings.ts.registerBookingRoutes failed"); }
         })();
       }
       // v1.3.1: the ride is over, so auto-resolve any still-ACTIVE safety alert
       // for it. Fire-and-forget so it never blocks the complete response.
       void autoResolveSafetyForBooking(id);
-      return reply.send({ booking: { ...b, fareFinalInr: finalFare, discountInr, payableInr } });
+      return reply.send({ booking: bookingForRole(b, role) });
     }
   );
 
@@ -846,6 +845,8 @@ export async function registerBookingRoutes(app: FastifyInstance) {
   // are admin-only so the driver focuses on driving and the hospital can be
   // prepared via the dashboard.
   const patientInfoSchema = z.object({
+    attendantName: z.string().trim().max(120).optional(),
+    attendantRelation: z.string().trim().max(80).optional(),
     patientName: z.string().max(120).optional(),
     patientAge: z.number().int().min(0).max(130).optional(),
     patientGender: z.enum(["M", "F", "O"]).optional(),
@@ -859,7 +860,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
 
   app.post(
     "/api/v1/bookings/:id/patient-info",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate], config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 120, timeWindow: "1 minute" } } },
     async (req: any, reply) => {
       const { sub, role } = req.user;
       if (role !== "user") return reply.code(403).send({ error: "user_only" });
@@ -886,13 +887,13 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       const [b] = await db
         .update(bookings)
         .set(parsed.data)
-        .where(and(eq(bookings.id, id), eq(bookings.userId, sub)))
+        .where(and(eq(bookings.id, id), eq(bookings.userId, sub), drizzleSql`${bookings.status} IN ('REQUESTED','ACCEPTED')`))
         .returning();
       if (!b) return reply.code(404).send({ error: "not_found_or_forbidden" });
       await emitBookingEvent(id, "booking.patient_info_captured", `user:${sub}`, {
         condition: parsed.data.patientConditions ?? parsed.data.patientCondition
       });
-      return reply.send({ booking: b });
+      return reply.send({ booking: bookingForRole(b, role) });
     }
   );
 
@@ -938,7 +939,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
 
   app.post(
     "/api/v1/bookings/:id/paramedic-assessment",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate], config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 120, timeWindow: "1 minute" } } },
     async (req: any, reply) => {
       const { sub, role } = req.user;
       if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
@@ -958,7 +959,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         immediateRisk: parsed.data.immediateRisk ?? false
       });
       await emitToHospital(b);
-      return reply.send({ booking: b });
+      return reply.send({ booking: bookingForRole(b, role) });
     }
   );
 
@@ -970,99 +971,43 @@ export async function registerBookingRoutes(app: FastifyInstance) {
     feedback: z.string().max(500).optional()
   });
 
-  /**
-   * Recompute a running average rating given the previous (avg, count) and
-   * the newly-submitted value. Server-side so we don't trust client-sent
-   * averages and so partial network failures can't poison the average.
-   * Returns the new (avg, count).
-   */
-  function nextRunningAvg(prevAvg: number, prevCount: number, newRating: number): { avg: number; count: number } {
-    const count = prevCount + 1;
-    const avg = (prevAvg * prevCount + newRating) / count;
-    return { avg: Number(avg.toFixed(3)), count };
+  // Claim one completed-ride rating and update its aggregate in one transaction.
+  for (const side of ["user", "driver"] as const) {
+    app.post(
+      `/api/v1/bookings/:id/${side === "user" ? "rate" : "rate-by-driver"}`,
+      { preHandler: [(app as any).authenticate], config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 120, timeWindow: "1 minute" } } },
+      async (req: any, reply) => {
+        const { sub, role } = req.user;
+        if (role !== side) return reply.code(403).send({ error: `${side}_only` });
+        const parsed = rateSchema.safeParse(req.body);
+        if (!parsed.success) return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+        const result = await db.transaction(async tx => {
+          const [existing] = await tx.select().from(bookings).where(and(eq(bookings.id, req.params.id), eq(side === "user" ? bookings.userId : bookings.driverId, sub))).limit(1).for("update");
+          if (!existing) return { status: 404, error: "not_found_or_forbidden" };
+          if (existing.status !== "COMPLETED") return { status: 409, error: "wrong_state" };
+          if ((side === "user" ? existing.rating : existing.ratingByDriver) != null) return { status: 409, error: "already_rated" };
+          const [booking] = await tx.update(bookings).set(side === "user"
+            ? { rating: parsed.data.rating, feedback: parsed.data.feedback }
+            : { ratingByDriver: parsed.data.rating, feedbackByDriver: parsed.data.feedback })
+            .where(eq(bookings.id, existing.id)).returning();
+          if (side === "user" && existing.driverId) {
+            await tx.update(drivers).set({
+              rating: drizzleSql`(${drivers.rating} * ${drivers.ratingCount} + ${parsed.data.rating}) / (${drivers.ratingCount} + 1)`,
+              ratingCount: drizzleSql`${drivers.ratingCount} + 1`, updatedAt: new Date()
+            }).where(eq(drivers.id, existing.driverId));
+          } else if (side === "driver") {
+            await tx.update(users).set({
+              rating: drizzleSql`(${users.rating} * ${users.ratingCount} + ${parsed.data.rating}) / (${users.ratingCount} + 1)`,
+              ratingCount: drizzleSql`${users.ratingCount} + 1`, updatedAt: new Date()
+            }).where(eq(users.id, existing.userId));
+          }
+          return { status: 200, booking };
+        });
+        if (!result.booking) return reply.code(result.status).send({ error: result.error });
+        return reply.send({ booking: bookingForRole(result.booking, role) });
+      }
+    );
   }
-
-  app.post(
-    "/api/v1/bookings/:id/rate",
-    { preHandler: [(app as any).authenticate] },
-    async (req: any, reply) => {
-      const { sub, role } = req.user;
-      if (role !== "user") return reply.code(403).send({ error: "user_only" });
-      const id = req.params.id as string;
-      const parsed = rateSchema.safeParse(req.body);
-      if (!parsed.success)
-        return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
-      // Read first so we know the driver to update.
-      const [existing] = await db
-        .select()
-        .from(bookings)
-        .where(and(eq(bookings.id, id), eq(bookings.userId, sub)))
-        .limit(1);
-      if (!existing) return reply.code(404).send({ error: "not_found_or_forbidden" });
-      if (existing.rating) {
-        return reply.code(409).send({ error: "already_rated", message: "You've already rated this trip." });
-      }
-      const [b] = await db
-        .update(bookings)
-        .set({ rating: parsed.data.rating, feedback: parsed.data.feedback })
-        .where(eq(bookings.id, id))
-        .returning();
-      // Recompute driver's running average + bump count.
-      if (existing.driverId) {
-        const [d] = await db.select().from(drivers).where(eq(drivers.id, existing.driverId)).limit(1);
-        if (d) {
-          const { avg, count } = nextRunningAvg(d.rating ?? 5, d.ratingCount ?? 0, parsed.data.rating);
-          await db
-            .update(drivers)
-            .set({ rating: avg, ratingCount: count, updatedAt: new Date() })
-            .where(eq(drivers.id, d.id));
-        }
-      }
-      return reply.send({ booking: b });
-    }
-  );
-
-  // Driver rates the patient (v1.0.11.3). Mirror of /rate. Either side
-  // rates exactly once per trip; the 409 already_rated gate prevents
-  // double-counting in the running average.
-  app.post(
-    "/api/v1/bookings/:id/rate-by-driver",
-    { preHandler: [(app as any).authenticate] },
-    async (req: any, reply) => {
-      const { sub, role } = req.user;
-      if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
-      const id = req.params.id as string;
-      const parsed = rateSchema.safeParse(req.body);
-      if (!parsed.success)
-        return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
-      const [existing] = await db
-        .select()
-        .from(bookings)
-        .where(and(eq(bookings.id, id), eq(bookings.driverId, sub)))
-        .limit(1);
-      if (!existing) return reply.code(404).send({ error: "not_found_or_forbidden" });
-      if (existing.ratingByDriver) {
-        return reply.code(409).send({ error: "already_rated", message: "You've already rated this patient." });
-      }
-      const [b] = await db
-        .update(bookings)
-        .set({ ratingByDriver: parsed.data.rating, feedbackByDriver: parsed.data.feedback })
-        .where(eq(bookings.id, id))
-        .returning();
-      // Recompute the patient's running average + count.
-      if (existing.userId) {
-        const [u] = await db.select().from(users).where(eq(users.id, existing.userId)).limit(1);
-        if (u) {
-          const { avg, count } = nextRunningAvg(u.rating ?? 5, u.ratingCount ?? 0, parsed.data.rating);
-          await db
-            .update(users)
-            .set({ rating: avg, ratingCount: count, updatedAt: new Date() })
-            .where(eq(users.id, u.id));
-        }
-      }
-      return reply.send({ booking: b });
-    }
-  );
 
   // v1.0.15: post-completion payment for SOS rides.
   //
@@ -1082,8 +1027,34 @@ export async function registerBookingRoutes(app: FastifyInstance) {
     couponCode: z.string().max(40).optional().nullable()
   });
   app.post(
-    "/api/v1/bookings/:id/mark-paid",
+    "/api/v1/bookings/:id/payment-preview",
     { preHandler: [(app as any).authenticate] },
+    async (req: any, reply) => {
+      const { sub, role } = req.user;
+      if (role !== "user") return reply.code(403).send({ error: "user_only" });
+      const parsed = markPaidSchema.safeParse(req.body ?? {});
+      if (!parsed.success) return reply.code(400).send({ error: "invalid_input" });
+      const [existing] = await db.select().from(bookings).where(eq(bookings.id, req.params.id)).limit(1);
+      if (!existing) return reply.code(404).send({ error: "not_found" });
+      if (existing.userId !== sub) return reply.code(403).send({ error: "forbidden" });
+      if (existing.status !== "COMPLETED") return reply.code(409).send({ error: "wrong_state" });
+      const finalFare = existing.fareFinalInr ?? existing.fareEstimateInr;
+      if (finalFare == null || !Number.isFinite(finalFare) || finalFare < 0) return reply.code(409).send({ error: "fare_not_available" });
+      if (existing.paidAt) {
+        if (existing.paidInr == null) return reply.code(409).send({ error: "payment_amount_not_available" });
+        return reply.send({ booking: existing, alreadyPaid: true, couponValid: true,
+          breakdown: { finalFare, couponCode: existing.paidCoupon, discountInr: finalFare - existing.paidInr, payableInr: existing.paidInr } });
+      }
+      const coupon = parsed.data.couponCode === undefined ? existing.couponCode : parsed.data.couponCode;
+      const breakdown = applyCoupon(finalFare, coupon);
+      return reply.send({ booking: existing, alreadyPaid: false,
+        couponValid: !coupon?.trim() || breakdown.couponCode !== null,
+        breakdown: { finalFare, ...breakdown } });
+    }
+  );
+  app.post(
+    "/api/v1/bookings/:id/mark-paid",
+    { preHandler: [(app as any).authenticate], config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 120, timeWindow: "1 minute" } } },
     async (req: any, reply) => {
       const { sub, role } = req.user;
       if (role !== "user") return reply.code(403).send({ error: "user_only" });
@@ -1097,10 +1068,11 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       if (existing.userId !== sub) return reply.code(403).send({ error: "forbidden" });
       // Idempotent — return the existing payment shape if already paid.
       if (existing.paidAt) {
+        if (existing.paidInr == null || !Number.isFinite(existing.paidInr) || existing.paidInr < 0) return reply.code(409).send({ error: "payment_record_incomplete" });
         return reply.send({
           booking: existing,
           paid: {
-            inr: existing.paidInr ?? 0,
+            inr: existing.paidInr,
             at: existing.paidAt,
             coupon: existing.paidCoupon ?? null
           }
@@ -1115,8 +1087,9 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       // Recompute discount + payable against the booking's final fare. Coupon
       // can come from this POST OR fall back to whatever was on the booking
       // already (normal flow stored it at creation).
-      const finalFare = existing.fareFinalInr ?? existing.fareEstimateInr ?? 300;
-      const coupon = parsed.data.couponCode ?? existing.couponCode ?? null;
+      const finalFare = existing.fareFinalInr ?? existing.fareEstimateInr;
+      if (finalFare == null || !Number.isFinite(finalFare) || finalFare < 0) return reply.code(409).send({ error: "fare_not_available" });
+      const coupon = parsed.data.couponCode === undefined ? existing.couponCode : parsed.data.couponCode;
       const { couponCode: appliedCoupon, discountInr, payableInr } = applyCoupon(finalFare, coupon);
       const now = new Date();
       const [updated] = await db
@@ -1131,8 +1104,13 @@ export async function registerBookingRoutes(app: FastifyInstance) {
           discountInr,
           payableInr
         })
-        .where(eq(bookings.id, id))
+        .where(and(eq(bookings.id, id), isNull(bookings.paidAt), eq(bookings.status, "COMPLETED")))
         .returning();
+      if (!updated) {
+        const [committed] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
+        if (!committed?.paidAt) return reply.code(409).send({ error: "payment_state_changed" });
+        return reply.send({ booking: committed, paid: { inr: committed.paidInr, at: committed.paidAt, coupon: committed.paidCoupon } });
+      }
       await emitBookingEvent(id, "booking.paid", `user:${sub}`, {
         paidInr: payableInr,
         couponCode: appliedCoupon,
@@ -1157,7 +1135,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
   // row exists (driver wasn't actually pushed), returns 409.
   app.post(
     "/api/v1/bookings/:id/reject",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate], config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 120, timeWindow: "1 minute" } } },
     async (req: any, reply) => {
       const { sub, role } = req.user;
       if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
@@ -1188,9 +1166,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       try {
         const { noteCascadeReject } = await import("../sos-cascade.js");
         noteCascadeReject(id, sub);
-      } catch {
-        /* ignore — DB row is the truth */
-      }
+      } catch (error) { console.warn("bookings.ts.registerBookingRoutes failed"); }
       await emitBookingEvent(id, "sos.rejected", `driver:${sub}`, {
         waveNumber: updated.waveNumber
       });
@@ -1201,29 +1177,23 @@ export async function registerBookingRoutes(app: FastifyInstance) {
   // Cancel — user can cancel their own; driver can cancel only the trip they're assigned to.
   app.post(
     "/api/v1/bookings/:id/cancel",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate], config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 120, timeWindow: "1 minute" } } },
     async (req: any, reply) => {
       const { sub, role } = req.user;
+      if (role !== "user") return reply.code(403).send({ error: role === "driver" ? "use_driver_cancellation_reason" : "user_only" });
       const id = req.params.id as string;
-      const [existing] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
-      if (!existing) return reply.code(404).send({ error: "not_found" });
-      if (role === "user" && existing.userId !== sub)
-        return reply.code(403).send({ error: "forbidden" });
-      if (role === "driver" && existing.driverId !== sub)
-        return reply.code(403).send({ error: "forbidden" });
-      if (!["REQUESTED", "ACCEPTED", "ARRIVED"].includes(existing.status))
-        return reply.code(409).send({ error: "cannot_cancel" });
-      const [b] = await db
-        .update(bookings)
-        .set({ status: "CANCELLED", cancelledAt: new Date() })
-        .where(eq(bookings.id, id))
-        .returning();
-      if (existing.driverId) {
-        await db
-          .update(drivers)
-          .set({ status: "AVAILABLE", updatedAt: new Date() })
-          .where(eq(drivers.id, existing.driverId));
-      }
+      const result = await db.transaction(async tx => {
+        const [existing] = await tx.select().from(bookings).where(eq(bookings.id, id)).limit(1).for("update");
+        if (!existing) return { status: 404, error: "not_found" };
+        if (existing.userId !== sub) return { status: 403, error: "forbidden" };
+        if (!["REQUESTED", "ACCEPTED", "ARRIVED"].includes(existing.status)) return { status: 409, error: "cannot_cancel" };
+        const [booking] = await tx.update(bookings).set({ status: "CANCELLED", cancelledAt: new Date() }).where(eq(bookings.id, id)).returning();
+        if (booking.driverId) await tx.update(drivers).set({ status: "AVAILABLE", updatedAt: new Date() }).where(eq(drivers.id, booking.driverId));
+        return { status: 200, booking };
+      });
+      if (!result.booking) return reply.code(result.status).send({ error: result.error });
+      const b = result.booking;
+      const existing = b;
       // Patient cancelling mid-cascade — stop the timer and dismiss any
       // pushed driver modals so nobody chases a dead booking. notifyCascadeLosers
       // (v1.2.8) also fires a silent dismissPush to every pushed driver so a
@@ -1233,8 +1203,8 @@ export async function registerBookingRoutes(app: FastifyInstance) {
           const { stopCascade, notifyCascadeLosers } = await import("../sos-cascade.js");
           stopCascade(id);
           await notifyCascadeLosers(id, /* winner */ "");
-        } catch {
-          /* best-effort */
+        } catch (error) {
+          app.log.error({ error, bookingId: id }, "Cancelled ride saved, but SOS dismissal failed");
         }
       }
       // v1.2.8: clear the patient's own tray notification for this dead booking
@@ -1246,22 +1216,23 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       void autoResolveSafetyForBooking(id);
       await emitBookingEvent(id, "booking.cancelled", `${role}:${sub}`);
       await emitToHospital(b);
-      return reply.send({ booking: b });
+      return reply.send({ booking: bookingForRole(b, role) });
     }
   );
 
   // Driver location push (used by driver app every 5s while on trip)
   const locationSchema = z.object({
     bookingId: z.string().uuid().optional(),
-    lat: z.number(),
-    lng: z.number(),
-    speedKmh: z.number().optional(),
-    headingDeg: z.number().optional()
+    lat: z.number().finite().min(-90).max(90),
+    lng: z.number().finite().min(-180).max(180),
+    speedKmh: z.number().finite().min(0).max(300).optional(),
+    headingDeg: z.number().finite().min(0).max(360).optional(),
+    ts: z.number().finite().optional()
   });
 
   app.post(
     "/api/v1/driver/location",
-    { preHandler: [(app as any).authenticate] },
+    { preHandler: [(app as any).authenticate], config: { rateLimit: { hook: "preHandler", keyGenerator: (request: any) => request.user?.sub ?? request.ip, max: 120, timeWindow: "1 minute" } } },
     async (req: any, reply) => {
       const { sub, role } = req.user;
       if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
@@ -1276,23 +1247,27 @@ export async function registerBookingRoutes(app: FastifyInstance) {
           return reply.code(403).send({ error: "not_assigned_to_booking" });
         }
       }
+      const fixTime = parsed.data.ts ?? Date.now();
+      if (fixTime > Date.now() + 10_000 || Date.now() - fixTime > 120_000) return reply.code(400).send({ error: "stale_location_fix" });
+      const recordedAt = new Date(fixTime);
       await db.insert(driverLocations).values({
         driverId: sub,
         bookingId: parsed.data.bookingId,
         lat: parsed.data.lat,
         lng: parsed.data.lng,
         speedKmh: parsed.data.speedKmh,
-        headingDeg: parsed.data.headingDeg
+        headingDeg: parsed.data.headingDeg,
+        recordedAt
       });
       await db
         .update(drivers)
         .set({
           lastLat: parsed.data.lat,
           lastLng: parsed.data.lng,
-          lastSeenAt: new Date(),
+          lastSeenAt: recordedAt,
           updatedAt: new Date()
         })
-        .where(eq(drivers.id, sub));
+        .where(and(eq(drivers.id, sub), drizzleSql`(${drivers.lastSeenAt} IS NULL OR ${drivers.lastSeenAt} <= ${recordedAt})`));
       return reply.send({ ok: true });
     }
   );
