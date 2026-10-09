@@ -9,6 +9,8 @@ async function read(path) {
   assert.equal(res.status, 200); return res.json();
 }
 (async () => {
+  const phonePrefix = '+91' + String(Date.now()).slice(-8);
+  await sql`INSERT INTO users (phone, name, created_at) SELECT ${phonePrefix} || lpad(n::text, 2, '0'), 'Isolated pagination fixture', now() + n * interval '1 microsecond' FROM generate_series(1, 20) n`;
   let cursor = '', total, example;
   const seen = new Set();
   do {
