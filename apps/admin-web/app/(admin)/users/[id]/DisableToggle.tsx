@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "../../../../components/ConfirmDialog";
 import { adminFetch } from "../../../../lib/adminFetch";
 
 /**
@@ -21,6 +22,7 @@ export function DisableToggle({
   apiBase: string;
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [disabled, setDisabled] = useState(initialDisabled);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -30,7 +32,7 @@ export function DisableToggle({
     const verb = next ? "Disable" : "Re-enable";
     // Confirm before disabling — re-enabling is reversible, disabling shuts
     // them out so make the click intentional.
-    if (next && !confirm(`${verb} this ${kind}? They will be blocked from signing in.`)) return;
+    if (next && !(await confirm(`${verb} this ${kind}? They will be blocked from signing in.`))) return;
     setBusy(true);
     setErr(null);
     try {

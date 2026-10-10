@@ -575,6 +575,9 @@ const en: Dict = {
   "sos_modal.accept_error_body": "Try again.",
   "sos_modal.headline": "EMERGENCY SOS",
   "sos_modal.distance_label": "DISTANCE",
+  "sos_modal.unavailable": "Unavailable",
+  "sos_modal.distance_value": "{km} km away",
+  "sos_modal.eta_value": "About {min} min",
   "sos_modal.eta_label": "ETA",
   "sos_modal.dismiss": "Dismiss",
   "sos_modal.accepting": "Accepting…",
@@ -582,7 +585,11 @@ const en: Dict = {
   "sos_modal.wave_label": "Wave {n} · auto-expanding every 20s",
 
   "waiting_peek.title": "WAITING REQUESTS",
-  "waiting_peek.body": "Rides are waiting. You can accept once your current ride is complete."
+  "waiting_peek.body": "Rides are waiting. You can accept once your current ride is complete.",
+  "map_picker.address_unavailable": "Address lookup unavailable. The exact pin coordinates will be used.",
+  "map_picker.retry_selection": "Retry selected place",
+  "map_picker.search_unavailable": "Search is unavailable. Move the map pin or try again.",
+  "map_picker.selection_failed": "This place could not be selected. Retry or move the map pin before confirming.",
 };
 
 const hi: Dict = {
@@ -1129,6 +1136,9 @@ const hi: Dict = {
   "sos_modal.accept_error_body": "कृपया फिर से कोशिश करें।",
   "sos_modal.headline": "आपातकालीन SOS",
   "sos_modal.distance_label": "दूरी",
+  "sos_modal.unavailable": "उपलब्ध नहीं",
+  "sos_modal.distance_value": "{km} किमी दूर",
+  "sos_modal.eta_value": "लगभग {min} मिनट",
   "sos_modal.eta_label": "पहुँचने का समय",
   "sos_modal.dismiss": "नज़रअंदाज़ करें",
   "sos_modal.accepting": "स्वीकार हो रहा है…",
@@ -1136,7 +1146,11 @@ const hi: Dict = {
   "sos_modal.wave_label": "लहर {n} · हर 20 सेकंड में विस्तार हो रहा है",
 
   "waiting_peek.title": "प्रतीक्षारत अनुरोध",
-  "waiting_peek.body": "राइड्स प्रतीक्षा में हैं। आपकी मौजूदा राइड पूरी होने पर आप स्वीकार कर सकते हैं।"
+  "waiting_peek.body": "राइड्स प्रतीक्षा में हैं। आपकी मौजूदा राइड पूरी होने पर आप स्वीकार कर सकते हैं।",
+  "map_picker.address_unavailable": "पता नहीं मिल सका। चुने गए पिन के सटीक निर्देशांक उपयोग होंगे।",
+  "map_picker.retry_selection": "चुना हुआ स्थान फिर खोजें",
+  "map_picker.search_unavailable": "खोज उपलब्ध नहीं है। मानचित्र पर पिन चुनें या फिर कोशिश करें।",
+  "map_picker.selection_failed": "स्थान नहीं चुना जा सका। पुष्टि से पहले फिर कोशिश करें या मानचित्र पर पिन चुनें।",
 };
 
 const STRINGS: Record<Lang, Dict> = { en, hi };

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Animated, Easing, Modal, Pressable, StyleSheet, View } from "react-native";
-import { Button, IconBadge, PulseDot, Text, colors, dialog, radius, space } from "@jr/ui";
+import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Text, colors, dialog, radius, space } from "@jr/ui";
 import { Booking, bookings as bookingsApi } from "../api";
 import { getSocket } from "../socket";
 import { useT } from "../i18n";
@@ -12,7 +12,8 @@ type SosPayload = {
   pickupLat: number;
   pickupLng: number;
   pickupAddress: string | null;
-  distanceKm: number;
+  pickupLandmark?: string | null;
+  distanceKm: number | null;
   waveNumber: number;
 };
 
@@ -48,7 +49,6 @@ export function SosIncomingModal({ onAccept }: Props) {
   // Bookings the driver dismissed from the FLASH — keeps the overlay from
   // re-popping for them while they still live in the Incoming Requests list.
   const dismissed = useRef<Set<string>>(new Set());
-  const pulse = useRef(new Animated.Value(1)).current;
 
   // Subscribe once on mount; stays active for the screen lifetime.
   useEffect(() => {
@@ -107,7 +107,8 @@ export function SosIncomingModal({ onAccept }: Props) {
                 pickupLat: next.pickupLat,
                 pickupLng: next.pickupLng,
                 pickupAddress: next.pickupAddress,
-                distanceKm: next.distanceKm ?? 0,
+                pickupLandmark: next.pickupLandmark,
+                distanceKm: next.distanceKm,
                 waveNumber: next.waveNumber
               }
         );
@@ -120,19 +121,6 @@ export function SosIncomingModal({ onAccept }: Props) {
       clearInterval(id);
     };
   }, []);
-
-  // Slow breathing pulse on the modal CTA whenever it's visible.
-  useEffect(() => {
-    if (!active) return;
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1.08, duration: 800, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 1, duration: 800, easing: Easing.inOut(Easing.quad), useNativeDriver: true })
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [active, pulse]);
 
   const accept = async () => {
     if (!active || busy) return;
@@ -167,49 +155,44 @@ export function SosIncomingModal({ onAccept }: Props) {
 
   if (!active) return null;
 
-  const etaMin = Math.max(1, Math.round((active.distanceKm * 1.4) / 28 * 60));
+  const distance = active.distanceKm != null && Number.isFinite(active.distanceKm) ? active.distanceKm : null;
+  const etaMin = distance == null ? null : Math.max(1, Math.round((distance * 1.4) / 28 * 60));
 
   return (
     <Modal visible animationType="fade" transparent onRequestClose={dismiss}>
       <View style={styles.backdrop}>
         <View style={styles.card}>
-          {/* CR4 (2026-08): this full-screen emergency overlay had no language
-            * toggle at all — a Hindi-preferring driver saw it 100% in English
-            * at the exact moment an SOS was pushed to them. Top-right corner,
-            * matching the placement convention used elsewhere in this app. */}
-          <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+          <View style={styles.headerRow}>
+            <View style={styles.sosBadge}><Text weight="bold" tone="inverse">SOS</Text></View>
+            <View style={{ flex: 1 }}>
+              <Text variant="tiny" tone="danger" weight="bold">{t("sos_modal.headline")}</Text>
+              <Text variant="heading" weight="bold">{prettyEmergency(active.emergencyType, t)}</Text>
+            </View>
             <LangToggle />
           </View>
-          <View style={{ alignItems: "center", gap: space.sm }}>
-            <Animated.View style={{ transform: [{ scale: pulse }] }}>
-              <PulseDot size={88} color={colors.danger} rings={3} />
-            </Animated.View>
-            <Text variant="label" tone="danger" weight="bold" style={{ letterSpacing: 1 }}>
-              {t("sos_modal.headline")}
-            </Text>
-            <Text variant="title" weight="bold" align="center">
-              {prettyEmergency(active.emergencyType, t)}
-            </Text>
+          <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} contentContainerStyle={{ gap: space.lg }}>
             <View style={styles.metaRow}>
-              <IconBadge glyph="↗" bg={colors.primaryFaint} color={colors.primary} size={32} />
               <View style={{ flex: 1 }}>
-                <Text variant="small" tone="secondary">{t("sos_modal.distance_label")}</Text>
-                <Text variant="body" weight="semi">{active.distanceKm.toFixed(1)} km away</Text>
+                <Text variant="tiny" tone="secondary">{t("sos_modal.distance_label")}</Text>
+                <Text variant="heading" weight="semi">{distance == null ? t("sos_modal.unavailable") : t("sos_modal.distance_value").replace("{km}", distance.toFixed(1))}</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text variant="small" tone="secondary">{t("sos_modal.eta_label")}</Text>
-                <Text variant="body" weight="semi">~{etaMin} min</Text>
+                <Text variant="tiny" tone="secondary">{t("sos_modal.eta_label")}</Text>
+                <Text variant="heading" weight="semi">{etaMin == null ? t("sos_modal.unavailable") : t("sos_modal.eta_value").replace("{min}", String(etaMin))}</Text>
               </View>
             </View>
-            {active.pickupAddress ? (
-              <View style={styles.pickupRow}>
-                <Text variant="tiny" tone="secondary">{t("map_picker.selected_pickup")}</Text>
-                <Text variant="small" weight="semi" align="center">{active.pickupAddress}</Text>
-              </View>
-            ) : null}
-          </View>
+            {active.pickupLandmark ? <View style={styles.landmarkRow}>
+              <Text variant="tiny" tone="secondary">{t("trip.landmark")}</Text>
+              <Text variant="heading" weight="bold">{active.pickupLandmark}</Text>
+            </View> : null}
+            <View style={styles.pickupRow}>
+              <Text variant="tiny" tone="secondary">{t("map_picker.selected_pickup")}</Text>
+              <Text variant="body" weight="semi">{active.pickupAddress || t("trip.landmark_unavailable")}</Text>
+            </View>
+          </ScrollView>
           <View style={styles.buttonRow}>
             <Pressable
+              accessibilityRole="button"
               onPress={dismiss}
               disabled={busy}
               android_ripple={{ color: "rgba(0,0,0,0.05)" }}
@@ -218,6 +201,7 @@ export function SosIncomingModal({ onAccept }: Props) {
               <Text variant="body" weight="bold" tone="secondary">{t("sos_modal.dismiss")}</Text>
             </Pressable>
             <Pressable
+              accessibilityRole="button"
               onPress={accept}
               disabled={busy}
               android_ripple={{ color: "rgba(255,255,255,0.2)" }}
@@ -256,10 +240,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",
     justifyContent: "center",
-    paddingHorizontal: space.lg
+    paddingHorizontal: space.lg,
+    paddingVertical: space.xl
   },
+  headerRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  sosBadge: { width: 48, height: 48, borderRadius: 12, backgroundColor: colors.danger, alignItems: "center", justifyContent: "center" },
+  landmarkRow: { padding: space.md, backgroundColor: colors.bg, borderRadius: radius.md, gap: space.xs },
   card: {
-    backgroundColor: colors.surface,
+    maxHeight: "90%",    backgroundColor: colors.surface,
     borderRadius: radius.lg,
     padding: space.lg,
     gap: space.lg,
@@ -283,8 +271,7 @@ const styles = StyleSheet.create({
     paddingTop: space.sm,
     borderTopWidth: 1,
     borderTopColor: colors.border,
-    gap: space.xs,
-    alignItems: "center"
+    gap: space.xs
   },
   buttonRow: {
     flexDirection: "row",
@@ -292,6 +279,7 @@ const styles = StyleSheet.create({
   },
   btn: {
     flex: 1,
+    minHeight: 56,
     paddingVertical: space.md,
     borderRadius: radius.md,
     alignItems: "center",

@@ -428,6 +428,10 @@ button:focus-visible { outline: 3px solid rgba(37,99,235,0.25); outline-offset: 
 /* Release audit: small-screen containment and accessible interaction. */
 .card, .page-header, main, .row > * { min-width: 0; }
 .card { overflow-wrap: anywhere; }
+.card table { overflow-wrap: normal; }
+.card table th { white-space: nowrap; }
+.card table td { overflow-wrap: break-word; }
+.pill { white-space: nowrap; flex-shrink: 0; }
 input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 @media (max-width: 600px) {
   .page-header { flex-wrap: wrap; }
@@ -459,3 +463,10 @@ input, select, textarea { min-width: 0; box-sizing: border-box; }
   .hospital-footer { align-self: flex-end; padding: 0; }
   .hospital-footer > span { display: none; }
 }
+
+.jr-confirm-dialog { width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow: auto; padding: 24px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface, #fff); color: var(--ink); box-shadow: 0 16px 64px rgba(0,0,0,.2); }
+.jr-confirm-dialog::backdrop { background: rgba(15,23,42,.48); }
+.jr-confirm-dialog button { min-height: 44px; padding: 10px 20px; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; }
+.jr-confirm-cancel { color: var(--ink); background: var(--surface, #fff); border: 1px solid var(--border); }
+.jr-confirm-accept { color: #fff; background: var(--danger, #b91c1c); border: 1px solid var(--danger, #b91c1c); }
+.jr-confirm-dialog button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }

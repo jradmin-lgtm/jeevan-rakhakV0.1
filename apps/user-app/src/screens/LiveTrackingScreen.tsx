@@ -378,7 +378,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
     : null;
 
   return (
-    <Screen bg={colors.surface} header={<AppHeader title={t("live.screen_title")} subtitle={t("payment.booking_number").replace("{id}", String(booking.displayId ?? booking.id.slice(0, 8)))} onBack={onClose} />}
+    <Screen bg={colors.surface} header={<AppHeader title={t(finished ? "live.ride_details" : "live.screen_title")} subtitle={t("payment.booking_number").replace("{id}", String(booking.displayId ?? booking.id.slice(0, 8)))} onBack={onClose} />}
       footer={driverProfile && !finished && booking.status !== "REQUESTED" ? (
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
           <View style={{ flex: 1, gap: 3 }}>
@@ -392,7 +392,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
       ) : undefined}>
       {rideCacheError || routeCacheError ? <Text variant="small" tone="danger" accessibilityRole="alert">{t("offline.storage_error")}</Text> : null}
       {trackingError ? <Text variant="small" tone="danger" accessibilityRole="alert">{trackingError}</Text> : null}
-      {driverPos && nowTs - driverPos.ts > 30_000 ? <Text variant="small" tone="danger">{t("live.location_stale")}</Text> : null}
+      {!finished && driverPos && nowTs - driverPos.ts > 30_000 ? <Text variant="small" tone="danger">{t("live.location_stale")}</Text> : null}
       <MotionView changeKey={booking.status}>
       <Card flat>
         <View style={{ gap: space.sm }}>
@@ -401,7 +401,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
             <StatusBadge label={t(`status.${booking.status}`)} status={booking.status} />
           </View>
           <Text variant="heading" weight="bold">{statusHeadline(booking.status, t)}</Text>
-          <Text variant="small" tone="secondary">{statusSubline(booking.status, t)}</Text>
+          <Text variant="small" tone="secondary">{booking.status === "COMPLETED" && booking.rating ? t("live.rating_saved") : statusSubline(booking.status, t)}</Text>
           {timerLabel ? (
             <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", marginTop: space.sm, paddingTop: space.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
               <Text variant="small" tone="secondary">{timerLabel}</Text>
@@ -412,13 +412,35 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
       </Card>
       </MotionView>
 
+      {/* Patient rates the driver after the trip completes. The card hides
+        * as soon as booking.rating is set so we don't double-prompt on
+        * re-poll. Reuses the shared RatingPrompt with driver-facing copy. */}
+      {booking.status === "COMPLETED" ? (
+        <RatingPrompt
+          title={t("live.rating_title")}
+          subtitle={t("live.rating_subtitle")}
+          feedbackLabel={t("live.rating_feedback_label")}
+          feedbackPlaceholder={t("live.rating_feedback_placeholder")}
+          submitLabel={t("live.rating_submit")}
+          hidden={!!booking.rating}
+          onSubmit={async ({ rating, feedback }) => {
+            try {
+              const r = await bookingsApi.rate(initial.id, rating, feedback);
+              setBooking(r.booking);
+            } catch (e: any) {
+              void dialog.alert(t("live.rating_error_title"), e?.message ?? t("common.try_again_short"));
+            }
+          }}
+        />
+      ) : null}
+
       <Card flat padding="sm">
         <View style={{ gap: space.sm }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <Text variant="label" tone="secondary">
-              {driverPos ? t(stalePosition ? "live.last_known_location" : "live.driver_live_label") : t("live.pickup_label")}
+              {finished ? t("live.trip_locations") : driverPos ? t(stalePosition ? "live.last_known_location" : "live.driver_live_label") : t("live.pickup_label")}
             </Text>
-            {driverPos && nowTs - driverPos.ts <= 30_000 ? (
+            {!finished && driverPos && nowTs - driverPos.ts <= 30_000 ? (
               <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
                 <PulseDot size={8} color={colors.success} rings={1} />
                 <Text variant="tiny" tone="success" weight="bold">
@@ -429,42 +451,48 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
           </View>
           <MapEmbed
             pickup={{ lat: booking.pickupLat, lng: booking.pickupLng, label: t("live.pin_pickup") }}
-            driver={driverPos ? { lat: driverPos.lat, lng: driverPos.lng, label: t("live.pin_driver") } : null}
+            driver={!finished && driverPos ? { lat: driverPos.lat, lng: driverPos.lng, label: t("live.pin_driver") } : null}
             drop={booking.dropLat != null && booking.dropLng != null
               ? { lat: booking.dropLat, lng: booking.dropLng, label: booking.dropAddress ?? t("live.pin_hospital_fallback") }
               : null}
             routePath={navRoute}
-          routeProvider={routeSource === "traffic" ? "google" : "osm"}
-          onProviderChange={setRenderedProvider}
-          mapConfig={mapCfg}
+            routeProvider={routeSource === "traffic" ? "google" : "osm"}
+            onProviderChange={setRenderedProvider}
+            mapConfig={mapCfg}
             height={300}
           />
-          <Text variant="tiny" tone="muted">{t(`live.route_${routeSource}`)}</Text>
-          {driverPos && mapDistanceKm != null && mapEtaMin != null ? (
-            <View style={{ flexDirection: "row", justifyContent: "space-around", paddingVertical: space.xs }}>
-              <View style={{ alignItems: "center" }}>
-                <Text variant="tiny" tone="secondary">{t("live.distance_label")}</Text>
-                <Text variant="heading" weight="bold">
-                  {mapDistanceKm.toFixed(1)} km
+          {!finished ? (
+            <>
+              <Text variant="tiny" tone="muted">{t(`live.route_${routeSource}`)}</Text>
+              {driverPos && mapDistanceKm != null && mapEtaMin != null ? (
+                <View style={{ flexDirection: "row", justifyContent: "space-around", paddingVertical: space.xs }}>
+                  <View style={{ alignItems: "center" }}>
+                    <Text variant="tiny" tone="secondary">{t("live.distance_label")}</Text>
+                    <Text variant="heading" weight="bold">
+                      {mapDistanceKm.toFixed(1)} km
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: "center" }}>
+                    <Text variant="tiny" tone="secondary">{t(savedEstimate ? "live.saved_eta" : "live.eta_label")}</Text>
+                    <Text variant="heading" weight="bold" tone="primary">
+                      {mapEtaMin < 1 ? "<1 min" : `~${Math.round(mapEtaMin)} min`}
+                    </Text>
+                  </View>
+                </View>
+              ) : (
+                <Text variant="tiny" tone="muted" align="center" style={{ paddingVertical: space.xs }}>
+                  {t("live.map_waiting_hint")}
                 </Text>
-              </View>
-              <View style={{ alignItems: "center" }}>
-                <Text variant="tiny" tone="secondary">{t(savedEstimate ? "live.saved_eta" : "live.eta_label")}</Text>
-                <Text variant="heading" weight="bold" tone="primary">
-                  {mapEtaMin < 1 ? "<1 min" : `~${Math.round(mapEtaMin)} min`}
-                </Text>
-              </View>
-            </View>
-          ) : (
-            <Text variant="tiny" tone="muted" align="center" style={{ paddingVertical: space.xs }}>
-              {t("live.map_waiting_hint")}
-            </Text>
-          )}
+              )}
+            </>
+          ) : null}
           <Button
             label={t("live.open_google_maps")}
             variant="ghost"
             onPress={() =>
-              driverPos
+              finished && booking.dropLat != null && booking.dropLng != null
+                ? openOnGoogleMaps(booking.dropLat, booking.dropLng)
+                : !finished && driverPos
                 ? openOnGoogleMaps(driverPos.lat, driverPos.lng)
                 : openOnGoogleMaps(booking.pickupLat, booking.pickupLng)
             }
@@ -520,6 +548,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
         <View style={{ gap: space.md }}>
           <Text variant="label" tone="secondary">{t("live.pickup_label")}</Text>
           <Text variant="body">{booking.pickupAddress ?? `${booking.pickupLat.toFixed(4)}, ${booking.pickupLng.toFixed(4)}`}</Text>
+          {booking.pickupLandmark ? <View style={{ gap: 4 }}><Text variant="small" weight="semi">{t("landmark.saved")}</Text><Text variant="body">{booking.pickupLandmark}</Text></View> : null}
           {booking.dropAddress ? (
             <>
               <Text variant="label" tone="secondary">
@@ -578,28 +607,6 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
             onSaved={(b) => setBooking((curr) => ({ ...curr, ...b }))}
           />
         ) : null}
-
-      {/* Patient rates the driver after the trip completes. The card hides
-        * as soon as booking.rating is set so we don't double-prompt on
-        * re-poll. Reuses the shared RatingPrompt with driver-facing copy. */}
-      {booking.status === "COMPLETED" ? (
-        <RatingPrompt
-          title={t("live.rating_title")}
-          subtitle={t("live.rating_subtitle")}
-          feedbackLabel={t("live.rating_feedback_label")}
-          feedbackPlaceholder={t("live.rating_feedback_placeholder")}
-          submitLabel={t("live.rating_submit")}
-          hidden={!!booking.rating}
-          onSubmit={async ({ rating, feedback }) => {
-            try {
-              const r = await bookingsApi.rate(initial.id, rating, feedback);
-              setBooking(r.booking);
-            } catch (e: any) {
-              void dialog.alert(t("live.rating_error_title"), e?.message ?? t("common.try_again_short"));
-            }
-          }}
-        />
-      ) : null}
 
       {/* v1.0.11.2: always-on Need help section during an active trip. */}
       {!finished ? (

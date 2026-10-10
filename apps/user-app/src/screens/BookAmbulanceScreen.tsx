@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import * as Location from "expo-location";
-import { AppHeader, Button, Card, Input, PulseDot, Screen, Text, colors, radius, space, OutOfServiceArea } from "@jr/ui";
+import { AppHeader, AmbulanceMark, Button, Card, Input, MapEmbed, MotionView, Screen, Text, colors, space, OutOfServiceArea } from "@jr/ui";
 import { bookings as bookingsApi, fares as faresApi, serviceArea as serviceAreaApi, FareQuote, EmergencyType, Booking } from "../api";
+import { PickupLandmark } from "./PickupLandmark";
 import { MapLocationPicker } from "./MapLocationPicker";
 import { BOOKING_CATEGORIES } from "../constants/emergencyCategories";
 import { useT } from "../i18n";
+import { useMapConfig } from "../useMapConfig";
 
 // v2.0: local haversine for the client-side geofence pre-check. Kept local so
 // the user app needs no @jr/utils workspace dependency; the server-side check
@@ -38,7 +40,12 @@ type Props = {
 
 export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
   const { t } = useT();
+  const mapConfig = useMapConfig();
+  const { width, fontScale } = useWindowDimensions();
+  const stackedServices = width < 340 || fontScale > 1.25;
   const locationEpoch = useRef(0);
+  const [pickupLandmark, setPickupLandmark] = useState("");
+  const [fareExpanded, setFareExpanded] = useState(false);
   const [type, setType] = useState<EmergencyType | null>(null);
   // Pickup is GPS-only as of v1.0.11 — the team flagged that typing/backspacing
   // in the field was confusing because the dispatch uses coordinates, not the
@@ -91,6 +98,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
     setLocating(true);
     setLocationNote("book.detecting_location");
     setPickupCoords(null);
+    setPickupLandmark("");
     try {
       const perm = await Location.requestForegroundPermissionsAsync();
       if (epoch !== locationEpoch.current) return;
@@ -249,6 +257,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
         // Server will reverse-geocode if needed; we just send "Current location"
         // as a stable label so admin doesn't see an empty pickup string.
         pickupAddress: pickupIsGps ? t("book.current_location") : pickupAddress,
+        ...(pickupLandmark.trim() ? { pickupLandmark: pickupLandmark.trim() } : {}),
         dropAddress: dropCoords ? dropAddress : undefined,
         dropLat: dropCoords?.lat,
         dropLng: dropCoords?.lng,
@@ -287,7 +296,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
             label={busy ? t("book.dispatching") : t("book.request_ambulance")}
             onPress={submit}
             loading={busy}
-            disabled={!type || !pickupCoords}
+            disabled={!type || !pickupCoords || (pickupLandmark.trim().length > 0 && pickupLandmark.trim().length < 2)}
             style={{ backgroundColor: colors.textPrimary, borderRadius: 14 }}
             fullWidth size="lg" testID="confirm-booking"
           />
@@ -297,19 +306,18 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
         </View>
       }
     >
-      <View style={{ gap: space.xs }}>
-        <Text variant="title">{t("book.journey_title")}</Text>
-        <Text variant="small" tone="secondary">{t("book.journey_hint")}</Text>
-      </View>
-      <View style={styles.routePanel}>
+      {pickupCoords ? <View style={styles.mapPreview}>
+        <MapEmbed pickup={{ ...pickupCoords, label: t("book.pickup_short") }} drop={dropCoords ? { ...dropCoords, label: dropAddress } : null} mapConfig={mapConfig} height={166} />
+      </View> : null}
+      <View style={[styles.routePanel, pickupCoords ? { marginTop: -28 } : null]}>
         <View style={styles.locationRow}>
           <View style={styles.pickupDot} />
           <Pressable accessibilityRole="button" onPress={() => setPickerMode("pickup")} style={styles.locationMain} testID="open-pickup-picker">
-            <Text variant="tiny" tone="secondary">{t("book.pickup_location_label")}</Text>
+            <Text variant="tiny" tone="secondary">{t("book.pickup_short")}</Text>
             <Text variant="body" weight="semi" numberOfLines={2}>
               {locating ? t("book.detecting_short") : pickupCoords ? (pickupIsGps ? t("book.current_location") : pickupAddress) : t("book.location_not_set")}
             </Text>
-            <Text variant="small" tone={pickupCoords || locating ? "secondary" : "danger"}>{t(locationNote)}</Text>
+            {!pickupCoords || locating ? <Text variant="small" tone={locating ? "secondary" : "danger"}>{t(locationNote)}</Text> : null}
           </Pressable>
           <Button label={t("book.gps_button")} variant="ghost" onPress={refreshLocation} loading={locating} testID="refresh-pickup-gps" />
         </View>
@@ -319,34 +327,43 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
           <Pressable accessibilityRole="button" onPress={() => setPickerMode("drop")} style={styles.locationMain} testID="open-drop-picker">
             <Text variant="tiny" tone="secondary">{t("book.drop_label")}</Text>
             <Text variant="body" weight="semi" numberOfLines={2}>{dropAddress || t("book.drop_placeholder")}</Text>
-            <Text variant="small" tone="secondary">{dropCoords ? t("book.pin_confirmed") : t("book.search_or_pin")}</Text>
+
           </Pressable>
           {dropCoords ? <Button label={t("book.clear_drop")} variant="ghost" onPress={() => { setDropCoords(null); setDropAddress(""); }} testID="clear-drop" /> : null}
         </View>
       </View>
       <View style={{ gap: space.sm }}>
         <Text variant="heading">{t("book.emergency_type_label")}</Text>
-        <View style={styles.serviceList}>
-          {BOOKING_CATEGORIES.map((e, index) => {
+        <View style={[styles.serviceList, stackedServices && { flexDirection: "column" }]}>
+          {BOOKING_CATEGORIES.map((e) => {
             const selected = type === e.key;
             return (
               <Pressable key={e.key} accessibilityRole="radio" accessibilityState={{ checked: selected }} aria-checked={selected}
-                onPress={() => setType(e.key)} testID={`emergency-${e.key}`}
-                style={({ pressed }) => [styles.tile, index > 0 ? styles.serviceDivider : null, selected ? styles.selectedTile : null, pressed ? { opacity: 0.72 } : null]}>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text variant="body" weight="semi">{t(e.labelKey)}</Text>
-                  <Text variant="small" tone="secondary">{t(e.subKey)}</Text>
+                accessibilityLabel={`${t(e.labelKey)}. ${t(e.subKey)}`} onPress={() => setType(e.key)} testID={`emergency-${e.key}`}
+                style={({ pressed }) => [styles.tile, stackedServices && { flexDirection: "row", flex: 0 }, selected ? styles.selectedTile : null, pressed ? { transform: [{ scale: 0.97 }] } : null]}>
+                <AmbulanceMark size={58} />
+                <View style={{ minWidth: 0, flexShrink: 1, alignSelf: "stretch" }}>
+                  <Text variant="small" weight="bold" align={stackedServices ? "left" : "center"}>{t(`book.service.${e.key}`)}</Text>
                 </View>
-                <View style={[styles.radio, selected ? { borderColor: colors.textPrimary } : null]}>
-                  {selected ? <View style={styles.radioDot} /> : null}
+                <View style={[styles.radio, selected ? { borderColor: colors.primary, backgroundColor: colors.primary } : null]}>
+                  {selected ? <Text variant="tiny" tone="inverse" weight="bold">✓</Text> : null}
                 </View>
               </Pressable>
             );
           })}
         </View>
+        {type ? <MotionView changeKey={type}><Text variant="small" tone="secondary">{t(BOOKING_CATEGORIES.find(item => item.key === type)!.subKey)}</Text></MotionView> : null}
       </View>
 
-      <Card flat>
+      {pickupLandmark.trim().length === 1 ? <Text variant="small" tone="danger">{t("landmark.invalid")}</Text> : null}
+      {pickupCoords ? <PickupLandmark key={`${pickupCoords.lat},${pickupCoords.lng}`} lat={pickupCoords.lat} lng={pickupCoords.lng} value={pickupLandmark} onChange={setPickupLandmark} /> : null}
+
+      {!couponApplied ? <Pressable accessibilityRole="button" onPress={() => { setCoupon(PILOT_COUPON); setCouponApplied(true); }} style={{ minHeight: 44, justifyContent: "center" }}>
+        <Text variant="small" tone="primary" weight="semi">{t("book.launch_offer_hint").replace("{code}", PILOT_COUPON)}</Text>
+      </Pressable> : <Text variant="small" tone="success">{t("book.coupon_applied_label").replace("{code}", coupon)}</Text>}
+
+      <Button label={t(fareExpanded ? "book.hide_fare_details" : "book.fare_details")} variant="outline" onPress={() => setFareExpanded(open => !open)} testID="toggle-fare-details" />
+      {fareExpanded ? <Card flat>
         <View style={{ gap: space.md }}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
             <Text variant="label" tone="secondary">{t("book.fare_offers_label")}</Text>
@@ -446,15 +463,11 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
                 </View>
                 <Button label={t("book.apply")} onPress={applyCoupon} variant="outline" />
               </View>
-              <Pressable onPress={() => { setCoupon(PILOT_COUPON); setCouponApplied(true); }}>
-                <Text variant="small" tone="primary" style={{ textDecorationLine: "underline" }}>
-                  {t("book.launch_offer_hint").replace("{code}", PILOT_COUPON)}
-                </Text>
-              </Pressable>
+
             </>
           )}
         </View>
-      </Card>
+      </Card> : null}
 
       {/* v1.0.13 revised: one picker handles both pickup + drop. The mode
         * is tracked in `pickerMode` (null = closed, "pickup" / "drop" = open).
@@ -473,6 +486,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
         onConfirm={(picked) => {
           if (pickerMode === "pickup") {
             locationEpoch.current += 1;
+            setPickupLandmark("");
             setPickupCoords({ lat: picked.lat, lng: picked.lng });
             setPickupAddress(picked.address);
             setPickupIsGps(false);
@@ -505,18 +519,17 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
 }
 
 const styles = StyleSheet.create({
-  routePanel: { backgroundColor: colors.bg, borderRadius: 18, paddingHorizontal: 16 },
-  locationRow: { flexDirection: "row", gap: 12, alignItems: "center", paddingVertical: 8 },
-  locationMain: { flex: 1, minWidth: 0, gap: 3, paddingVertical: 8, minHeight: 68 },
+  mapPreview: { marginHorizontal: -16, marginTop: -16, paddingBottom: 12 },
+  routePanel: { backgroundColor: colors.surface, borderRadius: 18, paddingHorizontal: 14, borderWidth: 1, borderColor: colors.border, elevation: 2, shadowColor: colors.textPrimary, shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
+  locationRow: { flexDirection: "row", gap: 12, alignItems: "center", paddingVertical: 2 },
+  locationMain: { flex: 1, minWidth: 0, gap: 3, paddingVertical: 8, minHeight: 56 },
   pickupDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.textPrimary },
   dropDot: { width: 10, height: 10, borderRadius: 2, borderWidth: 2, borderColor: colors.primary },
   routeDivider: { height: 1, marginLeft: 22, backgroundColor: colors.border },
-  serviceList: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
-  tile: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 16, minHeight: 68 },
-  serviceDivider: { borderTopWidth: 1, borderTopColor: colors.border },
-  selectedTile: { backgroundColor: "#EEF0F3" },
-  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: colors.borderStrong, alignItems: "center", justifyContent: "center" },
-  radioDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: colors.textPrimary },
+  serviceList: { flexDirection: "row", gap: 8 },
+  tile: { flex: 1, minWidth: 0, alignItems: "center", justifyContent: "center", gap: 9, paddingVertical: 16, paddingHorizontal: 8, minHeight: 114, borderWidth: 1.5, borderColor: colors.border, borderRadius: 16, backgroundColor: colors.bg },
+  selectedTile: { backgroundColor: colors.primaryFaint, borderColor: colors.primary },
+  radio: { position: "absolute", right: 7, top: 7, width: 16, height: 16, borderRadius: 8, borderWidth: 1, borderColor: colors.borderStrong, alignItems: "center", justifyContent: "center" },
   fareRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" },
   fareTotalRow: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: space.sm },
   struck: { textDecorationLine: "line-through", color: colors.textSecondary }

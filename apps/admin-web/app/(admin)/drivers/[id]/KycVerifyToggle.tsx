@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "../../../../components/ConfirmDialog";
 import { adminFetch } from "../../../../lib/adminFetch";
 
 const MISSING_LABEL: Record<string, string> = {
@@ -29,13 +30,14 @@ export function KycVerifyToggle({
   apiBase: string;
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [verified, setVerified] = useState(initialVerified);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const toggle = async () => {
     const next = !verified;
-    if (!next && !confirm("Revoke this driver's KYC? They will stop receiving ride requests.")) return;
+    if (!next && !(await confirm("Revoke this driver's KYC? They will stop receiving ride requests."))) return;
     setBusy(true);
     setErr(null);
     try {

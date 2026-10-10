@@ -1,5 +1,6 @@
 "use client";
 
+import { useConfirm } from "../../../components/ConfirmDialog";
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { adminFetch } from "../../../lib/adminFetch";
@@ -247,6 +248,7 @@ function PortalRow({
   busy: boolean;
   onPortalPut: (id: string, body: Record<string, unknown>) => void;
 }) {
+  const confirm = useConfirm();
   const loginId = h.portalUsername ?? slugify(h.name);
   const hasPassword = Boolean(h.portalPasswordPlain);
   const enabled = h.portalEnabled ?? false;
@@ -328,8 +330,8 @@ function PortalRow({
           {hasPassword ? (
             <button
               disabled={busy}
-              onClick={() => {
-                if (confirm(`Delete the portal password for ${h.name}? They will not be able to sign in until you set a new one.`)) {
+              onClick={async () => {
+                if (await confirm(`Delete the portal password for ${h.name}? They will not be able to sign in until you set a new one.`)) {
                   onPortalPut(h.id, { clear: true });
                 }
               }}

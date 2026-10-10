@@ -495,7 +495,7 @@ export function SupportTicketsList({
                     <td style={td}>
                       <span style={chipStyle(src.bg, src.fg)}>{src.label}</span>
                     </td>
-                    <td style={{ ...td, maxWidth: 200, overflowWrap: "anywhere" }}>{raiserLabel(t)}</td>
+                    <td style={{ ...td, minWidth: 160, maxWidth: 200, overflowWrap: "break-word" }}>{raiserLabel(t)}</td>
                     <td style={td}>
                       <span style={chipStyle(catBadge.bg, catBadge.fg)}>{catBadge.label}</span>
                     </td>
@@ -511,7 +511,7 @@ export function SupportTicketsList({
                       </span>
                       {subjectLink(t)}
                     </td>
-                    <td style={{ ...td, maxWidth: 360, whiteSpace: "pre-wrap", overflowWrap: "anywhere", wordBreak: "break-word" }}>
+                    <td style={{ ...td, minWidth: 240, maxWidth: 360, whiteSpace: "pre-wrap", overflowWrap: "break-word" }}>
                       {t.message}
                       {msgCount > 1 ? (
                         <span className="muted" style={{ display: "block", fontSize: 11, marginTop: 4 }}>

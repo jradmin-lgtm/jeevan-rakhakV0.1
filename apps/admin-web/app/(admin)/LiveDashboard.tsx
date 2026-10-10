@@ -118,7 +118,6 @@ export function LiveDashboard({
           <h1>Live operations</h1>
           <p>Auto-refreshing every 5 seconds{updatedAt ? ` · last updated ${updatedAt}` : ""}</p>
         </div>
-        <div className="muted" style={{ fontSize: 11 }}>API: {apiBase}</div>
       </div>
 
       <div className="kpi-row">
@@ -207,11 +206,13 @@ export function LiveDashboard({
                     padding: 12,
                     display: "flex",
                     alignItems: "center",
-                    justifyContent: "space-between"
+                    justifyContent: "space-between",
+                    gap: 12,
+                    flexWrap: "wrap"
                   }}
                 >
-                  <div>
-                    <div className="flex center gap-sm">
+                  <div style={{ minWidth: 0, flex: "1 1 180px" }}>
+                    <div className="flex center gap-sm" style={{ flexWrap: "wrap" }}>
                       {!d.disabled ? <span className={`dot ${d.status === "OFFLINE" ? "down" : "up"}`} /> : null}
                       <strong style={d.disabled ? { color: "var(--muted)", textDecoration: "line-through" } : undefined}>
                         {d.name ?? "Driver"}
@@ -223,7 +224,7 @@ export function LiveDashboard({
                     </div>
                   </div>
                   {d.disabled ? (
-                    <span style={{ display: "inline-block", padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700, letterSpacing: 0.5, background: "#DC2626", color: "#fff", textTransform: "uppercase" }}>
+                    <span style={{ display: "inline-block", whiteSpace: "nowrap", flexShrink: 0, padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700, letterSpacing: 0.5, background: "#DC2626", color: "#fff", textTransform: "uppercase" }}>
                       Disabled
                     </span>
                   ) : (

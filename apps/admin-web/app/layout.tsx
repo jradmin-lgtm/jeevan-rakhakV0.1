@@ -1,4 +1,5 @@
 import "./globals.css";
+import { ConfirmDialogProvider } from "../components/ConfirmDialog";
 import type { Metadata, Viewport } from "next";
 
 export const metadata: Metadata = {
@@ -25,7 +26,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: any) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body><ConfirmDialogProvider>{children}</ConfirmDialogProvider></body>
     </html>
   );
 }

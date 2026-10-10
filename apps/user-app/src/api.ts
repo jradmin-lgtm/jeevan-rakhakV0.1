@@ -279,7 +279,9 @@ export const serviceArea = () =>
 // backend flag is off or the Google call fails, so MapLocationPicker.tsx
 // falls back to the existing free Nominatim search. Key never reaches the
 // client; these just proxy through the authenticated backend.
+export type NearbyLandmark = { id: string; name: string; address: string; distanceMeters: number; label: string };
 export const places = {
+  landmarks: (lat: number, lng: number, language: "en" | "hi") => api<{ landmarks: NearbyLandmark[]; radiusMeters: number; provider: "google" }>(`/api/v1/places/landmarks?lat=${lat}&lng=${lng}&language=${language}`),
   reverse: (lat: number, lng: number) => api<{ address: string; landmark: string | null }>(`/api/v1/places/reverse?lat=${lat}&lng=${lng}`),
   autocomplete: (input: string, sessionToken: string) =>
     api<{ available: boolean; predictions: { placeId: string; description: string }[] }>(
@@ -297,6 +299,7 @@ export const bookings = {
     pickupLat: number;
     pickupLng: number;
     pickupAddress?: string;
+    pickupLandmark?: string;
     dropLat?: number;
     dropLng?: number;
     dropAddress?: string;

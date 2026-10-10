@@ -50,3 +50,5 @@ export { createRideCache } from "./maps/rideCache";
 export type { CachedRide, CachedRoadRoute } from "./maps/rideCache";
 export { useRideRoute } from "./hooks/useRideRoute";
 export { GoogleSignInButton } from "./components/GoogleSignInButton";
+
+export { AmbulanceMark } from "./components/AmbulanceMark";

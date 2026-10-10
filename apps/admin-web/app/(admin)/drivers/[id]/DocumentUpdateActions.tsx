@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "../../../../components/ConfirmDialog";
 import { adminFetch } from "../../../../lib/adminFetch";
 
 // Same key TicketDetailLive.tsx uses for "who resolved this" — one
@@ -24,6 +25,7 @@ type PendingUpdate = { id: string; docType: string; createdAt: string };
  */
 export function DocumentUpdateActions({ driverId, apiBase, pending }: { driverId: string; apiBase: string; pending: PendingUpdate[] }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [operator, setOperator] = useState(() => {
@@ -46,7 +48,7 @@ export function DocumentUpdateActions({ driverId, apiBase, pending }: { driverId
       setErr("Enter your name first (at least 2 characters) so the ticket reply is attributed.");
       return;
     }
-    if (action === "reject" && !confirm("Reject this document update? The driver's existing document stays as-is.")) return;
+    if (action === "reject" && !(await confirm("Reject this document update? The driver's existing document stays as-is."))) return;
     setBusyId(id);
     setErr(null);
     try {

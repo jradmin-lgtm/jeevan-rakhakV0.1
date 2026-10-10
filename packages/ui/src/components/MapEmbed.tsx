@@ -240,8 +240,8 @@ const styles = StyleSheet.create({
   },
   recenterBtn: {
     position: "absolute",
-    right: 12,
-    bottom: 28,
+    left: 12,
+    bottom: 40,
     width: 44,
     height: 44,
     borderRadius: 20,

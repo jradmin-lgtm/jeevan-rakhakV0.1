@@ -10,6 +10,7 @@ import { Animated, Pressable, RefreshControl, View } from "react-native";
 import * as Location from "expo-location";
 import {
   AppHeader,
+  AmbulanceMark,
   Button,
   Card,
   EmptyState,
@@ -299,32 +300,18 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
       const mergeNormal = (msg: { bookingId?: string }) => {
         if (cancel || !msg?.bookingId) return;
         if (dismissed.current.has(msg.bookingId)) return; // honour session dismiss
-        bookingsApi
-          .get(msg.bookingId)
-          .then((r) => {
-            if (cancel) return;
-            const b = r.booking;
-            setRequests((prev) =>
-              prev[b.id]
-                ? prev
-                : {
-                    ...prev,
-                    [b.id]: {
-                      id: b.id,
-                      display_id: b.displayId ?? null,
-                      emergency_type: b.emergencyType,
-                      pickup_lat: b.pickupLat,
-                      pickup_lng: b.pickupLng,
-                      pickup_address: b.pickupAddress ?? null,
-                      pickup_landmark: b.pickupLandmark ?? null,
-                      patient_name: b.patientName ?? null,
-                      created_at: b.createdAt ?? new Date().toISOString(),
-                      is_sos: !!b.isSos
-                    }
-                  }
-            );
+        incomingApi
+          .list()
+          .then((result) => {
+            if (cancel || dismissed.current.has(msg.bookingId!)) return;
+            const request = result.requests.find((item) => item.id === msg.bookingId);
+            if (!request) return;
+            setRequests((previous) => ({ ...previous, [request.id]: request }));
           })
-          .catch((error) => { console.warn("DashboardScreen.tsx.mergeNormal failed", error instanceof Error ? error.message : String(error)); });
+          .catch((error) => {
+            console.warn("[dashboard] incoming offer refresh failed", error instanceof Error ? error.message : String(error));
+            if (!cancel) setRefreshFailed(true);
+          });
       };
 
       const mergeSos = (p: any) => {
@@ -514,19 +501,25 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
   };
 
   return (
-    <Screen bg={colors.surface} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}>
+    <Screen bg={colors.surface} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
+      footer={<View style={{ flexDirection: "row", gap: space.sm }}>
+        {[
+          { id: "trip-history-cta", label: t("dashboard.trip_history"), glyph: "◷", action: onEarnings },
+          { id: "profile-cta", label: t("dashboard.profile_cta"), glyph: "◎", action: onProfile },
+          { id: "support-cta", label: t("support.dashboard_cta"), glyph: "?", action: onSupport }
+        ].map(item => <Pressable key={item.id} testID={item.id} accessibilityRole="button" onPress={item.action}
+          style={({ pressed }) => ({ flex: 1, minWidth: 0, minHeight: 52, alignItems: "center", justifyContent: "center", gap: 4, opacity: pressed ? 0.6 : 1 })}>
+          <Text variant="heading" weight="semi">{item.glyph}</Text>
+          <Text variant="tiny" align="center" weight="medium">{item.label}</Text>
+        </Pressable>)}
+      </View>}>
       <AppHeader
         title={`${t("dashboard.hi")}${profile?.name ? `, ${String(profile.name).split(" ")[0]}` : ""}`}
         subtitle={[profile?.vehicleNumber, profile?.hospitalName].filter(Boolean).join(" · ") || t("dashboard.welcome_sub")}
         right={
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <LangToggle />
-            {available ? <PulseDot size={8} color={colors.success} rings={1} /> : null}
-            <Pill
-              label={activeTrip ? t("dashboard.on_trip") : available ? t("dashboard.online") : t("dashboard.offline")}
-              color={available ? colors.success : colors.textMuted}
-              bg={available ? "rgba(16,185,129,0.12)" : "rgba(148,163,184,0.16)"}
-            />
+
           </View>
         }
       />
@@ -543,6 +536,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
                 <StatusBadge label={t(`status.${activeTrip.status}`)} status={activeTrip.status} />
               </View>
               <Text variant="heading">{prettyEmergency(activeTrip.emergencyType, t)}</Text>
+              {activeTrip.pickupLandmark ? <Text variant="body" weight="bold">{activeTrip.pickupLandmark}</Text> : null}
               <Text variant="small" tone="secondary">{activeTrip.pickupAddress ?? `${activeTrip.pickupLat.toFixed(4)}, ${activeTrip.pickupLng.toFixed(4)}`}</Text>
               <Button style={{ backgroundColor: colors.textPrimary }} label={t("dashboard.open_trip")} onPress={() => onTrip(activeTrip)} fullWidth />
             </View>
@@ -560,24 +554,10 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
       {/* v1.4.0 (geofence): slim, non-blocking launch ribbon at the top of the
         * dashboard content. Sits in the flow (not an overlay), so it never gates
         * the incoming-request list, the SOS modal, or anything below. */}
-      {!activeTrip ? <LaunchBanner
-        title={t("dashboard.live_city").replace("{city}", area.cityName)}
-        cityName={area.cityName}
-        subtitle={t("dashboard.launch_banner_subtitle")
-          .replace("{city}", area.cityName)
-          .replace("{km}", String(area.radiusKm))
-          .replace("{hospital}", area.hospitalName)}
-      /> : null}
-
-      {!activeTrip ? <Card flat style={{ borderRadius: 20 }}>
+      {!activeTrip ? <Card flat style={{ borderRadius: 20, backgroundColor: colors.bg, borderWidth: 0 }}>
         <View style={{ gap: space.md }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
-            <IconBadge
-              glyph={available ? "◉" : "○"}
-              size={48}
-              bg={available ? "rgba(16,185,129,0.12)" : "rgba(148,163,184,0.16)"}
-              color={available ? colors.success : colors.textMuted}
-            />
+            <AmbulanceMark size={72} />
             <View style={{ flex: 1 }}>
               <Text variant="heading">{available ? t("dashboard.receiving") : t("dashboard.youoffline")}</Text>
               <Text variant="small" tone="secondary">
@@ -663,12 +643,19 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
               onReject={rejectRequest}
             />
           ) : (
-            <Card flat>
-              <EmptyState title={t("dashboard.empty_offline_title")} description={t("dashboard.empty_offline_body")} />
-            </Card>
+            <View style={{ paddingVertical: space.md }}><Text variant="small" tone="secondary">{t("dashboard.empty_offline_body")}</Text></View>
           )}
         </View>
       ) : null}
+
+      {!activeTrip ? <LaunchBanner
+        title={t("dashboard.live_city").replace("{city}", area.cityName)}
+        cityName={area.cityName}
+        subtitle={t("dashboard.launch_banner_subtitle")
+          .replace("{city}", area.cityName)
+          .replace("{km}", String(area.radiusKm))
+          .replace("{hospital}", area.hospitalName)}
+      /> : null}
 
       <Card flat>
         <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
@@ -692,16 +679,6 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
 
       <Card flat>
         <View style={{ gap: space.md }}>
-          <Text variant="label" tone="secondary">{t("dashboard.quick_actions")}</Text>
-          <View style={{ flexDirection: "row", gap: space.md }}>
-            <View style={{ flex: 1 }}>
-              <Button label={t("dashboard.profile_cta")} variant="neutral" onPress={onProfile} fullWidth testID="profile-cta" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Button label={t("dashboard.trip_history")} variant="neutral" onPress={onEarnings} fullWidth testID="trip-history-cta" />
-            </View>
-          </View>
-          <Button label={t("support.dashboard_cta")} variant="neutral" onPress={onSupport} fullWidth testID="support-cta" />
           <Pressable accessibilityRole="button" accessibilityState={{ expanded: accountOpen }} onPress={() => setAccountOpen(value => !value)} style={{ minHeight: 48, justifyContent: "center" }}><Text variant="small" weight="medium">{t("dashboard.account_options")} {accountOpen ? "⌃" : "⌄"}</Text></Pressable>
           {accountOpen ? <View style={{ gap: space.sm }}>
           <Button

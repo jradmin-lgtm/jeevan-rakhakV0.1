@@ -5,6 +5,7 @@ import { Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   AppHeader,
+  AmbulanceMark,
   Button,
   Card,
   IconBadge,
@@ -181,8 +182,7 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
       ) : (
         <>
           <MotionView style={sosStyles.heroWrap}>
-            <Text variant="title" weight="bold">{t("home.need_ambulance")}</Text>
-            <Text variant="small" tone="secondary">{t("home.need_ambulance.sub")}</Text>
+            <Text variant="title" weight="bold" style={{ fontSize: 28, lineHeight: 34, letterSpacing: -0.6 }}>{t("home.need_ambulance")}</Text>
             <Pressable onPress={onSos} style={({ pressed }) => [sosStyles.emergencyTile, pressed ? { opacity: 0.85 } : null]}
               testID="sos-cta" accessibilityRole="button" accessibilityLabel={t("home.sos_a11y")}>
               <View style={sosStyles.sosMark}><Text variant="heading" weight="bold" tone="inverse">{t("home.sos_short")}</Text></View>
@@ -195,10 +195,10 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
             <Pressable onPress={onBook} style={({ pressed }) => [sosStyles.bookPrimary, pressed ? { opacity: 0.85 } : null]}
               testID="book-cta" accessibilityRole="button">
               <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
-                <Text variant="heading" weight="bold" tone="inverse">{t("home.book_card.title")}</Text>
-                <Text variant="small" tone="inverse">{t("home.book_services")}</Text>
+                <Text variant="heading" weight="bold">{t("home.book_card.title")}</Text>
+                <Text variant="small" tone="secondary">{t("home.book_services")}</Text>
               </View>
-              <Text variant="heading" tone="inverse">›</Text>
+              <AmbulanceMark size={84} />
             </Pressable>
             <Pressable onPress={() => dialog.alert(t("emergency.disclaimer.title"), t("emergency.disclaimer.body"))}
               accessibilityRole="button" style={sosStyles.disclaimer}>
@@ -279,10 +279,10 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
 }
 
 const sosStyles = StyleSheet.create({
-  heroWrap: { gap: space.md, paddingVertical: space.sm },
+  heroWrap: { gap: space.md, paddingVertical: 0 },
   emergencyTile: { flexDirection: "row", alignItems: "center", gap: 16, minHeight: 96, padding: 18, borderRadius: 16, backgroundColor: colors.primaryDark },
   sosMark: { width: 56, height: 56, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.14)", alignItems: "center", justifyContent: "center" },
-  bookPrimary: { flexDirection: "row", alignItems: "center", gap: 16, minHeight: 88, padding: 18, borderRadius: 16, backgroundColor: colors.textPrimary },
+  bookPrimary: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 120, padding: 18, borderRadius: 20, backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border },
   disclaimer: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 },
   bookTile: { flexDirection: "row", alignItems: "center", gap: space.md, width: "100%", paddingVertical: space.md, paddingHorizontal: space.lg, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }
 });

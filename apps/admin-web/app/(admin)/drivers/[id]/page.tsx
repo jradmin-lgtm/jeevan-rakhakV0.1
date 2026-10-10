@@ -121,7 +121,7 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
           <div style={{ marginTop: 12, fontSize: 12, color: "var(--muted)" }}>
             {driver.kycVerified
               ? "This driver can accept ride requests. Revoke if their KYC ever lapses."
-              : "Driver has submitted all required fields. Verify against physical documents (licence, RC, insurance, hospital ID) before approving."}
+              : "Review the profile and uploaded documents against the physical documents before approving. Missing required details will block verification."}
           </div>
           <div style={{ marginTop: 12 }}>
             <KycVerifyToggle

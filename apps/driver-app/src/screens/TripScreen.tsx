@@ -1,7 +1,7 @@
 import { rideCache } from "../rideCache";
 import { LocationSyncNotice } from "../components/LocationSyncNotice";
 import React, { useEffect, useRef, useState } from "react";
-import { Linking, Pressable, StyleSheet, View } from "react-native";
+import { Keyboard, Linking, Pressable, StyleSheet, View } from "react-native";
 import * as Location from "expo-location";
 import {
   AppHeader,
@@ -417,7 +417,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
         <Button label={t("trip.back_to_dashboard")} onPress={onClose} fullWidth />
       )}</>}>
       <AppHeader
-        title={t("trip.header_title")}
+        title={stepHeadline(booking.status, t)}
         subtitle={`#${booking.displayId ?? booking.id.slice(0, 8)}`}
         onBack={onClose}
         right={
@@ -436,6 +436,11 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
       />
 
       <LocationSyncNotice />
+      {!finished && (booking.status === "ACCEPTED" || booking.status === "ARRIVED") ? <View style={{ padding: space.md, gap: space.xs, backgroundColor: colors.surface, borderLeftWidth: 3, borderLeftColor: colors.primary }}>
+        <Text variant="small" tone="secondary">{t("trip.landmark")}</Text>
+        <Text variant="heading" weight="bold">{booking.pickupLandmark ?? t("trip.landmark_unavailable")}</Text>
+        <Text variant="small" tone="secondary">{booking.pickupAddress ?? t("trip.patient_location")}</Text>
+      </View> : null}
 
       {/* v1.2.0 (CR#3): hospital has acknowledged & is preparing — reassures
         * the driver the receiving end is ready for the patient. */}
@@ -458,7 +463,6 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
           </View>
           <Stepper steps={STEPS.map(step => ({ ...step, label: t(`trip.progress.${step.key}`) }))} currentIndex={failed ? -1 : stepIndex} failed={failed} />
           <View style={{ gap: 4 }}>
-            <Text variant="heading">{stepHeadline(booking.status, t)}</Text>
             <Text variant="small" tone="secondary">{stepSubline(booking.status, t)}</Text>
           </View>
           {(() => {
@@ -490,6 +494,29 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
           })()}
         </View>
       </Card>
+
+      {/* OTP verification : required to flip ARRIVED → PICKED_UP. Replaces
+        * the legacy 1-tap "Patient picked up" so a driver can't start the
+        * meter on a wrong patient by accident. */}
+      {!finished && booking.status === "ARRIVED" ? (
+        <Card>
+          <View style={{ gap: space.sm }}>
+            <Text variant="label" tone="secondary">{t("trip.verify_otp_label")}</Text>
+            <Text variant="tiny" tone="muted">
+              {t("trip.verify_otp_body")}
+            </Text>
+            <OtpVerify
+              onSubmit={async (code) => {
+                // No confirm dialog : the empty-strings hack here was causing
+                // an empty Alert.alert("","") to flash on submit, which on
+                // some Androids killed the keyboard and stranded the driver.
+                await advance(() => bookingsApi.pickup(booking.id, code));
+              }}
+              busy={busy}
+            />
+          </View>
+        </Card>
+      ) : null}
 
       <Card flat padding="sm">
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: space.sm }}>
@@ -548,7 +575,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
       {!finished && booking.status === "ARRIVED" && !booking.dropAddress ? (
         <Card>
           <View style={{ gap: space.sm }}>
-            <Text variant="label" tone="secondary">{t("trip.drop_hospital_sos_label")}</Text>
+            <Text variant="label" tone="secondary">{t("trip.drop_hospital_label")}</Text>
             <Text variant="tiny" tone="muted">
               {t("trip.drop_sos_capture_note")}
             </Text>
@@ -563,28 +590,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
         </Card>
       ) : null}
 
-      {/* OTP verification : required to flip ARRIVED → PICKED_UP. Replaces
-        * the legacy 1-tap "Patient picked up" so a driver can't start the
-        * meter on a wrong patient by accident. */}
-      {!finished && booking.status === "ARRIVED" ? (
-        <Card>
-          <View style={{ gap: space.sm }}>
-            <Text variant="label" tone="secondary">{t("trip.verify_otp_label")}</Text>
-            <Text variant="tiny" tone="muted">
-              {t("trip.verify_otp_body")}
-            </Text>
-            <OtpVerify
-              onSubmit={async (code) => {
-                // No confirm dialog : the empty-strings hack here was causing
-                // an empty Alert.alert("","") to flash on submit, which on
-                // some Androids killed the keyboard and stranded the driver.
-                await advance(() => bookingsApi.pickup(booking.id, code));
-              }}
-              busy={busy}
-            />
-          </View>
-        </Card>
-      ) : null}
+
 
 
       {rideCacheError || routeCacheError ? <Text variant="small" tone="danger" accessibilityRole="alert">{t("offline.storage_error")}</Text> : null}
@@ -750,8 +756,8 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
 
 /**
  * 4-box OTP entry for the driver to verify the patient's ride OTP before
- * starting the trip. Keeps the keypad tight + auto-validates so the driver
- * doesn't have to tap a separate submit.
+ * starting the trip. Dismiss the keypad after four digits while preserving
+ * the explicit Start ride action.
  */
 function OtpVerify({
   onSubmit,
@@ -764,7 +770,7 @@ function OtpVerify({
   const [code, setCode] = useState("");
   return (
     <View style={{ gap: space.md }}>
-      <OtpInput value={code} onChangeText={setCode} length={4} />
+      <OtpInput value={code} onChangeText={(value) => { setCode(value); if (value.length === 4) Keyboard.dismiss(); }} length={4} />
       <Button
         label={t("trip.start_ride_button")}
         loading={busy}

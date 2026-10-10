@@ -66,6 +66,7 @@ export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onCo
   const [showResults, setShowResults] = useState(false);
   const [gpsBusy, setGpsBusy] = useState(false);
   const [resolvingPlace, setResolvingPlace] = useState(false);
+  const [failedSelection, setFailedSelection] = useState<SearchResult | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const searchEpoch = useRef(0);
   const selectionEpoch = useRef(0);
@@ -75,7 +76,7 @@ export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onCo
     setCenter(startCenter);
     setLabel(t("drop_picker.detecting"));
     setQuery(""); setResults([]); setShowResults(false); setMapReady(false); setMapFailed(false); setRenderedProvider(null);
-    setLocationError(null); addressCoords.current = null;
+    setLocationError(null); setFailedSelection(null); addressCoords.current = null;
     searchEpoch.current += 1; selectionEpoch.current += 1;
   }, [visible, mode]);
 
@@ -105,6 +106,7 @@ export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onCo
       return;
     }
     addressCoords.current = null;
+    setFailedSelection(null);
     setResolving(true);
     const timer = setTimeout(async () => {
       try {
@@ -194,13 +196,15 @@ export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onCo
     if (renderedProvider !== "google") { setLocationError(t("map_picker.search_unavailable")); return; }
     const epoch = ++selectionEpoch.current;
     setResolvingPlace(true);
+    setFailedSelection(null);
+    addressCoords.current = null;
     setLocationError(null);
     try {
       const details = await placesApi.details(r.placeId, sessionTokenRef.current);
       if (epoch !== selectionEpoch.current) return;
       sessionTokenRef.current = newSessionToken(); // this session is spent; fresh one for the next search
-      if (details.available && details.lat != null && details.lng != null) {
-        const c = { lat: details.lat, lng: details.lng };
+      if (details.available && Number.isFinite(details.lat) && Number.isFinite(details.lng) && Math.abs(details.lat!) <= 90 && Math.abs(details.lng!) <= 180) {
+        const c = { lat: details.lat!, lng: details.lng! };
         skipReverseGeocodeForRef.current = c;
         setCenter(c);
         injectFlyTo(c, 17);
@@ -210,6 +214,8 @@ export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onCo
         setResolving(false);
       } else throw new Error("place_coordinates_missing");
     } catch (err) {
+      if (epoch !== selectionEpoch.current) return;
+      setFailedSelection(r);
       console.warn("[location-picker] place selection failed", err);
       setLocationError(t("map_picker.selection_failed"));
       /* keep current pin position : no silent jump to a wrong place */
@@ -239,7 +245,7 @@ export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onCo
           scrollEnabled={false}
           bounces={false}
           mixedContentMode="never"
-          applicationNameForUserAgent="JeevanRakshak/2.2.0"
+          applicationNameForUserAgent="JeevanRakshak/2.2.1"
           setSupportMultipleWindows={false}
           onError={() => { setMapReady(false); setMapFailed(true); }}
           onRenderProcessGone={() => { setMapReady(false); setMapFailed(true); }}
@@ -370,6 +376,7 @@ export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onCo
           </View>
           {mapFailed ? <View style={{ gap: space.sm }}><Text variant="small" tone="danger">{t("map_picker.renderer_failed")}</Text><Button label={t("map_picker.retry_map")} variant="neutral" onPress={retryMap} /></View> : null}
           {locationError ? <Text variant="small" tone="danger" accessibilityRole="alert">{locationError}</Text> : null}
+          {failedSelection ? <Button label={t("map_picker.retry_selection")} variant="neutral" onPress={() => void onPickResult(failedSelection)} testID="retry-place-selection" /> : null}
           <Button
             label={confirmLabel}
             onPress={() => onConfirm({ lat: center.lat, lng: center.lng, address: label })}

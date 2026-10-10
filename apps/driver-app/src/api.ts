@@ -254,6 +254,7 @@ export type SosPending = {
   pickupLat: number;
   pickupLng: number;
   pickupAddress: string | null;
+  pickupLandmark?: string | null;
   distanceKm: number | null;
   waveNumber: number;
 };

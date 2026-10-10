@@ -75,6 +75,7 @@ export function EditableField({
             onClick={() => { setDraft(value ?? ""); setEditing(true); setErr(null); }}
             style={editLink}
             title={`Edit ${label}`}
+            aria-label={`Edit ${label}`}
           >
             ✎
           </button>
@@ -102,6 +103,7 @@ export function EditableField({
       </div>
       {multiline ? (
         <textarea
+          aria-label={label}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Escape") setEditing(false); }}
@@ -112,6 +114,7 @@ export function EditableField({
         />
       ) : (
         <input
+          aria-label={label}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
