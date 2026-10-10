@@ -161,8 +161,8 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
         </View>
         <Pressable accessibilityRole="button" accessibilityState={{ disabled: busy, busy }} accessibilityLabel={t("sos.button_label")}
           onPress={() => setPickerVisible(true)} disabled={busy} testID="sos-open-categories"
-          style={({ pressed }) => ({ minHeight: 164, padding: 24, borderRadius: 20, backgroundColor: "#A51D24", justifyContent: "center", gap: 8, opacity: busy || pressed ? 0.75 : 1 })}>
-          <Text weight="bold" tone="inverse" style={{ fontSize: 44, lineHeight: 50 }}>{t("sos.button_label")} ↗</Text>
+          style={({ pressed }) => ({ minHeight: 128, padding: 20, borderRadius: 16, backgroundColor: "#A51D24", justifyContent: "center", gap: 8, opacity: busy || pressed ? 0.75 : 1 })}>
+          <Text weight="bold" tone="inverse" style={{ fontSize: 36, lineHeight: 44 }}>{t("sos.button_label")} ↗</Text>
           <Text tone="inverse">{busy ? t("sos.sending") : t("home.sos.tap")}</Text>
         </Pressable>
         <View style={{ gap: space.sm, paddingVertical: space.md }}>

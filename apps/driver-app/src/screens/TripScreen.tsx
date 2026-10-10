@@ -1,7 +1,7 @@
 import { rideCache } from "../rideCache";
 import { LocationSyncNotice } from "../components/LocationSyncNotice";
 import React, { useEffect, useRef, useState } from "react";
-import { Keyboard, Linking, Pressable, StyleSheet, View } from "react-native";
+import { Keyboard, Linking, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import * as Location from "expo-location";
 import {
   AppHeader,
@@ -87,6 +87,7 @@ function statusToIndex(status: string): number {
 
 export function TripScreen({ booking: initial, onClose }: { booking: Booking; onClose: () => void }) {
   const { t, lang } = useT();
+  const { height: viewportHeight } = useWindowDimensions();
   const mapCfg = useMapConfig();
   const [renderedProvider, setRenderedProvider] = useState<"google" | "osm" | null>(null);
   useEffect(() => setRenderedProvider(null), [mapCfg.provider, mapCfg.googleBrowserKey]);
@@ -538,7 +539,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
           routeProvider={routeSource === "traffic" ? "google" : "osm"}
           onProviderChange={setRenderedProvider}
           mapConfig={mapCfg}
-          height={300}
+          height={Math.min(260, Math.max(180, viewportHeight * 0.28))}
         />
         {myPos && booking.status === "ACCEPTED" ? (
           <View style={{ flexDirection: "row", justifyContent: "space-around", paddingVertical: space.sm }}>
@@ -1148,6 +1149,9 @@ function prettyPregnancyComplaint(v: string) {
 const paramedicStyles = StyleSheet.create({
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: space.xs },
   chip: {
+    minHeight: 44,
+    maxWidth: "100%",
+    justifyContent: "center",
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 999,

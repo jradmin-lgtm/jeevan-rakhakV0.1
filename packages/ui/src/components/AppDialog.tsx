@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from "react";
-import { Modal, Pressable, StyleSheet, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Text } from "./Text";
 import { Button } from "./Button";
 import { colors, radius, shadow, space } from "../tokens";
@@ -223,7 +223,7 @@ function AppDialogHostInner() {
             accessibilityRole={active.dismissible ? "button" : undefined}
           />
           <View style={styles.card} pointerEvents="box-none">
-            <View style={styles.cardInner}>
+            <ScrollView contentContainerStyle={styles.cardInner} bounces={false}>
               <Text variant="heading" weight="semi">{active.title}</Text>
               {active.message ? (
                 <Text variant="body" tone="secondary" style={styles.message}>
@@ -241,7 +241,7 @@ function AppDialogHostInner() {
                   />
                 ))}
               </View>
-            </View>
+            </ScrollView>
           </View>
         </View>
       ) : null}
@@ -263,12 +263,15 @@ const styles = StyleSheet.create({
   card: {
     width: "100%",
     maxWidth: 420,
+    maxHeight: "85%",
+    borderRadius: radius.lg,
+    overflow: "hidden",
     alignItems: "stretch"
   },
   cardInner: {
     backgroundColor: colors.card,
     borderRadius: radius.lg,
-    padding: space.xl,
+    padding: space.lg,
     gap: space.md,
     ...shadow.pop
   },

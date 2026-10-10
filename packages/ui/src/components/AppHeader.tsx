@@ -1,5 +1,5 @@
 import React, { memo } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Text } from "./Text";
 import { colors, space } from "../tokens";
 
@@ -11,7 +11,10 @@ type Props = {
 };
 
 function AppHeaderInner({ title, subtitle, onBack, right }: Props) {
+  const { width, fontScale } = useWindowDimensions();
+  const stackActions = !!right && (width < 360 || fontScale > 1.2);
   return (
+    <View style={{ gap: space.xs }}>
     <View style={styles.row}>
       {onBack ? (
         <Pressable
@@ -29,7 +32,9 @@ function AppHeaderInner({ title, subtitle, onBack, right }: Props) {
         <Text variant="heading">{title}</Text>
         {subtitle ? <Text variant="small" tone="secondary">{subtitle}</Text> : null}
       </View>
-      {right ?? null}
+      {!stackActions ? right : null}
+    </View>
+    {stackActions ? <View style={{ alignSelf: "flex-end", maxWidth: "100%" }}>{right}</View> : null}
     </View>
   );
 }

@@ -79,7 +79,7 @@ function RatingPromptInner({
               <Pressable
                 key={n}
                 onPress={() => setRating(n)}
-                hitSlop={8}
+                style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}
                 accessibilityRole="button"
                 accessibilityLabel={`${n} star${n === 1 ? "" : "s"}`}
               >
@@ -119,8 +119,8 @@ function RatingPromptInner({
 }
 
 const styles = StyleSheet.create({
-  starsRow: { flexDirection: "row", justifyContent: "center", gap: space.md, paddingVertical: space.sm },
-  star: { fontSize: 44, lineHeight: 50 },
+  starsRow: { flexDirection: "row", justifyContent: "center", flexWrap: "wrap", gap: space.xs, paddingVertical: space.xs },
+  star: { fontSize: 32, lineHeight: 40 },
   starFilled: { color: "#F59E0B" },
   starEmpty: { color: colors.borderStrong },
   feedback: {

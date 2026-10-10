@@ -48,7 +48,7 @@ function ContactSupportInner({ bookingId, compact, variant = "user", lang = "en"
 }
 const styles = StyleSheet.create({
   card: { paddingVertical: space.md, gap: 4 },
-  row: { flexDirection: "row", alignItems: "center", gap: space.md, minHeight: 68, paddingVertical: space.sm, borderTopWidth: 1, borderColor: colors.border },
+  row: { flexDirection: "row", alignItems: "center", gap: space.md, minHeight: 56, paddingVertical: space.sm, borderTopWidth: 1, borderColor: colors.border },
   compact: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   compactButton: { minHeight: 48, paddingHorizontal: space.md, justifyContent: "center", borderWidth: 1, borderColor: colors.border, borderRadius: 12 }
 });

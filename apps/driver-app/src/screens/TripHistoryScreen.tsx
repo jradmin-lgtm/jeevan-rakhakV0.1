@@ -93,7 +93,7 @@ function TripHistoryRow({ item, t }: { item: Booking; t: (k: string) => string }
   return (
     <Card padding="md">
       <View style={{ gap: space.sm }}>
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, justifyContent: "space-between", alignItems: "center" }}>
           <Pill label={prettyEmergency(item.emergencyType, t)} />
           <Text variant="small" tone="muted">{dateLabel}</Text>
         </View>

@@ -21,8 +21,8 @@ function ScreenInner({ children, scroll = true, padding = "lg", style, bg, refre
       <StatusBar barStyle="dark-content" backgroundColor={bg ?? colors.bg} />
       {header ? <View style={styles.header}>{header}</View> : null}
       <Container
-        contentContainerStyle={scroll ? [{ padding: pad, gap: space.lg }, style] : undefined}
-        style={!scroll ? [{ flex: 1, padding: pad, gap: space.lg }, style] : { flex: 1 }}
+        contentContainerStyle={scroll ? [styles.content, { padding: pad, gap: space.md }, style] : undefined}
+        style={!scroll ? [styles.content, { flex: 1, padding: pad, gap: space.md }, style] : { flex: 1 }}
         showsVerticalScrollIndicator={false}
         keyboardDismissMode="on-drag"
         refreshControl={scroll ? refreshControl : undefined}
@@ -37,8 +37,9 @@ function ScreenInner({ children, scroll = true, padding = "lg", style, bg, refre
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
-  header: { paddingHorizontal: space.lg, paddingTop: space.sm, paddingBottom: space.sm },
-  footer: { paddingHorizontal: space.lg, paddingVertical: space.md, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border }
+  content: { width: "100%", maxWidth: 640, alignSelf: "center" },
+  header: { width: "100%", maxWidth: 640, alignSelf: "center", paddingHorizontal: space.lg, paddingTop: space.sm, paddingBottom: space.sm },
+  footer: { width: "100%", maxWidth: 640, alignSelf: "center", paddingHorizontal: space.lg, paddingVertical: space.sm, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border }
 });
 
 export const Screen = memo(ScreenInner);

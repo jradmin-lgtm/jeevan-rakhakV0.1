@@ -49,7 +49,7 @@ const border: Record<Variant, string> = {
   outline: colors.primary,
   neutral: "transparent"
 };
-const padY: Record<Size, number> = { sm: 8, md: 12, lg: 16 };
+const padY: Record<Size, number> = { sm: 8, md: 10, lg: 12 };
 const padX: Record<Size, number> = { sm: 12, md: 16, lg: 20 };
 
 function ButtonInner({
@@ -87,7 +87,7 @@ function ButtonInner({
   const isDisabled = disabled || loading;
 
   return (
-    <Animated.View style={{ transform: [{ scale }], width: fullWidth ? "100%" : undefined }}>
+    <Animated.View style={{ transform: [{ scale }], width: fullWidth ? "100%" : undefined, minWidth: 0, maxWidth: "100%", flexShrink: 1 }}>
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ disabled: Boolean(isDisabled), busy: Boolean(loading) }}
@@ -100,6 +100,7 @@ function ButtonInner({
         style={[
           styles.base,
           {
+            minHeight: size === "lg" ? 52 : 44,
             backgroundColor: bg[variant],
             borderColor: border[variant],
             borderWidth: variant === "outline" ? 1.5 : 0,

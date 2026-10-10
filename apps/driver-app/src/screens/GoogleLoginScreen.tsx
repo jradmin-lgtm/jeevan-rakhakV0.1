@@ -119,7 +119,7 @@ export function GoogleLoginScreen({ onAuthenticated, onProfileSetupRequired }: P
         }
       />
 
-      <Animated.View style={[fade, { alignItems: "flex-start", paddingVertical: space.xl, gap: space.lg }]}>
+      <Animated.View style={[fade, { alignItems: "flex-start", paddingVertical: space.lg, gap: space.md }]}>
         <IconBadge glyph="+" size={48} bg={colors.primaryFaint} color={colors.primary} />
         <Text variant="title" style={{ maxWidth: 320 }}>{t("auth.google.hero")}</Text>
         <Text variant="body" tone="secondary">{t("auth.google.hero_hint")}</Text>
@@ -152,7 +152,7 @@ export function GoogleLoginScreen({ onAuthenticated, onProfileSetupRequired }: P
         </View>
       </View>
 
-      <View style={{ marginTop: space.xl, gap: space.xs, alignItems: "center" }}>
+      <View style={{ marginTop: space.md, gap: space.xs, alignItems: "center" }}>
         <Text variant="tiny" tone="muted" align="center">{t("login.footer_care")}</Text>
         <Text variant="tiny" tone="muted" align="center">{t("login.patient_hint")}</Text>
       </View>

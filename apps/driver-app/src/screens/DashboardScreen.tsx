@@ -554,10 +554,10 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
       {/* v1.4.0 (geofence): slim, non-blocking launch ribbon at the top of the
         * dashboard content. Sits in the flow (not an overlay), so it never gates
         * the incoming-request list, the SOS modal, or anything below. */}
-      {!activeTrip ? <Card flat style={{ borderRadius: 20, backgroundColor: colors.bg, borderWidth: 0 }}>
+      {!activeTrip ? <Card flat style={{ borderRadius: 14, backgroundColor: colors.bg, borderWidth: 0 }}>
         <View style={{ gap: space.md }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
-            <AmbulanceMark size={72} />
+            <AmbulanceMark size={52} />
             <View style={{ flex: 1 }}>
               <Text variant="heading">{available ? t("dashboard.receiving") : t("dashboard.youoffline")}</Text>
               <Text variant="small" tone="secondary">

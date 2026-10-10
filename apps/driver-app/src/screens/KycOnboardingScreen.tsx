@@ -47,7 +47,7 @@ function ChipPicker({
   onChange: (v: string) => void;
 }) {
   return (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.xs }}>
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
       {options.map((o) => {
         const sel = value === o.value;
         return (
@@ -57,6 +57,7 @@ function ChipPicker({
             onPress={() => onChange(o.value)}
             style={{
               minHeight: 44,
+              maxWidth: "100%",
               justifyContent: "center",
               paddingVertical: 8,
               paddingHorizontal: 12,
@@ -161,7 +162,7 @@ function DocUploadRow({
         ) : null}
       </View>
       {state === "uploaded" ? (
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: space.sm, borderRadius: radius.md, backgroundColor: "#F0FDF4", borderWidth: 1, borderColor: "#BBF7D0" }}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: space.sm, padding: space.sm, borderRadius: radius.md, backgroundColor: "#F0FDF4", borderWidth: 1, borderColor: "#BBF7D0" }}>
           <Text variant="small" tone="success">✓ {t("kyc.doc.uploaded")}</Text>
           <View style={{ flexDirection: "row", gap: space.sm }}>
             <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: "center" }} onPress={() => pick("camera")}><Text variant="tiny" tone="primary" weight="semi">{t("kyc.doc.retake")}</Text></Pressable>

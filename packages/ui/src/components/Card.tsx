@@ -10,7 +10,7 @@ type Props = {
   flat?: boolean;
 };
 
-function CardInner({ children, onPress, style, padding = "lg", flat = true }: Props) {
+function CardInner({ children, onPress, style, padding = "md", flat = true }: Props) {
   const inner = (
     <View
       style={[

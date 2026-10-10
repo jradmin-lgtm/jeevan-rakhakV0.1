@@ -74,7 +74,7 @@ export function ProfileScreen({ initial, onBack, onUpdated, onManageDocuments }:
 
       <Card>
         <View style={{ gap: space.md }}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, justifyContent: "space-between", alignItems: "center" }}>
             <Text variant="label" tone="secondary">{t("profile.section_vehicle_kyc")}</Text>
             <Pill
               label={initial?.kycVerified ? t("profile.kyc_verified") : t("profile.kyc_pending")}
@@ -146,7 +146,10 @@ export function ProfileScreen({ initial, onBack, onUpdated, onManageDocuments }:
 const langStyles = {
   pill: {
     flex: 1,
-    paddingVertical: space.md,
+    minWidth: 0,
+    minHeight: 44,
+    justifyContent: "center" as const,
+    paddingVertical: space.sm,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
@@ -161,7 +164,7 @@ const langStyles = {
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, justifyContent: "space-between", alignItems: "center" }}>
       <Text variant="small" tone="secondary" style={{ flex: 1, paddingRight: space.md }}>{label}</Text>
       <Text variant="body" weight="semi" style={{ flex: 1, textAlign: "right" }}>{value}</Text>
     </View>

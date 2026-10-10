@@ -120,7 +120,7 @@ export function DocumentUpdateScreen({ onBack }: Props) {
           return (
             <Card key={docType}>
               <View style={{ gap: space.sm }}>
-                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, justifyContent: "space-between", alignItems: "center" }}>
                   <Text variant="label" tone="secondary">{docLabel(docType, t)}</Text>
                   {latest ? (
                     <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: latest.status === "APPROVED" ? "#DCFCE7" : latest.status === "REJECTED" ? "#FEE2E2" : "#FEF3C7" }}>

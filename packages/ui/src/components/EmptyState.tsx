@@ -24,7 +24,7 @@ function EmptyStateInner({ title, description, action }: Props) {
 }
 
 const styles = StyleSheet.create({
-  wrap: { paddingVertical: space.xxl, gap: space.md, alignItems: "center" }
+  wrap: { paddingVertical: space.xl, gap: space.md, alignItems: "center" }
 });
 
 export const EmptyState = memo(EmptyStateInner);

@@ -37,7 +37,7 @@ export function SosCategoryPicker({ visible, onClose, onSelect }: Props) {
                 {t("sos.picker_subtitle")}
               </Text>
             </View>
-            <Pressable accessibilityRole="button" onPress={onClose} accessibilityLabel={t("common.cancel")} hitSlop={10}>
+            <Pressable accessibilityRole="button" onPress={onClose} accessibilityLabel={t("common.cancel")} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
               <Text variant="heading" tone="secondary">✕</Text>
             </Pressable>
           </View>
@@ -108,7 +108,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: space.md,
     paddingVertical: space.md,
-    paddingHorizontal: space.lg,
+    paddingHorizontal: space.md,
+    minHeight: 64,
     borderRadius: radius.md,
     backgroundColor: colors.surface,
     borderWidth: 1.5,

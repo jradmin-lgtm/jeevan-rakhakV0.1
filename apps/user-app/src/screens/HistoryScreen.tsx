@@ -118,7 +118,7 @@ function HistoryRow({ item, index, onOpen }: { item: Booking; index: number; onO
         <View style={{ flexDirection: "row", gap: space.md, alignItems: "flex-start" }}>
           <IconBadge glyph={decor.glyph} bg={decor.tintBg} color={decor.tint} size={42} />
           <View style={{ flex: 1, gap: space.sm }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, justifyContent: "space-between", alignItems: "center" }}>
               <Pill label={prettyEmergency(item.emergencyType, t)} color={decor.tint} bg={decor.tintBg} />
               <StatusBadge label={t(`status.${item.status}`)} status={item.status} />
             </View>
@@ -129,7 +129,7 @@ function HistoryRow({ item, index, onOpen }: { item: Booking; index: number; onO
             {item.dropAddress ? (
               <Text variant="small" tone="secondary">→ {item.dropAddress}</Text>
             ) : null}
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, justifyContent: "space-between", alignItems: "center" }}>
               <Text variant="small" tone="muted">{formatDateTime(item.createdAt)}</Text>
               {paidLabel ? (
                 <Text variant="body" weight="bold" tone={item.paidInr === 0 ? "success" : "primary"}>

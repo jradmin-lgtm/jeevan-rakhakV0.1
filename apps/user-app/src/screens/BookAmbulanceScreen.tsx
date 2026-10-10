@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import * as Location from "expo-location";
-import { AppHeader, AmbulanceMark, Button, Card, Input, MapEmbed, MotionView, Screen, Text, colors, space, OutOfServiceArea } from "@jr/ui";
+import { AppHeader, Button, Card, Input, MapEmbed, MotionView, Screen, Text, colors, space, OutOfServiceArea } from "@jr/ui";
 import { bookings as bookingsApi, fares as faresApi, serviceArea as serviceAreaApi, FareQuote, EmergencyType, Booking } from "../api";
 import { PickupLandmark } from "./PickupLandmark";
 import { MapLocationPicker } from "./MapLocationPicker";
@@ -319,7 +319,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
             </Text>
             {!pickupCoords || locating ? <Text variant="small" tone={locating ? "secondary" : "danger"}>{t(locationNote)}</Text> : null}
           </Pressable>
-          <Button label={t("book.gps_button")} variant="ghost" onPress={refreshLocation} loading={locating} testID="refresh-pickup-gps" />
+          <Button label={t("book.gps_button")} variant="ghost" size="sm" onPress={refreshLocation} loading={locating} testID="refresh-pickup-gps" />
         </View>
         <View style={styles.routeDivider} />
         <View style={styles.locationRow}>
@@ -329,7 +329,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
             <Text variant="body" weight="semi" numberOfLines={2}>{dropAddress || t("book.drop_placeholder")}</Text>
 
           </Pressable>
-          {dropCoords ? <Button label={t("book.clear_drop")} variant="ghost" onPress={() => { setDropCoords(null); setDropAddress(""); }} testID="clear-drop" /> : null}
+          {dropCoords ? <Button label={t("book.clear_drop")} variant="ghost" size="sm" onPress={() => { setDropCoords(null); setDropAddress(""); }} testID="clear-drop" /> : null}
         </View>
       </View>
       <View style={{ gap: space.sm }}>
@@ -340,14 +340,14 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
             return (
               <Pressable key={e.key} accessibilityRole="radio" accessibilityState={{ checked: selected }} aria-checked={selected}
                 accessibilityLabel={`${t(e.labelKey)}. ${t(e.subKey)}`} onPress={() => setType(e.key)} testID={`emergency-${e.key}`}
-                style={({ pressed }) => [styles.tile, stackedServices && { flexDirection: "row", flex: 0 }, selected ? styles.selectedTile : null, pressed ? { transform: [{ scale: 0.97 }] } : null]}>
-                <AmbulanceMark size={58} />
-                <View style={{ minWidth: 0, flexShrink: 1, alignSelf: "stretch" }}>
+                style={({ pressed }) => [styles.tile, stackedServices && { flex: 0, minHeight: 52, justifyContent: "flex-start", paddingHorizontal: 12 }, selected ? styles.selectedTile : null, pressed ? { transform: [{ scale: 0.97 }] } : null]}>
+                <View style={[styles.radio, selected ? { borderColor: colors.primary } : null]}>
+                  {selected ? <View style={styles.radioDot} /> : null}
+                </View>
+                <View style={{ minWidth: 0, flexShrink: 1 }}>
                   <Text variant="small" weight="bold" align={stackedServices ? "left" : "center"}>{t(`book.service.${e.key}`)}</Text>
                 </View>
-                <View style={[styles.radio, selected ? { borderColor: colors.primary, backgroundColor: colors.primary } : null]}>
-                  {selected ? <Text variant="tiny" tone="inverse" weight="bold">✓</Text> : null}
-                </View>
+
               </Pressable>
             );
           })}
@@ -527,9 +527,10 @@ const styles = StyleSheet.create({
   dropDot: { width: 10, height: 10, borderRadius: 2, borderWidth: 2, borderColor: colors.primary },
   routeDivider: { height: 1, marginLeft: 22, backgroundColor: colors.border },
   serviceList: { flexDirection: "row", gap: 8 },
-  tile: { flex: 1, minWidth: 0, alignItems: "center", justifyContent: "center", gap: 9, paddingVertical: 16, paddingHorizontal: 8, minHeight: 114, borderWidth: 1.5, borderColor: colors.border, borderRadius: 16, backgroundColor: colors.bg },
+  tile: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, paddingHorizontal: 8, minHeight: 56, borderWidth: 1.5, borderColor: colors.border, borderRadius: 12, backgroundColor: colors.bg },
   selectedTile: { backgroundColor: colors.primaryFaint, borderColor: colors.primary },
-  radio: { position: "absolute", right: 7, top: 7, width: 16, height: 16, borderRadius: 8, borderWidth: 1, borderColor: colors.borderStrong, alignItems: "center", justifyContent: "center" },
+  radio: { flexShrink: 0, width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: colors.borderStrong, alignItems: "center", justifyContent: "center" },
+  radioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary },
   fareRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" },
   fareTotalRow: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: space.sm },
   struck: { textDecorationLine: "line-through", color: colors.textSecondary }

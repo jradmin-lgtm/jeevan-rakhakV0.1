@@ -96,13 +96,16 @@ export function ProfileSetupScreen({ idToken, google, onSetupComplete, onBack }:
 
       <Animated.View style={[fade, { alignItems: "center", paddingVertical: space.md, gap: space.sm }]}>
         {g.picture ? (
-          <Image source={{ uri: g.picture }} style={{ width: 84, height: 84, borderRadius: 42, backgroundColor: colors.primaryFaint }} />
+          <Image source={{ uri: g.picture }} style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: colors.primaryFaint }} />
         ) : (
-          <IconBadge glyph="✓" size={84} bg={colors.primaryFaint} color={colors.primary} />
+          <IconBadge glyph="✓" size={56} bg={colors.primaryFaint} color={colors.primary} />
         )}
         <View
           style={{
             flexDirection: "row",
+            flexWrap: "wrap",
+            justifyContent: "center",
+            maxWidth: "100%",
             alignItems: "center",
             gap: 6,
             paddingHorizontal: space.md,
@@ -116,7 +119,7 @@ export function ProfileSetupScreen({ idToken, google, onSetupComplete, onBack }:
           <Text variant="tiny" tone="muted">{t("profile_setup.signed_in_as")}</Text>
           <Text variant="tiny" weight="bold" style={{ color: colors.textPrimary }}>{g.email}</Text>
         </View>
-        <Pressable onPress={switchAccount} disabled={switching || busy} hitSlop={8}>
+        <Pressable onPress={switchAccount} disabled={switching || busy} style={{ minHeight: 44, justifyContent: "center" }} accessibilityRole="button">
           <Text variant="tiny" weight="bold" align="center" style={{ color: switching || busy ? "#94A3B8" : colors.accent }}>
             {switching ? t("auth.google.busy") : t("auth.google.switch_account")}
           </Text>

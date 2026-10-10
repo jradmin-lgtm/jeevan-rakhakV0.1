@@ -10,7 +10,7 @@ type Props = TextInputProps & {
 
 function InputInner({ label, error, style, ...rest }: Props) {
   return (
-    <View style={{ gap: 4 }}>
+    <View style={{ gap: 4, minWidth: 0 }}>
       {label ? (
         <Text variant="label" tone="secondary">{label}</Text>
       ) : null}
@@ -33,11 +33,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingVertical: space.md,
-    paddingHorizontal: space.lg,
+    paddingVertical: 10,
+    paddingHorizontal: space.md,
     fontSize: font.sizeMd,
     color: colors.textPrimary,
-    minHeight: 44
+    minHeight: 48
   },
   inputError: { borderColor: colors.danger }
 });

@@ -458,7 +458,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: space.md,
-    paddingVertical: 8,
+    paddingVertical: 2,
     borderRadius: radius.md,
     backgroundColor: "#F1F5F9",
     borderWidth: 1,
@@ -497,7 +497,7 @@ const styles = StyleSheet.create({
     overflow: "hidden"
   },
   resultRow: {
-    minHeight: 52,
+    minHeight: 48,
     flexDirection: "row",
     alignItems: "center",
     gap: space.sm,

@@ -151,13 +151,13 @@ export function CancelRideSheet({ bookingId, patientPhone, onCancelled, onClose 
         <View style={styles.sheet}>
           <View style={styles.handle} />
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <Text variant="heading" weight="bold">{t("cancel.reason_title")}</Text>
-            <Pressable onPress={onClose} disabled={busy} accessibilityLabel={t("common.close")}>
+            <Text variant="heading" weight="bold" style={{ flex: 1, minWidth: 0 }}>{t("cancel.reason_title")}</Text>
+            <Pressable onPress={onClose} disabled={busy} accessibilityLabel={t("common.close")} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
               <Text variant="body" tone="muted">✕</Text>
             </Pressable>
           </View>
 
-          <ScrollView style={{ maxHeight: 380 }} keyboardShouldPersistTaps="handled">
+          <ScrollView style={{ flexShrink: 1 }} keyboardShouldPersistTaps="handled">
             <View style={{ gap: space.sm, paddingVertical: space.sm }}>
               {REASONS.map((r) => {
                 const sel = selected === r.code;
@@ -233,6 +233,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end"
   },
   sheet: {
+    maxHeight: "90%",
     backgroundColor: colors.surface,
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
@@ -247,6 +248,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.border
   },
   reason: {
+    minHeight: 48,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",

@@ -1,6 +1,6 @@
 import { rideCache } from "../rideCache";
 import React, { useEffect, useRef, useState } from "react";
-import { Linking, Pressable, StyleSheet, View } from "react-native";
+import { Linking, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import * as Location from "expo-location";
 import {
   AppHeader,
@@ -92,6 +92,7 @@ type Props = {
 
 export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Props) {
   const { t, lang } = useT();
+  const { height: viewportHeight } = useWindowDimensions();
   // CR3 (2026-08): the socket-handler effect below only depends on
   // [initial.id] (handlers are wired once per booking), so a plain closure
   // over `t` would go stale if the user switches language mid-ride. This ref
@@ -434,6 +435,38 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
         />
       ) : null}
 
+      {booking.rideOtpCode && ["REQUESTED", "ACCEPTED", "ARRIVED"].includes(booking.status) ? (
+        <View>
+          <Card style={
+            booking.status === "ARRIVED"
+              ? { borderColor: colors.primary, borderWidth: 2, backgroundColor: "#FFF5F4" }
+              : undefined
+          }>
+            <View style={{ gap: space.sm, alignItems: "center" }}>
+              <Text variant="label" tone={booking.status === "ARRIVED" ? "danger" : "secondary"}>
+                {booking.status === "ARRIVED" ? t("live.otp_tell_driver_label") : t("live.otp_label")}
+              </Text>
+              <Text style={{
+                fontSize: 32,
+                fontWeight: "700",
+                color: colors.primary,
+                letterSpacing: 6,
+                textAlign: "center",
+                includeFontPadding: false,
+                lineHeight: 40,
+                paddingHorizontal: space.md
+              }}>
+                {booking.rideOtpCode}
+              </Text>
+              <Text variant="tiny" tone="muted" align="center">
+                {t("live.otp_explainer")}
+              </Text>
+            </View>
+          </Card>
+        </View>
+      ) : null}
+
+
       <Card flat padding="sm">
         <View style={{ gap: space.sm }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
@@ -459,7 +492,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
             routeProvider={routeSource === "traffic" ? "google" : "osm"}
             onProviderChange={setRenderedProvider}
             mapConfig={mapCfg}
-            height={300}
+            height={Math.min(260, Math.max(180, viewportHeight * 0.28))}
           />
           {!finished ? (
             <>
@@ -501,47 +534,6 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
         </View>
       </Card>
 
-      {/* Ride OTP : visible from the moment the booking is created so the
-        * patient can rehearse the code. Goes prominently red once the driver
-        * has actually arrived ("Tell this code to the driver"). Disappears
-        * after PICKED_UP since the OTP has been consumed.
-        *
-        * v1.0.15: wrapped in an explicit-margin View so the OTP card never
-        * visually butts up against the map card below it. ScrollView's
-        * contentContainerStyle `gap` is unreliable across RN/Android paths;
-        * explicit marginBottom is the safe default. Plus `includeFontPadding:
-        * false` + slightly tighter letterSpacing kill the residual Android
-        * vertical-clip on the 4-digit code. */}
-      {booking.rideOtpCode && ["REQUESTED", "ACCEPTED", "ARRIVED"].includes(booking.status) ? (
-        <View style={{ marginBottom: space.lg }}>
-          <Card style={
-            booking.status === "ARRIVED"
-              ? { borderColor: colors.primary, borderWidth: 2, backgroundColor: "#FFF5F4" }
-              : undefined
-          }>
-            <View style={{ gap: space.sm, alignItems: "center" }}>
-              <Text variant="label" tone={booking.status === "ARRIVED" ? "danger" : "secondary"}>
-                {booking.status === "ARRIVED" ? t("live.otp_tell_driver_label") : t("live.otp_label")}
-              </Text>
-              <Text style={{
-                fontSize: 44,
-                fontWeight: "700",
-                color: colors.primary,
-                letterSpacing: 6,
-                textAlign: "center",
-                includeFontPadding: false,
-                lineHeight: 52,
-                paddingHorizontal: space.md
-              }}>
-                {booking.rideOtpCode}
-              </Text>
-              <Text variant="tiny" tone="muted" align="center">
-                {t("live.otp_explainer")}
-              </Text>
-            </View>
-          </Card>
-        </View>
-      ) : null}
 
 
       <Card>
@@ -785,6 +777,9 @@ function PatientInfoCard({ bookingId, onSaved }: { bookingId: string; onSaved: (
 const patientStyles = StyleSheet.create({
   condGrid: { flexDirection: "row", flexWrap: "wrap", gap: space.xs },
   chip: {
+    minHeight: 44,
+    maxWidth: "100%",
+    justifyContent: "center",
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 999,
@@ -798,6 +793,9 @@ const patientStyles = StyleSheet.create({
   },
   genderChip: {
     flex: 1,
+    minWidth: 0,
+    minHeight: 44,
+    justifyContent: "center",
     paddingVertical: 10,
     borderRadius: radius.md,
     borderWidth: 1,

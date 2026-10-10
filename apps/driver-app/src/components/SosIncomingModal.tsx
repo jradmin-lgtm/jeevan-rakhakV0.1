@@ -170,7 +170,7 @@ export function SosIncomingModal({ onAccept }: Props) {
             </View>
             <LangToggle />
           </View>
-          <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} contentContainerStyle={{ gap: space.lg }}>
+          <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} contentContainerStyle={{ gap: space.md }}>
             <View style={styles.metaRow}>
               <View style={{ flex: 1 }}>
                 <Text variant="tiny" tone="secondary">{t("sos_modal.distance_label")}</Text>
@@ -244,13 +244,13 @@ const styles = StyleSheet.create({
     paddingVertical: space.xl
   },
   headerRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
-  sosBadge: { width: 48, height: 48, borderRadius: 12, backgroundColor: colors.danger, alignItems: "center", justifyContent: "center" },
+  sosBadge: { width: 40, height: 40, borderRadius: 10, backgroundColor: colors.danger, alignItems: "center", justifyContent: "center" },
   landmarkRow: { padding: space.md, backgroundColor: colors.bg, borderRadius: radius.md, gap: space.xs },
   card: {
     maxHeight: "90%",    backgroundColor: colors.surface,
     borderRadius: radius.lg,
     padding: space.lg,
-    gap: space.lg,
+    gap: space.md,
     borderTopWidth: 4,
     borderTopColor: colors.danger,
     shadowColor: "#000",

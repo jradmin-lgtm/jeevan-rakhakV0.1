@@ -19,7 +19,7 @@ function ListItemInner({ title, subtitle, trailing, onPress, testID }: Props) {
       android_ripple={{ color: "rgba(0,0,0,0.04)" }}
       style={({ pressed }) => [styles.row, pressed ? { opacity: 0.92 } : null]}
     >
-      <View style={{ flex: 1, gap: 2 }}>
+      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         <Text variant="body" weight="semi">{title}</Text>
         {subtitle ? <Text variant="small" tone="secondary">{subtitle}</Text> : null}
       </View>
@@ -34,7 +34,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: space.md,
     paddingVertical: space.md,
-    paddingHorizontal: space.lg,
+    paddingHorizontal: space.md,
     backgroundColor: colors.surface,
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,

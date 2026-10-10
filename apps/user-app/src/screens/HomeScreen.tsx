@@ -198,7 +198,7 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
                 <Text variant="heading" weight="bold">{t("home.book_card.title")}</Text>
                 <Text variant="small" tone="secondary">{t("home.book_services")}</Text>
               </View>
-              <AmbulanceMark size={84} />
+              <AmbulanceMark size={60} />
             </Pressable>
             <Pressable onPress={() => dialog.alert(t("emergency.disclaimer.title"), t("emergency.disclaimer.body"))}
               accessibilityRole="button" style={sosStyles.disclaimer}>
@@ -280,9 +280,9 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
 
 const sosStyles = StyleSheet.create({
   heroWrap: { gap: space.md, paddingVertical: 0 },
-  emergencyTile: { flexDirection: "row", alignItems: "center", gap: 16, minHeight: 96, padding: 18, borderRadius: 16, backgroundColor: colors.primaryDark },
-  sosMark: { width: 56, height: 56, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.14)", alignItems: "center", justifyContent: "center" },
-  bookPrimary: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 120, padding: 18, borderRadius: 20, backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border },
+  emergencyTile: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 88, padding: 16, borderRadius: 16, backgroundColor: colors.primaryDark },
+  sosMark: { width: 48, height: 48, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.14)", alignItems: "center", justifyContent: "center" },
+  bookPrimary: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 92, padding: 16, borderRadius: 16, backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border },
   disclaimer: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 },
   bookTile: { flexDirection: "row", alignItems: "center", gap: space.md, width: "100%", paddingVertical: space.md, paddingHorizontal: space.lg, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }
 });

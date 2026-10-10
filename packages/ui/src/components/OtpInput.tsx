@@ -90,9 +90,9 @@ function OtpInputInner({ value, onChangeText, length = 4, autoFocus, error }: Pr
 // overflowed the parent and pushed the right-most box off-screen. We now
 // flex each box to share the available width with a sensible max so they
 // don't grow obnoxiously on tablets.
-const BOX_MIN_W = 48;
-const BOX_MAX_W = 64;
-const BOX_HEIGHT = 64;
+const BOX_MIN_W = 0;
+const BOX_MAX_W = 56;
+const BOX_HEIGHT = 56;
 
 const styles = StyleSheet.create({
   row: {
@@ -104,7 +104,8 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: BOX_MIN_W,
     maxWidth: BOX_MAX_W,
-    height: BOX_HEIGHT,
+    minHeight: BOX_HEIGHT,
+    paddingVertical: 6,
     borderRadius: radius.lg,
     borderWidth: 2,
     borderColor: colors.border,

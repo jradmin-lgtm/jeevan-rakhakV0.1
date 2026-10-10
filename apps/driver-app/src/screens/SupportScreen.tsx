@@ -546,7 +546,11 @@ const Bubble = React.memo(function Bubble({ message, t }: { message: SupportTick
 const segStyles = {
   pill: {
     flex: 1,
-    paddingVertical: space.md,
+    minWidth: 0,
+    minHeight: 44,
+    justifyContent: "center" as const,
+    paddingVertical: space.sm,
+    paddingHorizontal: space.sm,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
@@ -555,6 +559,7 @@ const segStyles = {
   },
   chip: {
     minHeight: 44,
+    maxWidth: "100%" as const,
     justifyContent: "center" as const,
     paddingVertical: space.sm,
     paddingHorizontal: space.md,

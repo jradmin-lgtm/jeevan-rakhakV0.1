@@ -139,11 +139,11 @@ function IncomingRow({
   return (
     <MotionView>
     <Card flat
-      padding="lg"
-      style={{ borderRadius: 20, borderColor: req.is_sos ? colors.danger : colors.border, borderWidth: req.is_sos ? 1.5 : 1 }}
+      padding="md"
+      style={{ borderRadius: 14, borderColor: req.is_sos ? colors.danger : colors.border, borderWidth: req.is_sos ? 1.5 : 1 }}
     >
       <View style={{ gap: space.sm }}>
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, justifyContent: "space-between", alignItems: "center" }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
             {req.is_sos ? <PulseDot size={8} color={colors.danger} rings={1} /> : null}
             <Pill
@@ -163,13 +163,16 @@ function IncomingRow({
         </View>
 
         <Text variant="heading" weight="bold">{prettyEmergency(req.emergency_type, t)}</Text>
-        <Text variant="tiny" weight="bold">{t("trip.address")}</Text>
-        <Text variant="small" tone="secondary">
-          {req.pickup_address ?? `${req.pickup_lat.toFixed(4)}, ${req.pickup_lng.toFixed(4)}`}
-        </Text>
-
-        <Text variant="tiny" weight="bold">{t("trip.landmark")}</Text>
-        <Text variant="small" tone="secondary">{req.pickup_landmark ?? t("trip.landmark_unavailable")}</Text>
+        <View style={{ gap: space.xs }}>
+          <Text variant="tiny" tone="secondary">{t("trip.landmark")}</Text>
+          <Text variant="body" weight="semi">{req.pickup_landmark ?? t("trip.landmark_unavailable")}</Text>
+        </View>
+        <View style={{ gap: space.xs }}>
+          <Text variant="tiny" tone="secondary">{t("trip.address")}</Text>
+          <Text variant="small" tone="secondary">
+            {req.pickup_address ?? `${req.pickup_lat.toFixed(4)}, ${req.pickup_lng.toFixed(4)}`}
+          </Text>
+        </View>
 
         {deferred ? (
           // v1.3.0 (D2): read-only deferred mode. The row is non-actionable —
