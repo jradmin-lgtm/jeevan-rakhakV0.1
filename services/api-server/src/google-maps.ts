@@ -11,7 +11,7 @@
 import { sql } from "drizzle-orm";
 import { apiUsage, db } from "@jr/db";
 import { config } from "@jr/config";
-import { rankNearbyLandmarks, type NearbyLandmark } from "./landmarks";
+import { rankNearbyLandmarks, resolvePickupAreas, type NearbyLandmark } from "./landmarks";
 
 const FETCH_TIMEOUT_MS = 4000;
 
@@ -357,22 +357,18 @@ async function resolveLocationUncached(lat: number, lng: number): Promise<Resolv
   const key = config.maps.google.apiKey;
   if (!key) return null;
   try {
-    const [geo, nearby] = await Promise.all([
-      fetchWithTimeout(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&language=en&key=${key}`),
-      fetchWithTimeout(`https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=150&language=en&key=${key}`)
-    ]);
+    const geo = await fetchWithTimeout(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&language=en&key=${key}`);
     if (!geo?.ok) return null;
     const data: any = await geo.json();
     void recordApiUsage("geocoding", 1, data.status === "OK", data.status === "OK" ? undefined : data.status);
-    if (data.status !== "OK" || !data.results?.[0]?.formatted_address) return null;
-    let landmark: string | null = null;
+    if (data.status !== "OK" || !Array.isArray(data.results) || !data.results[0]?.formatted_address) return null;
+    let landmark: string | null = resolvePickupAreas(data.results, lat, lng)[0]?.label ?? null;
+    const nearby = landmark ? null : await fetchWithTimeout(`https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=150&language=en&key=${key}`);
     if (nearby?.ok) {
       const places: any = await nearby.json();
       const ok = ["OK", "ZERO_RESULTS"].includes(places.status);
       void recordApiUsage("places_nearby", 1, ok, ok ? undefined : places.status);
-      const candidates = (places.results ?? []).filter((p: any) => p.name && p.geometry?.location && p.types?.some((t: string) => ["point_of_interest", "establishment", "hospital"].includes(t)));
-      candidates.sort((a: any, b: any) => ((a.geometry.location.lat - lat) ** 2 + (a.geometry.location.lng - lng) ** 2) - ((b.geometry.location.lat - lat) ** 2 + (b.geometry.location.lng - lng) ** 2));
-      landmark = candidates[0]?.name ?? null;
+      if (ok && Array.isArray(places.results)) landmark = rankNearbyLandmarks(places.results, lat, lng)[0]?.label ?? null;
     }
     return { address: data.results[0].formatted_address, landmark };
   } catch (err) { console.warn("[google-maps] location resolution failed", err); return null; }
@@ -386,6 +382,22 @@ export async function getNearbyLandmarks(lat: number, lng: number, language: "en
   const cached = nearbyLandmarkCache.get(cacheKey);
   if (cached && cached.expires > Date.now()) return cached.value;
   const value = (async () => {
+    const geo = await fetchWithTimeout(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&language=${language}&key=${config.maps.google.apiKey}`);
+    if (geo?.ok) {
+      try {
+        const data: any = await geo.json();
+        const ok = data.status === "OK" || data.status === "ZERO_RESULTS";
+        void recordApiUsage("geocoding", 1, ok, ok ? undefined : String(data.status));
+        if (ok && Array.isArray(data.results)) {
+          const areas = resolvePickupAreas(data.results, lat, lng);
+          if (areas.length) return areas;
+        } else {
+          console.warn("[landmarks] Area lookup unavailable; trying nearby places", String(data.status));
+        }
+      } catch (error) {
+        console.warn("[landmarks] Area response could not be read", error instanceof Error ? error.name : "UnknownError");
+      }
+    }
     const response = await fetchWithTimeout(`https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=2000&language=${language}&key=${config.maps.google.apiKey}`);
     if (!response?.ok) return null;
     try {
