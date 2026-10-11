@@ -1,6 +1,7 @@
+import { clicks } from "../clicks";
 import { PushStatusNotice } from "../components/PushStatusNotice";
 import { prettyEmergency } from "../formatEmergency";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { stopBackgroundLocationTracking } from "../backgroundLocation";
 import { rideCache } from "../rideCache";
 import { PriorityAlertSettings } from "../components/PriorityAlertSettings";
@@ -72,6 +73,7 @@ type Props = {
 
 export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnings, onSupport, onProfileRefresh }: Props) {
   const { t } = useT();
+  const focused = useIsFocused();
   const [available, setAvailable] = useState(profile?.status !== "OFFLINE");
   // v1.0.15: emit a "I'm online" heartbeat to the SOS cascade engine every
   // 60s while the toggle is on and the app is foregrounded. Pauses
@@ -426,6 +428,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
   // behaviour: drop the (now-taken) row and resync via refresh.
   const acceptRequest = async (req: IncomingRequest) => {
     try {
+      clicks.track("driver.accept");
       const r = await bookingsApi.accept(req.id);
       // Set activeTrip optimistically + synchronously so the !activeTrip gate
       // engages this render: it unmounts the SosIncomingModal / safety cards
@@ -462,15 +465,14 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
   //                 the broadcast pool for other drivers.
   // Distinct from dismissing the SOS flash (which keeps the row in the list).
   const rejectRequest = async (req: IncomingRequest) => {
-    dismissed.current.add(req.id);
-    setRequests((prev) => {
-      const { [req.id]: _gone, ...rest } = prev;
-      return rest;
-    });
-    if (req.is_sos) {
-      try {
-        await bookingsApi.reject(req.id);
-      } catch (error) { console.warn("DashboardScreen.tsx.rejectRequest failed", error instanceof Error ? error.message : String(error)); }
+    try {
+      clicks.track("driver.reject");
+      await bookingsApi.reject(req.id);
+      dismissed.current.add(req.id);
+      setRequests(previous => { const { [req.id]: removed, ...remaining } = previous; return remaining; });
+    } catch (error) {
+      console.error("Request rejection failed", error);
+      void dialog.alert(t("common.error"), error instanceof Error ? error.message : t("common.please_try_again"));
     }
   };
 
@@ -507,10 +509,10 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
           { id: "trip-history-cta", label: t("dashboard.trip_history"), glyph: "◷", action: onEarnings },
           { id: "profile-cta", label: t("dashboard.profile_cta"), glyph: "◎", action: onProfile },
           { id: "support-cta", label: t("support.dashboard_cta"), glyph: "?", action: onSupport }
-        ].map(item => <Pressable key={item.id} testID={item.id} accessibilityRole="button" onPress={item.action}
+        ].map(item => <Pressable key={item.id} testID={item.id} accessibilityRole="button" onPress={() => { clicks.track(item.id === "trip-history-cta" ? "driver.history" : item.id === "profile-cta" ? "driver.profile" : "driver.help"); item.action(); }}
           style={({ pressed }) => ({ flex: 1, minWidth: 0, minHeight: 52, alignItems: "center", justifyContent: "center", gap: 4, opacity: pressed ? 0.6 : 1 })}>
-          <Text variant="heading" weight="semi">{item.glyph}</Text>
-          <Text variant="tiny" align="center" weight="medium">{item.label}</Text>
+          <Text weight="semi" style={{ fontSize: 26, lineHeight: 32, color: colors.accent }}>{item.glyph}</Text>
+          <Text variant="small" align="center" weight="semi">{item.label}</Text>
         </Pressable>)}
       </View>}>
       <AppHeader
@@ -524,9 +526,17 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
         }
       />
 
+      <View accessibilityRole="text" style={{ flexDirection: "row", alignItems: "center", alignSelf: "flex-start", gap: 8, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20,
+        backgroundColor: activeTrip ? "#EAF1FF" : available ? "#EAF7F1" : colors.bg }}>
+        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: activeTrip ? colors.accent : available ? colors.success : colors.textMuted }} />
+        <Text variant="small" weight="bold" style={{ color: activeTrip ? colors.accent : available ? colors.success : colors.textSecondary }}>
+          {t(activeTrip ? "dashboard.on_trip" : available ? "dashboard.online" : "dashboard.offline")}
+        </Text>
+      </View>
+
       {activeTrip ? (
         <Animated.View style={fade}>
-          <Card style={{ borderColor: colors.border, borderWidth: 1, borderRadius: 16 }} onPress={() => onTrip(activeTrip)}>
+          <Card style={{ borderColor: "#CBDCFF", backgroundColor: "#F1F5FF", borderWidth: 1, borderRadius: 16 }} onPress={() => onTrip(activeTrip)}>
             <View style={{ gap: space.sm }}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
@@ -554,7 +564,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
       {/* v1.4.0 (geofence): slim, non-blocking launch ribbon at the top of the
         * dashboard content. Sits in the flow (not an overlay), so it never gates
         * the incoming-request list, the SOS modal, or anything below. */}
-      {!activeTrip ? <Card flat style={{ borderRadius: 14, backgroundColor: colors.bg, borderWidth: 0 }}>
+      {!activeTrip ? <Card flat style={{ borderRadius: 16, backgroundColor: available ? "#F0F9F4" : colors.bg, borderColor: available ? "#C5E8D7" : colors.border, borderWidth: 1 }}>
         <View style={{ gap: space.md }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
             <AmbulanceMark size={52} />
@@ -569,7 +579,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
           </View>
           <Button
             label={available ? t("dashboard.go_offline") : t("dashboard.go_online")}
-            onPress={toggleAvailable}
+            onPress={() => { clicks.track("driver.availability"); void toggleAvailable(); }}
             variant={available ? "outline" : "primary"}
             fullWidth
             size="lg"
@@ -740,7 +750,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
         * trip clears (back on the dashboard, AVAILABLE again) the modal mounts
         * again and the cascade can flash as normal. Waiting requests stay
         * visible the whole time via the passive peek on TripScreen. */}
-      {!activeTrip ? <SosIncomingModal onAccept={(b) => onTrip(b)} /> : null}
+      {focused && !activeTrip ? <SosIncomingModal onAccept={(b) => { setActiveTrip(b); clicks.track("driver.accept"); onTrip(b); }} /> : null}
     </Screen>
   );
 }

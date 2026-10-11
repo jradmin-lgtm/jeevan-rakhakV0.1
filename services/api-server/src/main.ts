@@ -1,3 +1,5 @@
+import { registerUiEventRoutes } from "./routes/ui-events";
+import { applyTeamReviewMigration } from "@jr/db";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
@@ -147,6 +149,7 @@ async function bootstrap() {
   await registerMeRoutes(app);
   await registerBookingRoutes(app);
   await registerLocationBatchRoutes(app);
+  await registerUiEventRoutes(app);
   await registerDriverRoutes(app);
   await registerAdminRoutes(app);
   await registerHospitalRoutes(app);
@@ -616,6 +619,7 @@ async function bootstrap() {
     await pgClient`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS preferred_lang text NOT NULL DEFAULT 'en'`;
 
     app.log.info("[migrate] schema v1.4.0 ready (KYC redesign: employment_type/employee_number/puc_number/fitness_number + driver_documents + preferred_lang)");
+    await applyTeamReviewMigration();
   } catch (err) {
     // Thumb rule: migrations FATAL-EXIT on failure. Silent catch+warn here
     // previously let the service start with a broken schema (system_events
@@ -680,6 +684,9 @@ async function bootstrap() {
     void runDatabaseBackup().catch((err) => app.log.error({ err }, "[backup] scheduled run failed"));
   }, 6 * 60 * 60 * 1000);
 
+  await pgClient`DELETE FROM ui_events WHERE received_at < now() - interval '30 days'`;
+  const clickRetentionTimer = setInterval(() => { void pgClient`DELETE FROM ui_events WHERE received_at < now() - interval '30 days'`.catch(error => app.log.error({ error }, "Click event retention failed")); }, 86400_000);
+  clickRetentionTimer.unref();
   const maintenanceTimer = setInterval(() => { void expirePendingBookings(app).catch((err) => app.log.error({ err }, "[maintenance] booking expiry failed")); }, 30_000);
   app.addHook("onClose", async () => { clearInterval(maintenanceTimer); });
   await app.listen({ host: "0.0.0.0", port: config.apiPort });

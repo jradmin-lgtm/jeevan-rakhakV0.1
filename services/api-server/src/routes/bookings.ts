@@ -282,49 +282,11 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         payloadJson: JSON.stringify({ fareEstimate, couponCode, discountInr, payableInr, isSos })
       });
 
-      if (isSos) {
-        // v1.0.15: SOS skips the public dispatch fan-out. The cascade engine
-        // (services/api-server/src/sos-cascade.ts) drives push-notifications
-        // to drivers in waves, expanding by one nearest driver every 60s up
-        // to a cap of 10. Drivers don't see SOS in their general Dashboard
-        // pending list — only via the pushed SosIncomingModal.
-        try {
-          const { startCascade } = await import("../sos-cascade.js");
-          await startCascade(app, created.id);
-        } catch (err) {
-          // Fail-soft: if the cascade engine can't start (shouldn't happen),
-          // log loudly and let ops handle it manually. The booking row is
-          // already inserted so the patient sees a "looking for ambulance"
-          // state and we can intervene out-of-band.
-          app.log.error({ err, bookingId: created.id }, "[sos] cascade start failed");
-        }
-      } else {
-        // Normal flow: existing socket fan-out so it appears on driver Dashboard.
-        try {
-          await realtimeRequest(`${config.socketBaseUrl}/internal/booking-created`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "x-internal": config.internalApiSecret },
-            body: JSON.stringify({ bookingId: created.id })
-          });
-        } catch (err) {
-          app.log.warn({ err }, "socket fan-out hint failed");
-        }
-        // v1.1.0 push: alert available drivers even if their app is
-        // backgrounded/killed (the socket/poll only reaches a foregrounded
-        // app). Best-effort broadcast to AVAILABLE, KYC-verified drivers.
-        void (async () => {
-          try {
-            const avail = await db
-              .select({ t: drivers.pushToken, lang: drivers.preferredLang })
-              .from(drivers)
-              .where(and(eq(drivers.status, "AVAILABLE"), eq(drivers.disabled, false), eq(drivers.kycVerified, true)));
-            for (const d of avail) {
-              if (!d.t) continue;
-              const { title, body } = renderPushTemplate("booking_new", d.lang);
-              void sendPush(d.t, title, body, { bookingId: created.id, kind: "booking" }, "booking_alerts_v2");
-            }
-          } catch (error) { console.warn("bookings.ts.registerBookingRoutes failed"); }
-        })();
+      try {
+        const { startCascade } = await import("../sos-cascade.js");
+        await startCascade(app, created.id);
+      } catch (error) {
+        app.log.error({ error, bookingId: created.id }, "Booking saved; dispatch retry is pending");
       }
 
       return reply.code(201).send({ booking: created });
@@ -481,7 +443,8 @@ export async function registerBookingRoutes(app: FastifyInstance) {
           and(
             eq(bookings.status, "REQUESTED"),
             isNull(bookings.driverId),
-            eq(bookings.isSos, false)
+            eq(bookings.isSos, false),
+            drizzleSql`EXISTS (SELECT 1 FROM sos_dispatch_attempts a WHERE a.booking_id = ${bookings.id} AND a.driver_id = ${req.user.sub} AND a.rejected_at IS NULL AND a.accepted_at IS NULL AND a.pushed_at >= ${bookings.dispatchStartedAt})`
           )
         )
         .orderBy(desc(bookings.createdAt))
@@ -508,9 +471,10 @@ export async function registerBookingRoutes(app: FastifyInstance) {
     bookingId: string,
     type: string,
     actor: string,
-    payload?: unknown
+    payload?: unknown,
+    recorded = false
   ) {
-    await db.insert(bookingEvents).values({
+    if (!recorded) await db.insert(bookingEvents).values({
       bookingId,
       actor,
       type,
@@ -584,6 +548,9 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       // racing an SOS accept) can never slip an overlapping ride through a
       // check-then-act gap. Covers BOTH normal and SOS accepts (same endpoint).
       const updated = await db.transaction(async tx => {
+        // Same booking-then-driver lock order used by trip transitions and GPS upload.
+        await tx.select({ id: bookings.id }).from(bookings).where(eq(bookings.id, id)).for("update");
+        await tx.select({ id: drivers.id }).from(drivers).where(eq(drivers.id, sub)).for("update");
         const [accepted] = await tx
         .update(bookings)
         .set({ driverId: sub, status: "ACCEPTED", acceptedAt: new Date() })
@@ -592,6 +559,8 @@ export async function registerBookingRoutes(app: FastifyInstance) {
             eq(bookings.id, id),
             eq(bookings.status, "REQUESTED"),
             isNull(bookings.driverId),
+            drizzleSql`EXISTS (SELECT 1 FROM sos_dispatch_attempts a WHERE a.booking_id = ${bookings.id} AND a.driver_id = ${sub} AND a.rejected_at IS NULL AND a.accepted_at IS NULL AND a.pushed_at >= ${bookings.dispatchStartedAt})`,
+            drizzleSql`EXISTS (SELECT 1 FROM drivers d WHERE d.id = ${sub} AND d.status = 'AVAILABLE' AND d.disabled = false AND d.kyc_verified = true)`,
             drizzleSql`NOT EXISTS (
               SELECT 1 FROM ${bookings} AS active_b
               WHERE active_b.driver_id = ${sub}
@@ -600,7 +569,11 @@ export async function registerBookingRoutes(app: FastifyInstance) {
           )
         )
         .returning();
-        if (accepted) await tx.update(drivers).set({ status: "ON_TRIP", updatedAt: new Date() }).where(eq(drivers.id, sub));
+        if (accepted) {
+          await tx.update(drivers).set({ status: "ON_TRIP", updatedAt: new Date() }).where(eq(drivers.id, sub));
+          await tx.update(sosDispatchAttempts).set({ acceptedAt: new Date() }).where(and(eq(sosDispatchAttempts.bookingId, id), eq(sosDispatchAttempts.driverId, sub)));
+          await tx.insert(bookingEvents).values({ bookingId: id, type: "booking.accepted", actor: `driver:${sub}` });
+        }
         return accepted;
       });
       if (!updated) {
@@ -622,14 +595,14 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         }
         return reply.code(409).send({ error: "already_taken" });
       }
-      await emitBookingEvent(id, "booking.accepted", `driver:${sub}`);
+      await emitBookingEvent(id, "booking.accepted", `driver:${sub}`, undefined, true);
       await emitToHospital(updated);
       // v1.1.0 push: wake the patient even if their app is backgrounded.
       void pushToUser(updated.userId, "booking_assigned", {}, { bookingId: id, status: "ACCEPTED" });
       // Mark this driver's attempt row accepted (for SOS) + notify the
       // patient + dismiss losers' modals. Wrapped so a normal-flow accept
       // (not via cascade) still goes through cleanly.
-      if (updated.isSos) {
+      {
         try {
           await db
             .update(sosDispatchAttempts)
@@ -1145,19 +1118,14 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       const { sub, role } = req.user;
       if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
       const id = req.params.id as string;
-      const [updated] = await db
-        .update(sosDispatchAttempts)
-        .set({ rejectedAt: new Date() })
-        .where(
-          and(
-            eq(sosDispatchAttempts.bookingId, id),
-            eq(sosDispatchAttempts.driverId, sub),
-            // Don't overwrite an existing accept (race guard) or rejection
-            // (second tap should be a no-op idempotent).
-            drizzleSql`${sosDispatchAttempts.acceptedAt} IS NULL`
-          )
-        )
-        .returning();
+      const updated = await db.transaction(async tx => {
+        const [pending] = await tx.select().from(bookings).where(eq(bookings.id, id)).limit(1).for("update");
+        if (!pending || pending.status !== "REQUESTED" || pending.driverId) return null;
+        const [attempt] = await tx.update(sosDispatchAttempts).set({ rejectedAt: new Date() })
+          .where(and(eq(sosDispatchAttempts.bookingId, id), eq(sosDispatchAttempts.driverId, sub),
+            isNull(sosDispatchAttempts.acceptedAt), drizzleSql`${sosDispatchAttempts.pushedAt} >= ${pending.dispatchStartedAt.toISOString()}`)).returning();
+        return attempt;
+      });
       if (!updated) {
         return reply.code(409).send({
           error: "no_active_dispatch",
@@ -1203,7 +1171,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       // pushed driver modals so nobody chases a dead booking. notifyCascadeLosers
       // (v1.2.8) also fires a silent dismissPush to every pushed driver so a
       // backgrounded/killed driver's tray "New SOS request" clears too.
-      if (existing.isSos) {
+      {
         try {
           const { stopCascade, notifyCascadeLosers } = await import("../sos-cascade.js");
           stopCascade(id);

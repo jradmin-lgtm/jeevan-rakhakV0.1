@@ -85,7 +85,7 @@ export function ProfileScreen({ initial, onBack, onUpdated, onManageDocuments }:
           <Row label={t("profile.row_vehicle_number")} value={initial?.vehicleNumber ?? t("profile.not_on_file")} />
           <Row label={t("kyc.field.vehicle_type")} value={initial?.vehicleType ?? t("profile.not_on_file")} />
           <Row label={t("profile.row_licence")} value={initial?.licenseNumber ?? t("profile.not_on_file")} />
-          <Text variant="tiny" tone="muted">
+          <Text variant="small" tone="muted">
             {t("profile.vehicle_update_note")}
           </Text>
           <Button label={t("profile.manage_documents")} variant="outline" onPress={onManageDocuments} fullWidth />
@@ -136,7 +136,7 @@ export function ProfileScreen({ initial, onBack, onUpdated, onManageDocuments }:
         <Button label={t("share.button")} variant="outline" onPress={shareApp} fullWidth style={{ marginTop: space.md }} />
       </Card>
 
-      <Text variant="tiny" tone="muted" align="center">
+      <Text variant="small" tone="muted" align="center">
         {t("profile.support_footer")}
       </Text>
     </Screen>

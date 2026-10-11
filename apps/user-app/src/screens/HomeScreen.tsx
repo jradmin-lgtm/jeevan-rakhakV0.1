@@ -1,3 +1,4 @@
+import { clicks } from "../clicks";
 import { PushStatusNotice } from "../components/PushStatusNotice";
 import { rideCache } from "../rideCache";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -6,6 +7,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import {
   AppHeader,
   AmbulanceMark,
+  CircularSos,
   Button,
   Card,
   IconBadge,
@@ -123,17 +125,7 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
 
   return (
     <Screen bg={colors.surface} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
-      footer={<View style={{ flexDirection: "row", gap: space.sm }}>
-        {[
-          { label: t("home.trip_history"), glyph: "◷", action: onHistory, id: "home-history" },
-          { label: t("home.medical_profile"), glyph: "◎", action: onProfile, id: "home-profile" },
-          { label: t("home.help_short"), glyph: "?", action: onSupport, id: "home-support" }
-        ].map(item => <Pressable key={item.id} testID={item.id} accessibilityRole="button" onPress={item.action}
-          style={({ pressed }) => ({ flex: 1, minWidth: 0, minHeight: 52, paddingVertical: 4, alignItems: "center", justifyContent: "center", gap: 4, opacity: pressed ? 0.6 : 1 })}>
-          <Text variant="heading" weight="semi">{item.glyph}</Text>
-          <Text variant="tiny" align="center" weight="medium">{item.label}</Text>
-        </Pressable>)}
-      </View>}>
+      >
 
       <AppHeader
         title={`${greet}${name ? `, ${name.split(" ")[0]}` : ""}`}
@@ -183,16 +175,8 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
         <>
           <MotionView style={sosStyles.heroWrap}>
             <Text variant="title" weight="bold" style={{ fontSize: 28, lineHeight: 34, letterSpacing: -0.6 }}>{t("home.need_ambulance")}</Text>
-            <Pressable onPress={onSos} style={({ pressed }) => [sosStyles.emergencyTile, pressed ? { opacity: 0.85 } : null]}
-              testID="sos-cta" accessibilityRole="button" accessibilityLabel={t("home.sos_a11y")}>
-              <View style={sosStyles.sosMark}><Text variant="heading" weight="bold" tone="inverse">{t("home.sos_short")}</Text></View>
-              <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
-                <Text variant="heading" weight="bold" tone="inverse">{t("home.emergency_cta")}</Text>
-                <Text variant="small" tone="inverse">{t("home.sos.tap")}</Text>
-              </View>
-              <Text variant="heading" tone="inverse">›</Text>
-            </Pressable>
-            <Pressable onPress={onBook} style={({ pressed }) => [sosStyles.bookPrimary, pressed ? { opacity: 0.85 } : null]}
+            <CircularSos label={t("home.sos_short")} hint={t("home.sos.tap")} accessibilityLabel={t("home.sos_a11y")} onPress={() => { clicks.track("home.sos"); onSos(); }} testID="sos-cta" />
+            <Pressable onPress={() => { clicks.track("home.book"); onBook(); }} style={({ pressed }) => [sosStyles.bookPrimary, pressed ? { opacity: 0.85 } : null]}
               testID="book-cta" accessibilityRole="button">
               <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
                 <Text variant="heading" weight="bold">{t("home.book_card.title")}</Text>
@@ -209,6 +193,22 @@ export function HomeScreen({ profile, onLogout, onBook, onSos, onTrack, onProfil
           </MotionView>
         </>
       )}
+
+      <View style={{ gap: 10, paddingVertical: 8 }}>
+        <Text variant="heading">{lang === "hi" ? "त्वरित विकल्प" : "Quick actions"}</Text>
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          {[
+            { label: t("home.trip_history"), glyph: "◷", action: onHistory, id: "home-history", tint: "#EAF1FF", color: "#2457A7" },
+            { label: t("home.medical_profile"), glyph: "✚", action: onProfile, id: "home-profile", tint: "#EAF7F1", color: "#087F5B" },
+            { label: t("home.help_short"), glyph: "?", action: onSupport, id: "home-support", tint: "#FFF4E5", color: "#9A5B0A" }
+          ].map(item => <Pressable key={item.id} testID={item.id} accessibilityRole="button" onPress={() => { clicks.track(item.id === "home-history" ? "home.history" : item.id === "home-profile" ? "home.profile" : "home.help"); item.action(); }}
+            style={({ pressed }) => ({ flex: 1, minWidth: 0, minHeight: 96, padding: 10, borderWidth: 1, borderColor: item.color, borderRadius: 14,
+              backgroundColor: item.tint, alignItems: "center", justifyContent: "center", gap: 8, opacity: pressed ? 0.65 : 1 })}>
+            <Text weight="bold" style={{ fontSize: 26, lineHeight: 30, color: item.color }}>{item.glyph}</Text>
+            <Text variant="small" align="center" weight="semi">{item.label}</Text>
+          </Pressable>)}
+        </View>
+      </View>
 
       <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: space.sm }}>
         <Pressable accessibilityRole="button" accessibilityState={{ expanded: accountOpen }} onPress={() => setAccountOpen(value => !value)} style={{ minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>

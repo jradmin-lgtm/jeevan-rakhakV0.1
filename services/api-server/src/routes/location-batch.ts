@@ -26,18 +26,28 @@ export async function registerLocationBatchRoutes(app: FastifyInstance) {
     const bookingIds = [...new Set(points.map(p => p.bookingId))];
     const result = await sql.begin(async tx => {
       // Trip transitions lock the booking before its driver. Keep the same order.
-      const owned = await tx`SELECT id, status FROM bookings WHERE id = ANY(${bookingIds}::uuid[]) AND driver_id = ${req.user.sub} ORDER BY id FOR SHARE`;
+      const owned = await tx`SELECT id, status, driver_id FROM bookings WHERE id = ANY(${bookingIds}::uuid[]) ORDER BY id FOR SHARE`;
       if (owned.length !== bookingIds.length) return { forbidden: true as const };
+      const currentIds = new Set(owned.filter(b => b.driver_id === req.user.sub).map(b => b.id));
+      const released = points.filter(p => !currentIds.has(p.bookingId));
+      if (released.length) {
+        const windows = await tx`SELECT c.booking_id, c.created_at AS ended_at, e.created_at AS started_at
+          FROM booking_cancellations c JOIN LATERAL (SELECT created_at FROM booking_events
+          WHERE booking_id = c.booking_id AND type = 'booking.accepted' AND actor = ${`driver:${req.user.sub}`}
+          AND created_at <= c.created_at ORDER BY created_at DESC LIMIT 1) e ON true
+          WHERE c.booking_id = ANY(${bookingIds}::uuid[]) AND c.driver_id = ${req.user.sub}`;
+        if (released.some(p => !windows.some(w => w.booking_id === p.bookingId && p.ts >= +new Date(w.started_at) - 30_000 && p.ts <= +new Date(w.ended_at)))) return { forbidden: true as const };
+      }
       const driver = await tx`SELECT id FROM drivers WHERE id = ${req.user.sub} FOR UPDATE`;
       if (!driver.length) return { forbidden: true as const };
-      const valid = points.filter(p => now - p.ts <= 24 * 60 * 60 * 1000);
+      const valid = points;
       if (valid.length) {
         const rows = valid.map(p => ({ booking_id: p.bookingId, lat: p.lat, lng: p.lng, speed_kmh: p.speedKmh ?? null, heading_deg: p.headingDeg ?? null, recorded_at: new Date(p.ts).toISOString() }));
         await tx`INSERT INTO driver_locations (driver_id, booking_id, lat, lng, speed_kmh, heading_deg, recorded_at)
           SELECT ${req.user.sub}::uuid, p.booking_id, p.lat, p.lng, p.speed_kmh, p.heading_deg, p.recorded_at
           FROM jsonb_to_recordset(${JSON.stringify(rows)}::jsonb) AS p(booking_id uuid, lat double precision, lng double precision, speed_kmh double precision, heading_deg double precision, recorded_at timestamptz)
           WHERE NOT EXISTS (SELECT 1 FROM driver_locations old WHERE old.driver_id = ${req.user.sub} AND old.booking_id = p.booking_id AND old.recorded_at = p.recorded_at)`;
-        const activeIds = new Set(owned.filter(b => ["ACCEPTED", "ARRIVED", "PICKED_UP"].includes(b.status)).map(b => b.id));
+        const activeIds = new Set(owned.filter(b => b.driver_id === req.user.sub && ["ACCEPTED", "ARRIVED", "PICKED_UP"].includes(b.status)).map(b => b.id));
         const latest = valid.filter(p => activeIds.has(p.bookingId) && now - p.ts <= 120_000).sort((a, b) => b.ts - a.ts)[0];
         if (latest) {
           const at = new Date(latest.ts).toISOString();

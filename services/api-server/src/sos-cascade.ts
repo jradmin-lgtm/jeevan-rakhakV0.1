@@ -46,25 +46,10 @@ const STALENESS_MIN = Number(process.env.SOS_CASCADE_STALENESS_MIN ?? 5);
 
 type EligibleDriver = { driverId: string; distanceKm: number };
 
-type RunnerState = {
-  bookingId: string;
-  pickupLat: number;
-  pickupLng: number;
-  userId: string;
-  emergencyType: string;
-  pickupAddress: string | null;
-  pickupLandmark: string | null;
-  displayId: string | null;
-  patientName: string | null;
-  createdAt: string;
-  eligibleDrivers: EligibleDriver[];
-  currentWave: number;
-  rejected: Set<string>;
-  timer: NodeJS.Timeout | null;
-  startedAt: number;
-};
-
+type RunnerState = { bookingId: string; timer: NodeJS.Timeout | null; stopped: boolean };
 const runners = new Map<string, RunnerState>();
+const starting = new Map<string, Promise<void>>();
+export const DISPATCH_WINDOW_MS = MAX_DRIVERS * WAVE_INTERVAL_MS + 30_000;
 
 async function getEligibleDrivers(pickupLat: number, pickupLng: number): Promise<EligibleDriver[]> {
   const staleness = new Date(Date.now() - STALENESS_MIN * 60 * 1000);
@@ -182,152 +167,91 @@ async function emitToUser(userId: string, event: string, payload: unknown) {
   }
 }
 
-async function runWave(app: FastifyInstance, state: RunnerState): Promise<void> {
-  // Has the booking already been resolved (accepted / cancelled / completed)?
-  // Re-check Postgres every wave because /accept can land while a timer is
-  // pending and we don't want to push to driver N+1 after driver N already
-  // won the race.
-  const [b] = await db.select().from(bookings).where(eq(bookings.id, state.bookingId)).limit(1);
-  if (!b || b.status !== "REQUESTED" || b.driverId) {
-    stopCascade(state.bookingId);
-    return;
-  }
-  state.currentWave += 1;
-  const cap = Math.min(MAX_DRIVERS, state.eligibleDrivers.length);
-  if (state.currentWave > cap) {
-    // Cascade exhausted — fire critical alert and tell the patient.
-    await emitEvent({
-      level: "critical",
-      source: "sos-cascade",
-      message: "sos_unassigned",
-      context: {
-        bookingId: state.bookingId,
-        waves: state.currentWave - 1,
-        eligible: state.eligibleDrivers.length,
-        rejected: state.rejected.size
-      }
+function schedule(app: FastifyInstance, state: RunnerState, delay: number) {
+  if (state.stopped) return;
+  state.timer = setTimeout(() => {
+    void runWave(app, state).catch(error => {
+      app.log.error({ error, bookingId: state.bookingId }, "Dispatch wave failed; retry scheduled");
+      schedule(app, state, WAVE_INTERVAL_MS);
     });
-    await emitToUser(state.userId, "sos:cascade_exhausted", { bookingId: state.bookingId });
-    stopCascade(state.bookingId);
-    return;
+  }, Math.max(100, delay));
+}
+
+async function runWave(app: FastifyInstance, state: RunnerState): Promise<void> {
+  if (state.stopped) return;
+  const [booking] = await db.select().from(bookings).where(eq(bookings.id, state.bookingId)).limit(1);
+  if (!booking || booking.status !== "REQUESTED" || booking.driverId) { stopCascade(state.bookingId); return; }
+  const eligible = await getEligibleDrivers(booking.pickupLat, booking.pickupLng);
+  const outcome = await db.transaction(async tx => {
+    // Serialise offers with acceptance and cancellation, including across API processes.
+    const [b] = await tx.select().from(bookings).where(eq(bookings.id, state.bookingId)).limit(1).for("update");
+    if (!b || b.status !== "REQUESTED" || b.driverId) return { done: true as const };
+    const rows = await tx.select().from(sosDispatchAttempts).where(eq(sosDispatchAttempts.bookingId, b.id));
+    const cycle = rows.filter(a => a.pushedAt >= b.dispatchStartedAt && a.waveNumber > 0);
+    const lastAt = Math.max(+b.dispatchStartedAt - WAVE_INTERVAL_MS, ...cycle.map(a => +a.pushedAt));
+    const delay = lastAt + WAVE_INTERVAL_MS - Date.now();
+    if (delay > 0) return { delay };
+    if (cycle.length >= MAX_DRIVERS || (!b.isSos && Date.now() - +b.dispatchStartedAt >= DISPATCH_WINDOW_MS)) return { exhausted: b };
+    const target = eligible.find(d => !rows.some(a => a.driverId === d.driverId && (a.rejectedAt || a.pushedAt >= b.dispatchStartedAt)));
+    if (!target) return Date.now() - +b.dispatchStartedAt >= DISPATCH_WINDOW_MS ? { exhausted: b } : { delay: WAVE_INTERVAL_MS };
+    const wave = cycle.length + 1;
+    await tx.insert(sosDispatchAttempts).values({ bookingId: b.id, driverId: target.driverId, waveNumber: wave, distanceKm: target.distanceKm })
+      .onConflictDoUpdate({ target: [sosDispatchAttempts.bookingId, sosDispatchAttempts.driverId], set: { waveNumber: wave, distanceKm: target.distanceKm, pushedAt: new Date(), acceptedAt: null, rejectedAt: null } });
+    return { b, target, wave };
+  });
+  if ("done" in outcome) { stopCascade(state.bookingId); return; }
+  if ("exhausted" in outcome && outcome.exhausted) {
+    await emitEvent({ level: outcome.exhausted.isSos ? "critical" : "warn", source: "sos-cascade", message: "dispatch_exhausted", context: { bookingId: state.bookingId } });
+    await emitToUser(outcome.exhausted.userId, "sos:cascade_exhausted", { bookingId: state.bookingId });
+    stopCascade(state.bookingId); return;
   }
-  // Push to driver at the new wave index (1-indexed → 0-indexed).
-  const target = state.eligibleDrivers[state.currentWave - 1];
-  if (target && !state.rejected.has(target.driverId)) {
-    try {
-      // Audit row first — survives socket emission failure.
-      await db
-        .insert(sosDispatchAttempts)
-        .values({
-          bookingId: state.bookingId,
-          driverId: target.driverId,
-          waveNumber: state.currentWave,
-          distanceKm: target.distanceKm
-        })
-        .onConflictDoNothing();
-      await emitToDriver(target.driverId, "sos:incoming", {
-        bookingId: state.bookingId,
-        emergencyType: state.emergencyType,
-        pickupLat: state.pickupLat,
-        pickupLng: state.pickupLng,
-        pickupAddress: state.pickupAddress,
-        pickupLandmark: state.pickupLandmark,
-        // v1.2.0 (CR#1): include displayId/patientName/createdAt so the driver's
-        // unified-queue socket merge shows the correct id + request age
-        // immediately, not just after the next /driver/incoming poll reconcile.
-        displayId: state.displayId,
-        patientName: state.patientName,
-        createdAt: state.createdAt,
-        distanceKm: target.distanceKm,
-        waveNumber: state.currentWave
-      });
-      // v1.1.0 push: wake the driver even if the app is backgrounded/killed —
-      // the socket emit above only reaches a foregrounded app.
-      void pushToDriver(
-        target.driverId,
-        "sos_new",
-        { emergencyType: state.emergencyType, distanceKm: target.distanceKm },
-        { bookingId: state.bookingId, kind: "sos" },
-        "sos_alerts_v2"
-      );
-    } catch (err) {
-      app.log.warn(
-        { err, driverId: target.driverId, bookingId: state.bookingId },
-        "[sos] wave push failed"
-      );
+  if ("b" in outcome && outcome.b && outcome.target) {
+    const { b, target, wave } = outcome;
+    const [current] = await db.select({ status: bookings.status, dispatchStartedAt: bookings.dispatchStartedAt }).from(bookings).where(eq(bookings.id, b.id));
+    if (state.stopped || current?.status !== "REQUESTED" || +current.dispatchStartedAt !== +b.dispatchStartedAt) { stopCascade(b.id); return; }
+    await emitToDriver(target.driverId, b.isSos ? "sos:incoming" : "booking:offered", {
+      bookingId: b.id, emergencyType: b.emergencyType, pickupLat: b.pickupLat, pickupLng: b.pickupLng,
+      pickupAddress: b.pickupAddress, pickupLandmark: b.pickupLandmark, displayId: b.displayId,
+      patientName: b.patientName, createdAt: b.createdAt, isSos: b.isSos, distanceKm: target.distanceKm, waveNumber: wave
+    });
+    const [beforePush] = await db.select({ status: bookings.status, dispatchStartedAt: bookings.dispatchStartedAt }).from(bookings).where(eq(bookings.id, b.id));
+    if (state.stopped || beforePush?.status !== "REQUESTED" || +beforePush.dispatchStartedAt !== +b.dispatchStartedAt) { stopCascade(b.id); return; }
+    await pushToDriver(target.driverId, b.isSos ? "sos_new" : "booking_new",
+      { emergencyType: b.emergencyType, distanceKm: target.distanceKm },
+      { bookingId: b.id, kind: b.isSos ? "sos" : "booking" }, b.isSos ? "sos_alerts_v2" : "booking_alerts_v2");
+    const [afterPush] = await db.select({ status: bookings.status, dispatchStartedAt: bookings.dispatchStartedAt }).from(bookings).where(eq(bookings.id, b.id));
+    if (state.stopped || afterPush?.status !== "REQUESTED" || +afterPush.dispatchStartedAt !== +b.dispatchStartedAt) {
+      await dismissPushToDriver(target.driverId, b.id);
+      await emitToDriver(target.driverId, "sos:cancelled", { bookingId: b.id });
+      stopCascade(b.id); return;
     }
   }
-  state.timer = setTimeout(() => {
-    void runWave(app, state);
-  }, WAVE_INTERVAL_MS);
+  schedule(app, state, "delay" in outcome ? outcome.delay! : WAVE_INTERVAL_MS);
 }
 
 export async function startCascade(app: FastifyInstance, bookingId: string): Promise<void> {
+  if (starting.has(bookingId)) return starting.get(bookingId)!;
   if (runners.has(bookingId)) return;
-  const [b] = await db.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1);
-  if (!b) return;
-  if (!b.isSos) return;
-  if (b.status !== "REQUESTED") return;
-  const eligible = await getEligibleDrivers(b.pickupLat, b.pickupLng);
-  if (eligible.length === 0) {
-    await emitEvent({
-      level: "critical",
-      source: "sos-cascade",
-      message: "sos_no_drivers_available",
-      context: { bookingId }
-    });
-    await emitToUser(b.userId, "sos:cascade_exhausted", { bookingId, reason: "no_drivers" });
-    return;
-  }
-  // Seed the in-memory rejected set from the audit table — survives api-server
-  // restarts. Without this, a resumed cascade would re-push to drivers who
-  // already tapped Reject before the crash.
-  const priorRejections = await db
-    .select({ driverId: sosDispatchAttempts.driverId })
-    .from(sosDispatchAttempts)
-    .where(
-      and(
-        eq(sosDispatchAttempts.bookingId, bookingId),
-        isNotNull(sosDispatchAttempts.rejectedAt)
-      )
-    );
-
-  const state: RunnerState = {
-    bookingId,
-    pickupLat: b.pickupLat,
-    pickupLng: b.pickupLng,
-    userId: b.userId,
-    emergencyType: b.emergencyType,
-    pickupAddress: b.pickupAddress,
-    pickupLandmark: b.pickupLandmark,
-    displayId: b.displayId ?? null,
-    patientName: b.patientName ?? null,
-    createdAt: b.createdAt ? new Date(b.createdAt).toISOString() : new Date().toISOString(),
-    eligibleDrivers: eligible,
-    currentWave: 0,
-    rejected: new Set(priorRejections.map((r) => r.driverId)),
-    timer: null,
-    startedAt: Date.now()
-  };
-  runners.set(bookingId, state);
-  app.log.info(
-    { bookingId, eligibleCount: eligible.length, nearestKm: eligible[0]?.distanceKm },
-    "[sos] cascade started"
-  );
-  await runWave(app, state);
+  const pending = (async () => {
+    const state: RunnerState = { bookingId, timer: null, stopped: false };
+    runners.set(bookingId, state);
+    try { await runWave(app, state); }
+    catch (error) { app.log.error({ error, bookingId }, "Initial dispatch failed; retry scheduled"); schedule(app, state, WAVE_INTERVAL_MS); throw error; }
+  })().finally(() => { starting.delete(bookingId); });
+  starting.set(bookingId, pending);
+  return pending;
 }
 
 export function stopCascade(bookingId: string): void {
   const state = runners.get(bookingId);
   if (!state) return;
+  state.stopped = true;
   if (state.timer) clearTimeout(state.timer);
   runners.delete(bookingId);
 }
 
-export function noteCascadeReject(bookingId: string, driverId: string): void {
-  const state = runners.get(bookingId);
-  if (!state) return;
-  state.rejected.add(driverId);
+export function noteCascadeReject(_bookingId: string, _driverId: string): void {
+  // Rejections are read from the durable attempt rows before every offer.
 }
 
 export async function notifyCascadeLosers(bookingId: string, winnerDriverId: string): Promise<void> {
@@ -349,40 +273,15 @@ export async function notifyCascadeLosers(bookingId: string, winnerDriverId: str
 }
 
 export async function resumeOnBoot(app: FastifyInstance): Promise<void> {
-  // Pick up any SOS REQUESTED bookings that started within the cascade window
-  // and rebuild their runners. The currentWave gets derived from how much
-  // time has elapsed so we don't replay already-completed waves.
-  const cutoff = new Date(Date.now() - (MAX_DRIVERS * WAVE_INTERVAL_MS) - 60_000);
-  const pending = await db
-    .select()
-    .from(bookings)
-    .where(
-      and(
-        eq(bookings.status, "REQUESTED"),
-        eq(bookings.isSos, true),
-        gte(bookings.createdAt, cutoff)
-      )
-    );
+  const pending = await db.select({ id: bookings.id }).from(bookings)
+    .where(and(eq(bookings.status, "REQUESTED"), drizzleSql`(${bookings.isSos} = true OR ${bookings.dispatchStartedAt} >= ${new Date(Date.now() - DISPATCH_WINDOW_MS).toISOString()})`));
   for (const b of pending) {
-    try {
-      await startCascade(app, b.id);
-      app.log.info({ bookingId: b.id }, "[sos] cascade resumed after boot");
-    } catch (err) {
-      app.log.warn({ err, bookingId: b.id }, "[sos] resume failed");
-    }
+    try { await startCascade(app, b.id); }
+    catch (error) { app.log.error({ error, bookingId: b.id }, "Dispatch resume failed"); }
   }
 }
 
-export async function offerPendingSosToDriver(app: FastifyInstance, driverId: string): Promise<void> {
-  const pending = await db.select().from(bookings).where(and(eq(bookings.status, "REQUESTED"), eq(bookings.isSos, true))).orderBy(bookings.createdAt).limit(50);
-  for (const b of pending) {
-    const candidates = await getEligibleDrivers(b.pickupLat, b.pickupLng);
-    const rank = candidates.findIndex((d) => d.driverId === driverId);
-    if (rank < 0 || rank >= MAX_DRIVERS) continue;
-    const [attempt] = await db.insert(sosDispatchAttempts).values({ bookingId: b.id, driverId, waveNumber: rank + 1, distanceKm: candidates[rank].distanceKm, pushedAt: new Date() }).onConflictDoNothing().returning();
-    if (!attempt) continue;
-    await emitToDriver(driverId, "sos:incoming", { bookingId: b.id, emergencyType: b.emergencyType, pickupLat: b.pickupLat, pickupLng: b.pickupLng, pickupAddress: b.pickupAddress, pickupLandmark: b.pickupLandmark, displayId: b.displayId, createdAt: b.createdAt, distanceKm: candidates[rank].distanceKm, waveNumber: rank + 1 });
-    await pushToDriver(driverId, "sos_new", { emergencyType: b.emergencyType, distanceKm: candidates[rank].distanceKm }, { bookingId: b.id, kind: "sos" }, "sos_alerts_v2");
-    app.log.info({ bookingId: b.id, driverId }, "[sos] eligible pending request offered on availability change");
-  }
+export async function offerPendingSosToDriver(app: FastifyInstance, _driverId: string): Promise<void> {
+  // Availability can recover a missing runner, but cannot jump ahead of its persisted wave clock.
+  await resumeOnBoot(app);
 }

@@ -107,11 +107,11 @@ function TripHistoryRow({ item, t }: { item: Booking; t: (k: string) => string }
         </View>
         <View style={{ flexDirection: "row", justifyContent: "space-between", paddingTop: space.xs, borderTopWidth: 1, borderTopColor: colors.border }}>
           <View>
-            <Text variant="tiny" tone="muted">{t("trip_history.distance_label")}</Text>
+            <Text variant="small" tone="muted">{t("trip_history.distance_label")}</Text>
             <Text variant="body" weight="semi">{kmLabel}</Text>
           </View>
           <View style={{ alignItems: "flex-end" }}>
-            <Text variant="tiny" tone="muted">{t("trip_history.time_taken_label")}</Text>
+            <Text variant="small" tone="muted">{t("trip_history.time_taken_label")}</Text>
             <Text variant="body" weight="semi">{durationLabel}</Text>
           </View>
         </View>

@@ -52,3 +52,6 @@ export { useRideRoute } from "./hooks/useRideRoute";
 export { GoogleSignInButton } from "./components/GoogleSignInButton";
 
 export { AmbulanceMark } from "./components/AmbulanceMark";
+export { CircularSos } from "./components/CircularSos";
+
+export { createClickTracker } from "./analytics/createClickTracker";

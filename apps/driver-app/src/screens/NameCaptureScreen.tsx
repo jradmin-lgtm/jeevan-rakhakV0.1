@@ -67,7 +67,7 @@ export function NameCaptureScreen({ initialName, onSaved }: Props) {
         </View>
       </Card>
 
-      <Text variant="tiny" tone="muted" align="center">
+      <Text variant="small" tone="muted" align="center">
         Your name is shared only with the patients and our operations team.
       </Text>
     </Screen>

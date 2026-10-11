@@ -105,11 +105,11 @@ export function ProfileSetupScreen({ idToken, google, onSetupComplete, onBack }:
             borderColor: colors.border
           }}
         >
-          <Text variant="tiny" tone="muted">{t("profile_setup.signed_in_as")}</Text>
-          <Text variant="tiny" weight="bold" style={{ color: colors.textPrimary }}>{g.email}</Text>
+          <Text variant="small" tone="muted">{t("profile_setup.signed_in_as")}</Text>
+          <Text variant="small" weight="bold" style={{ color: colors.textPrimary }}>{g.email}</Text>
         </View>
         <Pressable onPress={switchAccount} disabled={switching || busy} style={{ minHeight: 44, justifyContent: "center" }} accessibilityRole="button">
-          <Text variant="tiny" weight="bold" align="center" style={{ color: switching || busy ? "#94A3B8" : colors.accent }}>
+          <Text variant="small" weight="bold" align="center" style={{ color: switching || busy ? "#94A3B8" : colors.accent }}>
             {switching ? t("auth.google.busy") : t("auth.google.switch_account")}
           </Text>
         </Pressable>
@@ -136,7 +136,7 @@ export function ProfileSetupScreen({ idToken, google, onSetupComplete, onBack }:
             error={err ?? undefined}
             testID="profile-setup-phone"
           />
-          <Text variant="tiny" tone="muted">{t("profile_setup.phone_help")}</Text>
+          <Text variant="small" tone="muted">{t("profile_setup.phone_help")}</Text>
           <Button
             label={t("profile_setup.continue")}
             onPress={submit}

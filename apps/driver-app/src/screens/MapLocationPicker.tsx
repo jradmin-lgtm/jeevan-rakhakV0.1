@@ -291,7 +291,7 @@ export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onCo
             </Pressable>
             <View style={{ flex: 1 }}>
               <Text variant="body" weight="bold">{headerTitle}</Text>
-              <Text variant="tiny" tone="muted">{headerSub}</Text>
+              <Text variant="small" tone="muted">{headerSub}</Text>
             </View>
           </View>
 
@@ -352,7 +352,7 @@ export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onCo
                       <View style={{ flex: 1 }}>
                         <Text variant="body" weight="semi" numberOfLines={1}>{r.primary}</Text>
                         {r.secondary ? (
-                          <Text variant="tiny" tone="muted" numberOfLines={1}>{r.secondary}</Text>
+                          <Text variant="small" tone="muted" numberOfLines={1}>{r.secondary}</Text>
                         ) : null}
                       </View>
                     </Pressable>
@@ -368,7 +368,7 @@ export function MapLocationPicker({ visible, mode, initialCenter, onCancel, onCo
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
             <View style={styles.bottomPinIcon} />
             <View style={{ flex: 1 }}>
-              <Text variant="tiny" tone="secondary" weight="bold">{labelHeading}</Text>
+              <Text variant="small" tone="secondary" weight="bold">{labelHeading}</Text>
               <Text variant="body" weight="semi" numberOfLines={2}>
                 {resolving || resolvingPlace ? `${label} …` : label}
               </Text>

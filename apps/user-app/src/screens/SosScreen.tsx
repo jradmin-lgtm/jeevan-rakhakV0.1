@@ -1,7 +1,8 @@
+import { clicks } from "../clicks";
 import React, { useEffect, useRef, useState } from "react";
 import { Linking, Pressable, View } from "react-native";
 import * as Location from "expo-location";
-import { AppHeader, Button, OutOfServiceArea, MotionView, Screen, Text, colors, space, dialog } from "@jr/ui";
+import { CircularSos, Button, OutOfServiceArea, MotionView, Screen, Text, colors, space, dialog } from "@jr/ui";
 import { Booking, EmergencyType, bookings as bookingsApi, serviceArea as serviceAreaApi } from "../api";
 import { SUPPORT_PHONE, SUPPORT_PHONE_DISPLAY } from "@jr/ui";
 import { SosCategoryPicker } from "../components/SosCategoryPicker";
@@ -135,8 +136,10 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
         // normal broadcast pool and SOS becomes a regular booking.
         isSos: true
       });
+      clicks.track("sos.success");
       onBooked(r.booking);
     } catch (e: any) {
+      clicks.track("sos.failure");
       // Server-side geofence fallback: the booking handler rejects an
       // out-of-area pickup with error "out_of_service_area". Surface the
       // out-of-area sheet (with the 108 fallback) instead of the generic
@@ -152,25 +155,26 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
   };
 
   return (
-    <Screen bg={colors.surface}>
-      <AppHeader title={t("sos.button_label")} onBack={busy ? undefined : onBack} />
+    <Screen bg={colors.primary} lightStatusBar>
+      <Pressable onPress={onBack} disabled={busy} accessibilityRole="button" accessibilityLabel={t("sos.cancel_and_back")}
+        style={{ minHeight: 48, alignSelf: "flex-start", paddingHorizontal: 8, justifyContent: "center" }}>
+        <Text tone="inverse" style={{ fontSize: 30, lineHeight: 36 }}>‹</Text>
+      </Pressable>
       <MotionView style={{ gap: space.lg }}>
         <View style={{ gap: space.sm }}>
-          <Text variant="title" weight="bold">{t("sos.headline")}</Text>
-          <Text tone="secondary">{t("sos.headline_sub")}</Text>
+          <Text variant="title" weight="bold" tone="inverse" align="center">{t("sos.headline")}</Text>
+          <Text tone="inverse" align="center">{t("sos.headline_sub")}</Text>
         </View>
-        <Pressable accessibilityRole="button" accessibilityState={{ disabled: busy, busy }} accessibilityLabel={t("sos.button_label")}
-          onPress={() => setPickerVisible(true)} disabled={busy} testID="sos-open-categories"
-          style={({ pressed }) => ({ minHeight: 128, padding: 20, borderRadius: 16, backgroundColor: "#A51D24", justifyContent: "center", gap: 8, opacity: busy || pressed ? 0.75 : 1 })}>
-          <Text weight="bold" tone="inverse" style={{ fontSize: 36, lineHeight: 44 }}>{t("sos.button_label")} ↗</Text>
-          <Text tone="inverse">{busy ? t("sos.sending") : t("home.sos.tap")}</Text>
-        </Pressable>
-        <View style={{ gap: space.sm, paddingVertical: space.md }}>
-          <Text variant="heading">{t("sos.info_card_title")}</Text>
+        <CircularSos label={t("sos.button_label")} hint={busy ? t("sos.sending") : t("home.sos.tap")}
+          accessibilityLabel={t("sos.button_label")} onPress={() => setPickerVisible(true)} disabled={busy} inverse testID="sos-open-categories" />
+        <View style={{ gap: space.md, padding: space.lg, borderRadius: 20, backgroundColor: colors.surface }}>
+          <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
+            <Text weight="bold" style={{ fontSize: 24, lineHeight: 30, color: colors.primary }}>!</Text>
+            <Text variant="heading" style={{ flex: 1 }}>{t("sos.info_card_title")}</Text>
+          </View>
           <Text tone="secondary">{t("sos.info_card_body")}</Text>
-          <Button label={t("emergency.disclaimer.title")} variant="neutral" onPress={() => void dialog.alert(t("emergency.disclaimer.title"), t("emergency.disclaimer.body"))} />
-          <Button label={t("sos.call_number").replace("{phone}", SUPPORT_PHONE_DISPLAY)} variant="outline" onPress={() => void Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(error => { console.error("[sos] phone action unavailable", error); void dialog.alert(t("sos.failed_title"), SUPPORT_PHONE_DISPLAY); })} />
-          <Button label={t("sos.cancel_and_back")} variant="ghost" onPress={onBack} disabled={busy} />
+          <Button label={t("sos.cancel_and_back")} variant="outline" onPress={onBack} disabled={busy} />
+          <Button label={t("sos.call_number").replace("{phone}", SUPPORT_PHONE_DISPLAY)} variant="ghost" onPress={() => void Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(error => { console.error("[sos] phone action unavailable", error); void dialog.alert(t("sos.failed_title"), SUPPORT_PHONE_DISPLAY); })} />
         </View>
       </MotionView>
 
@@ -186,7 +190,7 @@ export function SosScreen({ onBack, onBooked }: { onBack: () => void; onBooked: 
       <SosCategoryPicker
         visible={pickerVisible}
         onClose={() => setPickerVisible(false)}
-        onSelect={(type) => void dispatch(type)}
+        onSelect={(type) => { clicks.track("sos.category"); void dispatch(type); }}
       />
     </Screen>
   );

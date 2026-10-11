@@ -195,7 +195,49 @@ function decodePolyline(encoded: string): [number, number][] {
  * including the decoded route polyline so callers can draw the actual
  * traffic-aware road path instead of (or as well as) the free OSRM line.
  */
-export async function getLiveRoute(
+const liveRouteCache = new Map<string, { at: number; route: LiveRoute }>();
+const liveRoutePending = new Map<string, Promise<LiveRoute | null>>();
+let routeRequests = 0;
+const routeWaiters: Array<() => void> = [];
+
+async function withRouteSlot(operation: () => Promise<LiveRoute | null>): Promise<LiveRoute | null> {
+  if (routeRequests >= 8) {
+    if (routeWaiters.length >= 64) { console.warn("[google-maps] route queue full; backup route required"); return null; }
+    const granted = await new Promise<boolean>(resolve => {
+      const ready = () => { clearTimeout(timer); resolve(true); };
+      const timer = setTimeout(() => {
+        const index = routeWaiters.indexOf(ready);
+        if (index >= 0) routeWaiters.splice(index, 1);
+        resolve(false);
+      }, 8000);
+      routeWaiters.push(ready);
+    });
+    if (!granted) { console.warn("[google-maps] route queue timed out; backup route required"); return null; }
+  } else routeRequests += 1;
+  try { return await operation(); }
+  finally {
+    const next = routeWaiters.shift();
+    if (next) next(); else routeRequests -= 1;
+  }
+}
+
+export async function getLiveRoute(originLat: number, originLng: number, destLat: number, destLng: number): Promise<LiveRoute | null> {
+  const key = [originLat, originLng, destLat, destLng].map(n => n.toFixed(5)).join(":");
+  const cached = liveRouteCache.get(key);
+  if (cached && Date.now() - cached.at < 15_000) return cached.route;
+  if (liveRoutePending.has(key)) return liveRoutePending.get(key)!;
+  const pending = withRouteSlot(() => fetchLiveRoute(originLat, originLng, destLat, destLng)).then(route => {
+    if (route) {
+      if (liveRouteCache.size >= 500) liveRouteCache.delete(liveRouteCache.keys().next().value!);
+      liveRouteCache.set(key, { at: Date.now(), route });
+    }
+    return route;
+  }).finally(() => { liveRoutePending.delete(key); });
+  liveRoutePending.set(key, pending);
+  return pending;
+}
+
+async function fetchLiveRoute(
   originLat: number,
   originLng: number,
   destLat: number,

@@ -38,3 +38,16 @@ test('automatic booking resolution uses the same short area label',async()=>{
 test('malformed geocoding can use real nearby data but never a fabricated area',async()=>{
  const maps=loadMaps(async raw=>raw.includes('/geocode/')?{ok:true,json:async()=>{throw Error('Bad JSON')}}:response({status:'ZERO_RESULTS',results:[]}));assert.deepEqual(await maps.getNearbyLandmarks(28,79,'en'),[]);
 });
+
+test('50 identical live routes coalesce and reuse the short cache',async()=>{
+ let calls=0;const maps=loadMaps(async()=>{calls++;await new Promise(r=>setTimeout(r,15));return response({status:'OK',routes:[{legs:[{distance:{value:1000},duration:{value:60}}],overview_polyline:{points:''}}]});});
+ const results=await Promise.all(Array.from({length:50},()=>maps.getLiveRoute(28,79,28.5,79.5)));
+ assert.equal(calls,1);assert.ok(results.every(x=>x.distanceKm===1));
+ assert.equal((await maps.getLiveRoute(28,79,28.5,79.5)).distanceKm,1);assert.equal(calls,1);
+});
+test('50 distinct routes use at most eight provider slots and failed routes can retry',async()=>{
+ let active=0,max=0,calls=0;const maps=loadMaps(async()=>{calls++;active++;max=Math.max(max,active);await new Promise(r=>setTimeout(r,10));active--;return calls===1?{ok:false,status:503}:response({status:'OK',routes:[{legs:[{distance:{value:2000},duration:{value:120}}],overview_polyline:{points:''}}]});});
+ await Promise.all(Array.from({length:50},(_,i)=>maps.getLiveRoute(28+i*.001,79,28.5,79.5)));assert.equal(calls,50);assert.equal(max,8);assert.equal(active,0);
+ let attempts=0;const retry=loadMaps(async()=>++attempts===1?{ok:false,status:503}:response({status:'OK',routes:[{legs:[{distance:{value:2000},duration:{value:120}}],overview_polyline:{points:''}}]}));
+ assert.equal(await retry.getLiveRoute(28,79,28.5,79.5),null);assert.equal((await retry.getLiveRoute(28,79,28.5,79.5)).distanceKm,2);assert.equal(attempts,2);
+});

@@ -38,7 +38,7 @@ export async function clearToken() {
   await AsyncStorage.removeItem(TOKEN_KEY);
   await AsyncStorage.removeItem(PROFILE_KEY);
   await AsyncStorage.removeItem("jr.driver.active-ride");
-  await AsyncStorage.removeItem("jr.driver.location-queue");
+  // Unsynchronised GPS remains owner-scoped until the server acknowledges it.
   const push = await import("./push");
   try { await push.revokePushSession(previousSession); }
   catch (error) {

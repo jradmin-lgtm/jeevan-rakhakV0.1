@@ -1,3 +1,4 @@
+import { clicks } from "../clicks";
 import React, { useEffect, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Button, Input, MotionView, Text, colors, space } from "@jr/ui";
@@ -43,7 +44,7 @@ export function PickupLandmark({ lat, lng, value, onChange }: Props) {
             const selected = value === item.label;
             return <Pressable key={item.id} accessibilityRole="radio" accessibilityState={{ checked: selected }}
               accessibilityLabel={item.name}
-              testID={`landmark-choice-${index}`} onPress={() => { onChange(item.label); setEditing(false); }}
+              testID={`landmark-choice-${index}`} onPress={() => { clicks.track("booking.landmark"); onChange(item.label); setEditing(false); }}
               style={({ pressed }) => [styles.choice, selected && styles.selected, pressed && { opacity: 0.75 }]}>
               <Text variant="small" weight="semi" style={selected ? { color: colors.surface } : undefined}>{selected ? "✓ " : ""}{item.name}</Text>
             </Pressable>;
@@ -56,11 +57,11 @@ export function PickupLandmark({ lat, lng, value, onChange }: Props) {
         <Button label={t("landmark.retry")} variant="ghost" onPress={() => setAttempt(n => n + 1)} testID="retry-landmarks" />
       </View> : null}
     </MotionView>
-    {!editing && !value && state !== "unavailable" ? <Pressable testID="add-manual-landmark" accessibilityRole="button" onPress={() => setEditing(true)} style={styles.manualAction}>
+    {!editing && !value && state !== "unavailable" ? <Pressable testID="add-manual-landmark" accessibilityRole="button" onPress={() => { clicks.track("booking.landmark"); setEditing(true); }} style={styles.manualAction}>
       <Text variant="body" weight="semi">+  {t("landmark.add_own")}</Text>
       <Text variant="body" tone="secondary">›</Text>
     </Pressable> : null}
-    {value && !editing && state !== "unavailable" ? <Pressable testID="edit-landmark" accessibilityRole="button" onPress={() => setEditing(true)} style={styles.summary}>
+    {value && !editing && state !== "unavailable" ? <Pressable testID="edit-landmark" accessibilityRole="button" onPress={() => { clicks.track("booking.landmark"); setEditing(true); }} style={styles.summary}>
       <View style={{ flex: 1, minWidth: 0 }}><Text variant="small" tone="secondary">{suggestions.some(item => item.label === value) ? t("landmark.confirmed") : value}</Text></View>
       <Text variant="small" tone="primary" weight="semi">{t("landmark.edit")}</Text>
     </Pressable> : null}

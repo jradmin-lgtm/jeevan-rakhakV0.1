@@ -40,7 +40,7 @@ function OtpInputInner({ value, onChangeText, length = 4, autoFocus, error }: Pr
 
   return (
     <View>
-      <Pressable onPress={handleBoxesPress} style={styles.row}>
+      <Pressable onPress={handleBoxesPress} style={styles.row} accessible={false} importantForAccessibility="no-hide-descendants">
         {Array.from({ length }, (_, i) => {
           const filled = i < value.length;
           const active = i === value.length && value.length < length;
@@ -65,6 +65,9 @@ function OtpInputInner({ value, onChangeText, length = 4, autoFocus, error }: Pr
       </Pressable>
       <TextInput
         ref={inputRef}
+        accessibilityLabel="Ride verification code"
+        accessibilityHint={`Enter the ${length} digit code provided by the passenger`}
+        testID="ride-otp-input"
         value={value}
         onChangeText={(v) => onChangeText(v.replace(/\D/g, "").slice(0, length))}
         keyboardType="number-pad"
@@ -130,9 +133,10 @@ const styles = StyleSheet.create({
   },
   hidden: {
     position: "absolute",
-    width: 1,
-    height: 1,
-    opacity: 0,
+    width: "100%",
+    height: BOX_HEIGHT,
+    color: "transparent",
+    backgroundColor: "transparent",
     top: 0,
     left: 0
   }

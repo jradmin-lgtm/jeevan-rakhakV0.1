@@ -158,17 +158,23 @@ function IncomingRow({
                 {t("incoming.distance_km").replace("{km}", dist.toFixed(1))}
               </Text>
             ) : null}
-            <Text variant="tiny" tone="muted">{ageLabel(req.created_at, t)}</Text>
+            <Text variant="small" tone="muted">{ageLabel(req.created_at, t)}</Text>
           </View>
         </View>
 
-        <Text variant="heading" weight="bold">{prettyEmergency(req.emergency_type, t)}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <View style={{ width: 46, height: 46, borderRadius: 12, backgroundColor: req.is_sos ? colors.primaryFaint : "#EAF1FF", alignItems: "center", justifyContent: "center" }}>
+            <Text style={{ fontSize: 28, lineHeight: 34, color: req.is_sos ? colors.primary : colors.accent }}>{req.emergency_type === "PREGNANCY_NEONATAL" ? "🤰" : req.emergency_type === "REFERRAL_AMBULANCE" ? "⇄" : req.emergency_type === "CARDIAC" ? "♥" : req.emergency_type === "ACCIDENT_TRAUMA" ? "!" : "✚"}</Text>
+          </View>
+          <Text variant="heading" weight="bold" style={{ flex: 1 }}>{prettyEmergency(req.emergency_type, t)}</Text>
+        </View>
+        {dist != null ? <Text variant="body" weight="semi" tone="secondary">{t("sos_modal.eta_label")}: {t("sos_modal.eta_value").replace("{min}", String(Math.max(1, Math.round(dist * 1.4 / 28 * 60))))}</Text> : null}
         <View style={{ gap: space.xs }}>
-          <Text variant="tiny" tone="secondary">{t("trip.landmark")}</Text>
+          <Text variant="small" tone="secondary">{t("trip.landmark")}</Text>
           <Text variant="body" weight="semi">{req.pickup_landmark ?? t("trip.landmark_unavailable")}</Text>
         </View>
         <View style={{ gap: space.xs }}>
-          <Text variant="tiny" tone="secondary">{t("trip.address")}</Text>
+          <Text variant="small" tone="secondary">{t("trip.address")}</Text>
           <Text variant="small" tone="secondary">
             {req.pickup_address ?? `${req.pickup_lat.toFixed(4)}, ${req.pickup_lng.toFixed(4)}`}
           </Text>
@@ -197,7 +203,7 @@ function IncomingRow({
               <Button
                 label={t("incoming.reject")}
                 onPress={doReject}
-                variant="ghost"
+                variant="outline"
                 fullWidth
                 disabled={busy}
               />

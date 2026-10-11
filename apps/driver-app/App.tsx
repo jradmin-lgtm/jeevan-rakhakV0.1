@@ -1,3 +1,4 @@
+import { startClickSync } from "./src/clicks";
 import "./src/env-check";
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, View, Text, Pressable } from "react-native";
@@ -62,6 +63,7 @@ async function refreshProfile(setter: (p: any) => void) {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
+  useEffect(startClickSync, []);
   const [hydrated, setHydrated] = useState(false);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [startupAttempt, setStartupAttempt] = useState(0);

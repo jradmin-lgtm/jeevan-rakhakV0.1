@@ -1,4 +1,5 @@
 import { sql } from "./client";
+import { applyTeamReviewMigration } from "./teamReviewMigration";
 
 const ddl = `
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -143,6 +144,7 @@ CREATE INDEX IF NOT EXISTS system_events_level_idx ON system_events(level);
 async function main() {
   console.log("[migrate] applying schema...");
   await sql.unsafe(ddl);
+  await applyTeamReviewMigration();
   console.log("[migrate] done.");
   await sql.end();
   process.exit(0);

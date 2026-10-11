@@ -200,7 +200,8 @@ export async function registerDriverRoutes(app: FastifyInstance) {
             isNull(sosDispatchAttempts.acceptedAt),
             eq(bookings.status, "REQUESTED"),
             isNull(bookings.driverId),
-            eq(bookings.isSos, true)
+            eq(bookings.isSos, true),
+            drizzleSql`${sosDispatchAttempts.pushedAt} >= ${bookings.dispatchStartedAt}`
           )
         )
         .orderBy(desc(sosDispatchAttempts.pushedAt))
@@ -234,22 +235,13 @@ export async function registerDriverRoutes(app: FastifyInstance) {
       // SOS requests dispatched to THIS driver, still open, not rejected by them.
       const sosRows = await pgClient`
         SELECT b.id, b.display_id, b.emergency_type, b.pickup_lat, b.pickup_lng,
-               b.pickup_address, b.pickup_landmark, b.patient_name, b.created_at, true AS is_sos
+               b.pickup_address, b.pickup_landmark, b.patient_name, b.created_at, b.is_sos
         FROM bookings b
         JOIN sos_dispatch_attempts a ON a.booking_id = b.id AND a.driver_id = ${sub}
-        WHERE b.status = 'REQUESTED' AND a.rejected_at IS NULL
+        WHERE b.status = 'REQUESTED' AND b.driver_id IS NULL AND a.rejected_at IS NULL AND a.accepted_at IS NULL AND a.pushed_at >= b.dispatch_started_at
         ORDER BY b.created_at DESC
       `;
-      // Normal broadcast bookings still open (no driver yet).
-      const normalRows = await pgClient`
-        SELECT b.id, b.display_id, b.emergency_type, b.pickup_lat, b.pickup_lng,
-               b.pickup_address, b.pickup_landmark, b.patient_name, b.created_at, false AS is_sos
-        FROM bookings b
-        WHERE b.status = 'REQUESTED' AND b.is_sos = false AND b.driver_id IS NULL
-        ORDER BY b.created_at DESC
-        LIMIT 50
-      `;
-      return reply.send({ requests: [...sosRows, ...normalRows] });
+      return reply.send({ requests: sosRows });
     }
   );
 
@@ -314,7 +306,7 @@ export async function registerDriverRoutes(app: FastifyInstance) {
         await tx.insert(bookingCancellations).values({ bookingId, driverId: sub, reasonCode, remarks, outcome });
         await tx.update(bookings).set(outcome === "CLOSED"
           ? { status: "CANCELLED", cancelledAt: new Date(), cancelWaitStartedAt: null }
-          : { status: "REQUESTED", driverId: null, acceptedAt: null, arrivedAt: null, cancelWaitStartedAt: null })
+          : { status: "REQUESTED", driverId: null, acceptedAt: null, arrivedAt: null, cancelWaitStartedAt: null, dispatchStartedAt: new Date() })
           .where(eq(bookings.id, bookingId));
         await tx.update(drivers).set({ status: "AVAILABLE", updatedAt: new Date() }).where(eq(drivers.id, sub));
         if (outcome === "RE_DISPATCHED") await tx.insert(sosDispatchAttempts).values({ bookingId, driverId: sub, waveNumber: 0, rejectedAt: new Date() })

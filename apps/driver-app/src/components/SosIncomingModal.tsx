@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text, colors, dialog, radius, space } from "@jr/ui";
 import { Booking, bookings as bookingsApi } from "../api";
 import { getSocket } from "../socket";
@@ -44,6 +45,9 @@ type Props = {
  */
 export function SosIncomingModal({ onAccept }: Props) {
   const { t } = useT();
+  const { height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const cardHeight = Math.min(620, height - insets.top - insets.bottom - 40);
   const [active, setActive] = useState<SosPayload | null>(null);
   const [busy, setBusy] = useState(false);
   // Bookings the driver dismissed from the FLASH — keeps the overlay from
@@ -161,32 +165,32 @@ export function SosIncomingModal({ onAccept }: Props) {
   return (
     <Modal visible animationType="fade" transparent onRequestClose={dismiss}>
       <View style={styles.backdrop}>
-        <View style={styles.card}>
+        <View style={[styles.card, { height: cardHeight }]}>
           <View style={styles.headerRow}>
             <View style={styles.sosBadge}><Text weight="bold" tone="inverse">SOS</Text></View>
             <View style={{ flex: 1 }}>
-              <Text variant="tiny" tone="danger" weight="bold">{t("sos_modal.headline")}</Text>
+              <Text variant="small" tone="danger" weight="bold">{t("sos_modal.headline")}</Text>
               <Text variant="heading" weight="bold">{prettyEmergency(active.emergencyType, t)}</Text>
             </View>
             <LangToggle />
           </View>
-          <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} contentContainerStyle={{ gap: space.md }}>
+          <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ gap: space.md }}>
             <View style={styles.metaRow}>
               <View style={{ flex: 1 }}>
-                <Text variant="tiny" tone="secondary">{t("sos_modal.distance_label")}</Text>
+                <Text variant="small" tone="secondary">{t("sos_modal.distance_label")}</Text>
                 <Text variant="heading" weight="semi">{distance == null ? t("sos_modal.unavailable") : t("sos_modal.distance_value").replace("{km}", distance.toFixed(1))}</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text variant="tiny" tone="secondary">{t("sos_modal.eta_label")}</Text>
+                <Text variant="small" tone="secondary">{t("sos_modal.eta_label")}</Text>
                 <Text variant="heading" weight="semi">{etaMin == null ? t("sos_modal.unavailable") : t("sos_modal.eta_value").replace("{min}", String(etaMin))}</Text>
               </View>
             </View>
             {active.pickupLandmark ? <View style={styles.landmarkRow}>
-              <Text variant="tiny" tone="secondary">{t("trip.landmark")}</Text>
+              <Text variant="small" tone="secondary">{t("trip.landmark")}</Text>
               <Text variant="heading" weight="bold">{active.pickupLandmark}</Text>
             </View> : null}
             <View style={styles.pickupRow}>
-              <Text variant="tiny" tone="secondary">{t("map_picker.selected_pickup")}</Text>
+              <Text variant="small" tone="secondary">{t("map_picker.selected_pickup")}</Text>
               <Text variant="body" weight="semi">{active.pickupAddress || t("trip.landmark_unavailable")}</Text>
             </View>
           </ScrollView>
@@ -212,7 +216,7 @@ export function SosIncomingModal({ onAccept }: Props) {
               </Text>
             </Pressable>
           </View>
-          <Text variant="tiny" tone="muted" align="center">
+          <Text variant="small" tone="muted" align="center">
             {t("sos_modal.wave_label").replace("{n}", String(active.waveNumber))}
           </Text>
         </View>
@@ -247,7 +251,9 @@ const styles = StyleSheet.create({
   sosBadge: { width: 40, height: 40, borderRadius: 10, backgroundColor: colors.danger, alignItems: "center", justifyContent: "center" },
   landmarkRow: { padding: space.md, backgroundColor: colors.bg, borderRadius: radius.md, gap: space.xs },
   card: {
-    maxHeight: "90%",    backgroundColor: colors.surface,
+    flexShrink: 1,
+    overflow: "hidden",
+    backgroundColor: colors.surface,
     borderRadius: radius.lg,
     padding: space.lg,
     gap: space.md,
@@ -274,6 +280,7 @@ const styles = StyleSheet.create({
     gap: space.xs
   },
   buttonRow: {
+    flexShrink: 0,
     flexDirection: "row",
     gap: space.md
   },

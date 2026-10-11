@@ -67,7 +67,7 @@ function ChipPicker({
               backgroundColor: sel ? colors.primary : colors.surface
             }}
           >
-            <Text variant="tiny" weight={sel ? "bold" : "regular"} style={{ color: sel ? "#fff" : colors.textPrimary }}>
+            <Text variant="small" weight={sel ? "bold" : "regular"} style={{ color: sel ? "#fff" : colors.textPrimary }}>
               {o.label}
             </Text>
           </Pressable>
@@ -154,10 +154,10 @@ function DocUploadRow({
     <View style={{ gap: space.xs }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
         <Text variant="label" tone="secondary">{label}</Text>
-        {required ? <Text variant="tiny" tone="danger">*</Text> : null}
+        {required ? <Text variant="small" tone="danger">*</Text> : null}
         {onRemove && state === "empty" ? (
           <Pressable accessibilityRole="button" onPress={onRemove} style={{ marginLeft: "auto", minHeight: 44, justifyContent: "center" }}>
-            <Text variant="tiny" tone="muted">{t("kyc.doc.remove_page")}</Text>
+            <Text variant="small" tone="muted">{t("kyc.doc.remove_page")}</Text>
           </Pressable>
         ) : null}
       </View>
@@ -165,8 +165,8 @@ function DocUploadRow({
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: space.sm, padding: space.sm, borderRadius: radius.md, backgroundColor: "#F0FDF4", borderWidth: 1, borderColor: "#BBF7D0" }}>
           <Text variant="small" tone="success">✓ {t("kyc.doc.uploaded")}</Text>
           <View style={{ flexDirection: "row", gap: space.sm }}>
-            <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: "center" }} onPress={() => pick("camera")}><Text variant="tiny" tone="primary" weight="semi">{t("kyc.doc.retake")}</Text></Pressable>
-            <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: "center" }} onPress={() => pick("gallery")}><Text variant="tiny" tone="primary" weight="semi">{t("kyc.doc.replace")}</Text></Pressable>
+            <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: "center" }} onPress={() => pick("camera")}><Text variant="small" tone="primary" weight="semi">{t("kyc.doc.retake")}</Text></Pressable>
+            <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: "center" }} onPress={() => pick("gallery")}><Text variant="small" tone="primary" weight="semi">{t("kyc.doc.replace")}</Text></Pressable>
           </View>
         </View>
       ) : (
@@ -189,7 +189,7 @@ function DocUploadRow({
           </Pressable>
         </View>
       )}
-      {err ? <Text variant="tiny" tone="danger">{err}</Text> : null}
+      {err ? <Text variant="small" tone="danger">{err}</Text> : null}
     </View>
   );
 }
@@ -240,7 +240,7 @@ function MultiPageDocGroup({
       ))}
       {visibleCount < MAX_DOC_PAGES ? (
         <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: "center" }} onPress={() => setExtraSlots((n) => n + 1)}>
-          <Text variant="tiny" tone="primary" weight="semi">+ {t("kyc.doc.add_page")}</Text>
+          <Text variant="small" tone="primary" weight="semi">+ {t("kyc.doc.add_page")}</Text>
         </Pressable>
       ) : null}
     </View>
@@ -416,9 +416,9 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
             <View style={{ gap: space.xs }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <Text variant="label" tone="secondary">{t("kyc.identity_proof_label")}</Text>
-                <Text variant="tiny" tone="danger">*</Text>
+                <Text variant="small" tone="danger">*</Text>
               </View>
-              <Text variant="tiny" tone="muted">{t("kyc.identity_proof_hint")}</Text>
+              <Text variant="small" tone="muted">{t("kyc.identity_proof_hint")}</Text>
               <ChipPicker
                 options={[
                   { value: "aadhar", label: t("kyc.identity_proof.aadhar") },
@@ -460,7 +460,7 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
         <Card>
           <View style={{ gap: space.md }}>
             <Text variant="label" tone="primary">{t("kyc.section.hospital")}</Text>
-            <Text variant="tiny" tone="muted">{t("kyc.hospital.pick_help")}</Text>
+            <Text variant="small" tone="muted">{t("kyc.hospital.pick_help")}</Text>
             {hospitalList === null ? (
               <View style={{ paddingVertical: space.md, alignItems: "center" }}>
                 <ActivityIndicator color={colors.primary} />
@@ -497,7 +497,7 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
                       <View style={{ flex: 1 }}>
                         <Text variant="body" weight="semi">{h.name}</Text>
                         {h.city || h.address ? (
-                          <Text variant="tiny" tone="muted">{[h.address, h.city].filter(Boolean).join(", ")}</Text>
+                          <Text variant="small" tone="muted">{[h.address, h.city].filter(Boolean).join(", ")}</Text>
                         ) : null}
                       </View>
                     </Pressable>
@@ -515,12 +515,12 @@ export function KycOnboardingScreen({ initial, onSubmitted }: Props) {
         ) : null}
 
         {!canSubmit ? (
-          <Text variant="tiny" tone="muted" align="center">
+          <Text variant="small" tone="muted" align="center">
             {t("kyc.submit_incomplete_hint")}
           </Text>
         ) : null}
 
-        <Text variant="tiny" tone="muted" align="center">
+        <Text variant="small" tone="muted" align="center">
           {t("kyc.footer")}
         </Text>
       </ScrollView>

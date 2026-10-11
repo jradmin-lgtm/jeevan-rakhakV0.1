@@ -208,11 +208,11 @@ function ListView({ onBack, onOpen, t }: { onBack: () => void; onOpen: (id: stri
           <View style={{ gap: space.xs }}>
             <Text variant="small" tone="secondary">{t("support.ride_label")}</Text>
             {tripsLoading ? (
-              <Text variant="tiny" tone="muted">{t("support.ride_loading")}</Text>
+              <Text variant="small" tone="muted">{t("support.ride_loading")}</Text>
             ) : trips == null ? (
               <Button label={t("support.ride_label")} variant="outline" size="sm" onPress={loadTrips} />
             ) : trips.length === 0 ? (
-              <Text variant="tiny" tone="muted">{t("support.ride_empty")}</Text>
+              <Text variant="small" tone="muted">{t("support.ride_empty")}</Text>
             ) : (
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
                 <RideChip
@@ -230,7 +230,7 @@ function ListView({ onBack, onOpen, t }: { onBack: () => void; onOpen: (id: stri
                 ))}
               </View>
             )}
-            <Text variant="tiny" tone="muted">{t("support.ride_picker_hint")}</Text>
+            <Text variant="small" tone="muted">{t("support.ride_picker_hint")}</Text>
           </View>
 
           <Button
@@ -302,7 +302,7 @@ function TicketRow({ item, onPress, t }: { item: SupportTicket; onPress: () => v
           />
         </View>
         <Text variant="body" numberOfLines={2}>{item.message}</Text>
-        <Text variant="tiny" tone="muted">{formatDateTime(item.created_at)}</Text>
+        <Text variant="small" tone="muted">{formatDateTime(item.created_at)}</Text>
       </View>
     </Card>
   );
@@ -529,13 +529,13 @@ const Bubble = React.memo(function Bubble({ message, t }: { message: SupportTick
           gap: 2
         }}
       >
-        <Text variant="tiny" weight="semi" style={{ color: mine ? "rgba(255,255,255,0.85)" : colors.textMuted }}>
+        <Text variant="small" weight="semi" style={{ color: mine ? "rgba(255,255,255,0.85)" : colors.textMuted }}>
           {who}
         </Text>
         <Text variant="body" style={{ color: mine ? colors.textInverse : colors.textPrimary }}>
           {message.body}
         </Text>
-        <Text variant="tiny" style={{ color: mine ? "rgba(255,255,255,0.7)" : colors.textMuted }}>
+        <Text variant="small" style={{ color: mine ? "rgba(255,255,255,0.7)" : colors.textMuted }}>
           {formatDateTime(message.created_at)}
         </Text>
       </View>

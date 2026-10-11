@@ -1,7 +1,7 @@
 import { rideCache } from "../rideCache";
 import { LocationSyncNotice } from "../components/LocationSyncNotice";
 import React, { useEffect, useRef, useState } from "react";
-import { Keyboard, Linking, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
+import { AppState, Keyboard, Linking, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import * as Location from "expo-location";
 import {
   AppHeader,
@@ -159,10 +159,23 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
   // it no longer emits or persists anything itself, so there's no double-send
   // between this and the background task.
   useEffect(() => {
+    if (["COMPLETED", "CANCELLED", "TIMED_OUT"].includes(booking.status)) return;
     let mounted = true;
     let sub: { remove: () => void } | null = null;
     let backgroundActive = false;
     let lastTimestamp = 0;
+    let startingBackground = false;
+    const ensureBackground = async () => {
+      if (!mounted || backgroundActive || startingBackground) return;
+      startingBackground = true;
+      try {
+        backgroundActive = await startBackgroundLocationTracking(booking.id);
+        if (mounted) setGpsError(backgroundActive ? null : t("trip.background_unavailable"));
+      } finally { startingBackground = false; }
+    };
+    const resume = AppState.addEventListener("change", state => {
+      if (state === "active") void ensureBackground();
+    });
 
     (async () => {
       try {
@@ -173,9 +186,8 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
         if (mounted) setGpsError(t("trip.location_delivery_failed"));
         return;
       }
-      backgroundActive = await startBackgroundLocationTracking(booking.id);
+      await ensureBackground();
       if (!mounted) return;
-      if (!backgroundActive) setGpsError(t("trip.background_unavailable"));
       try {
         sub = await Location.watchPositionAsync(
           { accuracy: Location.Accuracy.High, timeInterval: 5000, distanceInterval: 0 },
@@ -196,10 +208,11 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
     return () => {
       mounted = false;
       sub?.remove();
+      resume.remove();
       // The active ride keeps its background service when returning to Home.
       // Completion, authoritative no-active-ride state or logout stops it.
     };
-  }, [booking.id]);
+  }, [booking.id, ["COMPLETED", "CANCELLED", "TIMED_OUT"].includes(booking.status)]);
   useEffect(() => {
     if (["COMPLETED", "CANCELLED", "TIMED_OUT"].includes(booking.status)) {
       void stopBackgroundLocationTracking().catch(error => { console.error("[gps] trip cleanup failed", error); setGpsError(t("trip.stop_location_failed")); });
@@ -398,7 +411,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
               );
             })()
           ) : null}
-          <Text variant="tiny" tone="muted" align="center">
+          <Text variant="small" tone="muted" align="center">
             {t("trip.stage_hint")}
           </Text>
           {/* v1.2.0 (CR#2): driver can cancel only before pickup (ACCEPTED /
@@ -503,7 +516,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
         <Card>
           <View style={{ gap: space.sm }}>
             <Text variant="label" tone="secondary">{t("trip.verify_otp_label")}</Text>
-            <Text variant="tiny" tone="muted">
+            <Text variant="small" tone="muted">
               {t("trip.verify_otp_body")}
             </Text>
             <OtpVerify
@@ -525,7 +538,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
           {sharing ? (
             <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
               <PulseDot size={8} color={colors.success} rings={1} />
-              <Text variant="tiny" tone="success" weight="bold">{t("trip.gps_active")}</Text>
+              <Text variant="small" tone="success" weight="bold">{t("trip.gps_active")}</Text>
             </View>
           ) : null}
         </View>
@@ -544,13 +557,13 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
         {myPos && booking.status === "ACCEPTED" ? (
           <View style={{ flexDirection: "row", justifyContent: "space-around", paddingVertical: space.sm }}>
             <View style={{ alignItems: "center" }}>
-              <Text variant="tiny" tone="secondary">{t("trip.distance_label")}</Text>
+              <Text variant="small" tone="secondary">{t("trip.distance_label")}</Text>
               <Text variant="heading" weight="bold">
                 {(navEta?.km ?? haversineKm(myPos.lat, myPos.lng, booking.pickupLat, booking.pickupLng)).toFixed(1)} km
               </Text>
             </View>
             <View style={{ alignItems: "center" }}>
-              <Text variant="tiny" tone="secondary">{t("trip.eta_label")}</Text>
+              <Text variant="small" tone="secondary">{t("trip.eta_label")}</Text>
               <Text variant="heading" weight="bold" tone="primary">
                 ~{navEta?.min ?? estimateEtaMin(haversineKm(myPos.lat, myPos.lng, booking.pickupLat, booking.pickupLng))} min
               </Text>
@@ -577,7 +590,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
         <Card>
           <View style={{ gap: space.sm }}>
             <Text variant="label" tone="secondary">{t("trip.drop_hospital_label")}</Text>
-            <Text variant="tiny" tone="muted">
+            <Text variant="small" tone="muted">
               {t("trip.drop_sos_capture_note")}
             </Text>
             <DropPicker
@@ -597,7 +610,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
       {rideCacheError || routeCacheError ? <Text variant="small" tone="danger" accessibilityRole="alert">{t("offline.storage_error")}</Text> : null}
       {refreshFailed ? <Text variant="small" tone="danger" accessibilityRole="alert">{t("offline.refresh_failed")}</Text> : null}
       {gpsError ? <Text variant="small" tone="danger" accessibilityRole="alert">{gpsError}</Text> : null}
-      <Text variant="tiny" tone="muted">{t(`trip.route_${routeSource}`)}</Text>
+      <Text variant="small" tone="muted">{t(`trip.route_${routeSource}`)}</Text>
       <Card>
         <View style={{ gap: space.md }}>
           <Text variant="label" tone="secondary">{t("trip.pickup_section_label")}</Text>
@@ -605,7 +618,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
           <Text variant="body">{booking.pickupAddress ?? t("trip.patient_location")}</Text>
           <Text variant="small" weight="bold">{t("trip.landmark")}</Text>
           <Text variant="body">{booking.pickupLandmark ?? t("trip.landmark_unavailable")}</Text>
-          <Text variant="tiny" tone="muted">
+          <Text variant="small" tone="muted">
             {booking.pickupLat.toFixed(5)}, {booking.pickupLng.toFixed(5)}
           </Text>
           {!finished ? (
@@ -679,7 +692,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
                 {booking.patientAge ? `, ${booking.patientAge}y` : ""}
                 {booking.patientGender ? ` · ${booking.patientGender === "M" ? t("trip.gender_male") : booking.patientGender === "F" ? t("trip.gender_female") : t("trip.gender_other")}` : ""}
               </Text>
-              <Text variant="tiny" tone="muted">{userProfile.phone}</Text>
+              <Text variant="small" tone="muted">{userProfile.phone}</Text>
             </View>
             <Pressable
               onPress={() => Linking.openURL(`tel:${userProfile.phone}`).catch(error => { console.warn("patient_call_open_failed", error?.message); void dialog.alert("Call unavailable / कॉल नहीं खुली", userProfile.phone); })}
@@ -781,7 +794,7 @@ function OtpVerify({
         size="lg"
         testID="pickup-cta"
       />
-      <Text variant="tiny" tone="muted" align="center">
+      <Text variant="small" tone="muted" align="center">
         {t("trip.otp_read_note")}
       </Text>
     </View>
@@ -853,7 +866,7 @@ function DropPicker({
           fullWidth
         />
       ) : null}
-      <Text variant="tiny" tone="muted">
+      <Text variant="small" tone="muted">
         {t("trip.save_tip")}
       </Text>
     </View>
@@ -937,7 +950,7 @@ function ParamedicAssessmentCard({ bookingId, alreadySubmitted }: { bookingId: s
       <View style={{ gap: space.md }}>
         <View>
           <Text variant="label" tone="primary">{t("paramedic.title")}</Text>
-          <Text variant="tiny" tone="secondary">
+          <Text variant="small" tone="secondary">
             {t("paramedic.subtitle")}
           </Text>
         </View>
@@ -1010,7 +1023,7 @@ function ParamedicAssessmentCard({ bookingId, alreadySubmitted }: { bookingId: s
           <Text variant="body" weight="semi" style={{ color: immediateRisk ? colors.textInverse : colors.textPrimary }}>
             {t("paramedic.risk_flag")}
           </Text>
-          <Text variant="tiny" style={{ color: immediateRisk ? colors.textInverse : colors.textMuted }}>
+          <Text variant="small" style={{ color: immediateRisk ? colors.textInverse : colors.textMuted }}>
             {immediateRisk ? t("paramedic.risk_flagged") : t("paramedic.risk_tap_to_flag")}
           </Text>
         </Pressable>
@@ -1023,7 +1036,7 @@ function ParamedicAssessmentCard({ bookingId, alreadySubmitted }: { bookingId: s
           multiline
         />
 
-        {err ? <Text variant="tiny" tone="danger">{err}</Text> : null}
+        {err ? <Text variant="small" tone="danger">{err}</Text> : null}
         <Button
           label={busy ? t("paramedic.sending") : alreadySubmitted ? t("paramedic.update_assessment") : t("paramedic.send")}
           onPress={submit}
@@ -1060,7 +1073,7 @@ function ChipRow({
               onPress={() => onChange(o)}
               style={[paramedicStyles.chip, sel ? paramedicStyles.chipOn : null]}
             >
-              <Text variant="tiny" weight={sel ? "bold" : "regular"} style={{ color: sel ? colors.textInverse : colors.textPrimary }}>
+              <Text variant="small" weight={sel ? "bold" : "regular"} style={{ color: sel ? colors.textInverse : colors.textPrimary }}>
                 {(pretty ?? defaultPretty)(o)}
               </Text>
             </Pressable>
@@ -1102,7 +1115,7 @@ function MultiChipRow({
               onPress={() => toggle(o)}
               style={[paramedicStyles.chip, sel ? paramedicStyles.chipOn : null]}
             >
-              <Text variant="tiny" weight={sel ? "bold" : "regular"} style={{ color: sel ? colors.textInverse : colors.textPrimary }}>
+              <Text variant="small" weight={sel ? "bold" : "regular"} style={{ color: sel ? colors.textInverse : colors.textPrimary }}>
                 {(pretty ?? defaultPretty)(o)}
               </Text>
             </Pressable>

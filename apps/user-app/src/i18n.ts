@@ -81,7 +81,7 @@ const en: Dict = {
   "live.route_cached": "Saved road route · distance and ETA may be out of date. Map tiles may be unavailable offline.",
 
   "home.emergency_cta": "Emergency ambulance",
-  "home.book_services": "Pregnancy · Referral · OPD",
+  "home.book_services": "Pregnancy · Referral · OPD · Emergency",
   "home.refresh_failed": "Trip status could not refresh. Pull down to try again.",
 
   "book.journey_title": "Where do you need to go?",
@@ -576,7 +576,7 @@ const hi: Dict = {
   "live.route_cached": "सहेजा हुआ रास्ता · दूरी और समय पुराने हो सकते हैं। ऑफलाइन में नक्शे के कुछ हिस्से उपलब्ध नहीं हो सकते।",
 
   "home.emergency_cta": "आपातकालीन एम्बुलेंस",
-  "home.book_services": "गर्भावस्था · रेफ़रल · OPD",
+  "home.book_services": "गर्भावस्था · रेफ़रल · OPD · आपातकाल",
   "home.refresh_failed": "यात्रा की स्थिति अपडेट नहीं हुई। दोबारा कोशिश करने के लिए नीचे खींचें।",
 
   "book.journey_title": "आपको कहाँ जाना है?",

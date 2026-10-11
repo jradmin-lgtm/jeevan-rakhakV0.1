@@ -10,15 +10,16 @@ type Props = {
   padding?: keyof typeof space | 0;
   style?: ViewStyle;
   bg?: string;
+  lightStatusBar?: boolean;
   refreshControl?: React.ReactElement<RefreshControlProps>;
 };
 
-function ScreenInner({ children, scroll = true, padding = "lg", style, bg, refreshControl, header, footer }: Props) {
+function ScreenInner({ children, scroll = true, padding = "lg", style, bg, refreshControl, header, footer, lightStatusBar = false }: Props) {
   const pad = padding === 0 ? 0 : space[padding];
   const Container = scroll ? ScrollView : View;
   return (
     <SafeAreaView style={[styles.safe, bg ? { backgroundColor: bg } : null]}>
-      <StatusBar barStyle="dark-content" backgroundColor={bg ?? colors.bg} />
+      <StatusBar barStyle={lightStatusBar ? "light-content" : "dark-content"} backgroundColor={bg ?? colors.bg} />
       {header ? <View style={styles.header}>{header}</View> : null}
       <Container
         contentContainerStyle={scroll ? [styles.content, { padding: pad, gap: space.md }, style] : undefined}

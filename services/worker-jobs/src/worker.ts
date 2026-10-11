@@ -2,7 +2,7 @@ import { and, eq, lt } from "drizzle-orm";
 import { config } from "@jr/config";
 import { bookings, db, drivers } from "@jr/db";
 
-const TIMEOUT_MS = config.bookingTimeoutSec * 1000;
+const TIMEOUT_MS = Math.max(config.bookingTimeoutSec * 1000, Number(process.env.SOS_CASCADE_MAX_DRIVERS ?? 10) * Number(process.env.SOS_CASCADE_WAVE_INTERVAL_S ?? 20) * 1000 + 30_000);
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const STALE_DRIVER_MS = 90_000;
 
@@ -18,12 +18,12 @@ async function reapTimedOutBookings() {
   const stale = await db
     .select({ id: bookings.id, status: bookings.status })
     .from(bookings)
-    .where(and(eq(bookings.status, "REQUESTED"), eq(bookings.isSos, false), lt(bookings.createdAt, cutoff)));
+    .where(and(eq(bookings.status, "REQUESTED"), eq(bookings.isSos, false), lt(bookings.dispatchStartedAt, cutoff)));
   for (const row of stale) {
     await db
       .update(bookings)
       .set({ status: "TIMED_OUT", cancelledAt: new Date() })
-      .where(and(eq(bookings.id, row.id), eq(bookings.status, "REQUESTED"), eq(bookings.isSos, false)));
+      .where(and(eq(bookings.id, row.id), eq(bookings.status, "REQUESTED"), eq(bookings.isSos, false), lt(bookings.dispatchStartedAt, cutoff)));
     console.log(`[worker] booking ${row.id} timed out`);
   }
 }

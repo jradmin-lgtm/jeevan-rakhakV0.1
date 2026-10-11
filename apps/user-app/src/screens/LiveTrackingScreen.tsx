@@ -385,7 +385,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
           <View style={{ flex: 1, gap: 3 }}>
             <Text variant="body" weight="bold">{driverProfile.name ?? t("live.driver_fallback_name")}</Text>
             <Text variant="small" tone="secondary">{driverProfile.vehicleNumber ?? t("live.vehicle_pending")}{driverProfile.vehicleType ? ` · ${driverProfile.vehicleType}` : ""}</Text>
-            {(driverProfile.ratingCount ?? 0) > 0 && driverProfile.rating != null ? <Text variant="tiny" tone="secondary">{driverProfile.rating.toFixed(1)} / 5</Text> : null}
+            <Text variant="body" weight="semi">{driverProfile.phone}</Text>
           </View>
           <Button label={lang === "hi" ? "कॉल करें" : "Call driver"} variant="secondary"
             onPress={() => { void Linking.openURL(`tel:${driverProfile.phone}`).catch(error => { console.error("Driver call could not open", error); void dialog.alert(lang === "hi" ? "कॉल नहीं हो सकी" : "Could not open phone", driverProfile.phone); }); }} />

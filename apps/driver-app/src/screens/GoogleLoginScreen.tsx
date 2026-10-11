@@ -144,17 +144,17 @@ export function GoogleLoginScreen({ onAuthenticated, onProfileSetupRequired }: P
           ) : null}
 
           <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: 4 }}>
-            <Text variant="tiny" tone="muted" align="center">{t("login.agree")}</Text>
+            <Text variant="small" tone="muted" align="center">{t("login.agree")}</Text>
             <Pressable accessibilityRole="link" onPress={() => Linking.openURL(PRIVACY_POLICY_URL).catch(error => { console.error("Privacy policy could not open", error); setErr(t("auth.google.link_failed")); })} style={{ minHeight: 44, justifyContent: "center" }}>
-              <Text variant="tiny" weight="bold" style={{ color: colors.primary }}>{t("login.privacy")}</Text>
+              <Text variant="small" weight="bold" style={{ color: colors.primary }}>{t("login.privacy")}</Text>
             </Pressable>
           </View>
         </View>
       </View>
 
       <View style={{ marginTop: space.md, gap: space.xs, alignItems: "center" }}>
-        <Text variant="tiny" tone="muted" align="center">{t("login.footer_care")}</Text>
-        <Text variant="tiny" tone="muted" align="center">{t("login.patient_hint")}</Text>
+        <Text variant="small" tone="muted" align="center">{t("login.footer_care")}</Text>
+        <Text variant="small" tone="muted" align="center">{t("login.patient_hint")}</Text>
       </View>
     </Screen>
   );

@@ -99,11 +99,11 @@ export function LoginScreen({ onAuthenticated }: { onAuthenticated: (profile: an
                 />
                 {/* Privacy policy on its own line — see user-app for rationale */}
                 <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 4 }}>
-                  <Text variant="tiny" tone="muted" align="center">
+                  <Text variant="small" tone="muted" align="center">
                     {t("login.agree")}
                   </Text>
                   <Pressable onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>
-                    <Text variant="tiny" weight="bold" style={{ color: colors.primary }}>
+                    <Text variant="small" weight="bold" style={{ color: colors.primary }}>
                       {t("login.privacy")}
                     </Text>
                   </Pressable>
@@ -136,10 +136,10 @@ export function LoginScreen({ onAuthenticated }: { onAuthenticated: (profile: an
         </Card>
 
         <View style={{ marginTop: space.xl, gap: space.xs, alignItems: "center" }}>
-          <Text variant="tiny" tone="muted" align="center">
+          <Text variant="small" tone="muted" align="center">
             {t("login.footer_care")}
           </Text>
-          <Text variant="tiny" tone="muted" align="center">
+          <Text variant="small" tone="muted" align="center">
             {t("login.patient_hint")}
           </Text>
         </View>

@@ -124,14 +124,14 @@ export function DocumentUpdateScreen({ onBack }: Props) {
                   <Text variant="label" tone="secondary">{docLabel(docType, t)}</Text>
                   {latest ? (
                     <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: latest.status === "APPROVED" ? "#DCFCE7" : latest.status === "REJECTED" ? "#FEE2E2" : "#FEF3C7" }}>
-                      <Text variant="tiny" weight="semi" style={{ color: latest.status === "APPROVED" ? "#166534" : latest.status === "REJECTED" ? "#991B1B" : "#92400E" }}>{t(`doc_update.status_${latest.status.toLowerCase()}`)}</Text>
+                      <Text variant="small" weight="semi" style={{ color: latest.status === "APPROVED" ? "#166534" : latest.status === "REJECTED" ? "#991B1B" : "#92400E" }}>{t(`doc_update.status_${latest.status.toLowerCase()}`)}</Text>
                     </View>
                   ) : null}
                 </View>
-                <Text variant="tiny" tone="muted">{t("doc_update.explainer")}</Text>
+                <Text variant="small" tone="muted">{t("doc_update.explainer")}</Text>
                 {latest && latest.status !== "PENDING" ? <Text variant="small" tone={latest.status === "REJECTED" ? "danger" : "secondary"}>{t(`doc_update.review_${latest.status.toLowerCase()}`)}</Text> : null}
                 {pending ? (
-                  <Text variant="tiny" tone="muted">{t("doc_update.pending_since")}</Text>
+                  <Text variant="small" tone="muted">{t("doc_update.pending_since")}</Text>
                 ) : (
                   <View style={{ flexDirection: "row", gap: space.sm }}>
                     <Pressable
@@ -156,7 +156,7 @@ export function DocumentUpdateScreen({ onBack }: Props) {
         })
       )}
 
-      <Text variant="tiny" tone="muted" align="center">
+      <Text variant="small" tone="muted" align="center">
         {t("doc_update.footer")}
       </Text>
     </Screen>

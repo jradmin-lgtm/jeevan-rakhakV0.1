@@ -174,6 +174,7 @@ export async function registerMeRoutes(app: FastifyInstance) {
             updatedAt: now
           })
           .where(eq(drivers.id, sub));
+        await pgClient`DELETE FROM ui_events WHERE actor_id = ${sub} AND role = ${role}`;
         return reply.send({ deleted: true });
       }
 
@@ -217,6 +218,7 @@ export async function registerMeRoutes(app: FastifyInstance) {
             updatedAt: now
           })
           .where(eq(users.id, sub));
+        await pgClient`DELETE FROM ui_events WHERE actor_id = ${sub} AND role = ${role}`;
         return reply.send({ deleted: true });
       }
 

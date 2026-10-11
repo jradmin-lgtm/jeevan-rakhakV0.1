@@ -314,6 +314,7 @@ export const bookings = pgTable(
     hospitalAckAt: timestamp("hospital_ack_at", { withTimezone: true }),
     hospitalAckNote: text("hospital_ack_note"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    dispatchStartedAt: timestamp("dispatch_started_at", { withTimezone: true }).defaultNow().notNull(),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
     arrivedAt: timestamp("arrived_at", { withTimezone: true }),
     pickedUpAt: timestamp("picked_up_at", { withTimezone: true }),

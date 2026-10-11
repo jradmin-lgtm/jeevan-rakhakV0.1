@@ -1,7 +1,8 @@
+import { clicks } from "../clicks";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import * as Location from "expo-location";
-import { AppHeader, Button, Card, Input, MapEmbed, MotionView, Screen, Text, colors, space, OutOfServiceArea } from "@jr/ui";
+import { AppHeader, Button, Card, Input, MapEmbed, MotionView, Screen, Text, colors, space, OutOfServiceArea, dialog } from "@jr/ui";
 import { bookings as bookingsApi, fares as faresApi, serviceArea as serviceAreaApi, FareQuote, EmergencyType, Booking } from "../api";
 import { PickupLandmark } from "./PickupLandmark";
 import { MapLocationPicker } from "./MapLocationPicker";
@@ -39,13 +40,15 @@ type Props = {
 };
 
 export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
-  const { t } = useT();
+  const { t, lang } = useT();
   const mapConfig = useMapConfig();
   const { width, fontScale } = useWindowDimensions();
   const stackedServices = width < 340 || fontScale > 1.25;
   const locationEpoch = useRef(0);
   const [pickupLandmark, setPickupLandmark] = useState("");
   const [fareExpanded, setFareExpanded] = useState(false);
+  const [emergencyOpen, setEmergencyOpen] = useState(false);
+  const submitting = useRef(false);
   const [type, setType] = useState<EmergencyType | null>(null);
   // Pickup is GPS-only as of v1.0.11 — the team flagged that typing/backspacing
   // in the field was confusing because the dispatch uses coordinates, not the
@@ -228,10 +231,10 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
   };
 
   const submit = async () => {
-    if (!type) return;
+    if (!type || submitting.current) return;
     if (!pickupCoords) return;
     setErr(null);
-    if (dropAddress.trim() && !dropCoords) { setErr(t("book.drop_pin_required")); setPickerMode("drop"); return; }
+    if (dropAddress.trim() && !dropCoords) { setErr(t("book.drop_pin_required")); (clicks.track("booking.drop"), setPickerMode("drop")); return; }
     // Client-side geofence guard. When the service area is enabled and we have
     // a real pickup fix, block here if the pickup is beyond radiusKm of the
     // hospital center — saves a round-trip and gives instant feedback. The
@@ -248,10 +251,13 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
         return;
       }
     }
+    clicks.track("booking.submit");
+    submitting.current = true;
     setBusy(true);
     try {
       const r = await bookingsApi.create({
         emergencyType: type,
+        isSos: type === "CARDIAC" || type === "BREATHING_DISTRESS",
         pickupLat: pickupCoords.lat,
         pickupLng: pickupCoords.lng,
         // Server will reverse-geocode if needed; we just send "Current location"
@@ -263,8 +269,10 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
         dropLng: dropCoords?.lng,
         couponCode: couponApplied ? coupon : undefined
       });
+      clicks.track("booking.success");
       onBooked(r.booking);
     } catch (e: any) {
+      clicks.track("booking.failure");
       // Server-side geofence fallback: the booking handler rejects an
       // out-of-area pickup with error/code "out_of_service_area". Surface the
       // same in-app message as the client pre-check, not a generic failure.
@@ -275,6 +283,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
         setErr(e.message ?? t("book.create_error"));
       }
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   };
@@ -312,7 +321,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
       <View style={[styles.routePanel, pickupCoords ? { marginTop: -28 } : null]}>
         <View style={styles.locationRow}>
           <View style={styles.pickupDot} />
-          <Pressable accessibilityRole="button" onPress={() => setPickerMode("pickup")} style={styles.locationMain} testID="open-pickup-picker">
+          <Pressable accessibilityRole="button" onPress={() => (clicks.track("booking.pickup"), setPickerMode("pickup"))} style={styles.locationMain} testID="open-pickup-picker">
             <Text variant="tiny" tone="secondary">{t("book.pickup_short")}</Text>
             <Text variant="body" weight="semi" numberOfLines={2}>
               {locating ? t("book.detecting_short") : pickupCoords ? (pickupIsGps ? t("book.current_location") : pickupAddress) : t("book.location_not_set")}
@@ -324,7 +333,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
         <View style={styles.routeDivider} />
         <View style={styles.locationRow}>
           <View style={styles.dropDot} />
-          <Pressable accessibilityRole="button" onPress={() => setPickerMode("drop")} style={styles.locationMain} testID="open-drop-picker">
+          <Pressable accessibilityRole="button" onPress={() => (clicks.track("booking.drop"), setPickerMode("drop"))} style={styles.locationMain} testID="open-drop-picker">
             <Text variant="tiny" tone="secondary">{t("book.drop_label")}</Text>
             <Text variant="body" weight="semi" numberOfLines={2}>{dropAddress || t("book.drop_placeholder")}</Text>
 
@@ -334,25 +343,45 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
       </View>
       <View style={{ gap: space.sm }}>
         <Text variant="heading">{t("book.emergency_type_label")}</Text>
-        <View style={[styles.serviceList, stackedServices && { flexDirection: "column" }]}>
+        <View style={{ gap: 10 }}>
           {BOOKING_CATEGORIES.map((e) => {
             const selected = type === e.key;
-            return (
-              <Pressable key={e.key} accessibilityRole="radio" accessibilityState={{ checked: selected }} aria-checked={selected}
-                accessibilityLabel={`${t(e.labelKey)}. ${t(e.subKey)}`} onPress={() => setType(e.key)} testID={`emergency-${e.key}`}
-                style={({ pressed }) => [styles.tile, stackedServices && { flex: 0, minHeight: 52, justifyContent: "flex-start", paddingHorizontal: 12 }, selected ? styles.selectedTile : null, pressed ? { transform: [{ scale: 0.97 }] } : null]}>
-                <View style={[styles.radio, selected ? { borderColor: colors.primary } : null]}>
-                  {selected ? <View style={styles.radioDot} /> : null}
-                </View>
-                <View style={{ minWidth: 0, flexShrink: 1 }}>
-                  <Text variant="small" weight="bold" align={stackedServices ? "left" : "center"}>{t(`book.service.${e.key}`)}</Text>
-                </View>
-
-              </Pressable>
-            );
+            const glyph = e.key === "PREGNANCY_NEONATAL" ? "🤰" : e.key === "REFERRAL_AMBULANCE" ? "⇄" : "✚";
+            return <Pressable key={e.key} accessibilityRole="radio" accessibilityState={{ checked: selected }}
+              accessibilityLabel={`${t(e.labelKey)}. ${t(e.subKey)}`} onPress={() => { setEmergencyOpen(false); setType(e.key); clicks.track("booking.category"); }} testID={`emergency-${e.key}`}
+              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 86, padding: 14, borderRadius: 16,
+                backgroundColor: selected ? "#FBE5E4" : "#FFF7F6", borderWidth: selected ? 2 : 1, borderColor: selected ? colors.primary : "#F0D9D7", opacity: pressed ? 0.8 : 1 })}>
+              <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: "#FADDDC", alignItems: "center", justifyContent: "center" }}>
+                <Text style={{ fontSize: 28, lineHeight: 34, color: colors.primary }}>{glyph}</Text>
+              </View>
+              <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+                <Text variant="heading">{t(e.labelKey)}</Text>
+                <Text variant="small" tone="secondary">{t(e.subKey)}</Text>
+              </View>
+              <View style={[styles.radio, { position: "relative", top: 0, right: 0, width: 22, height: 22 }, selected ? { borderColor: colors.primary } : null]}>
+                {selected ? <View style={styles.radioDot} /> : null}
+              </View>
+            </Pressable>;
           })}
+          <Pressable accessibilityRole="button" accessibilityState={{ expanded: emergencyOpen }} testID="emergency-group"
+            onPress={() => { if (!emergencyOpen && type !== "CARDIAC" && type !== "BREATHING_DISTRESS") setType(null); setEmergencyOpen(open => !open); }}
+            style={{ flexDirection: "row", alignItems: "center", gap: 12, padding: 14, minHeight: 86, backgroundColor: "#FFF0EF", borderRadius: 16,
+              borderWidth: type === "CARDIAC" || type === "BREATHING_DISTRESS" ? 2 : 1, borderColor: colors.primary }}>
+            <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: "#FADDDC", alignItems: "center", justifyContent: "center" }}><Text style={{ fontSize: 28, lineHeight: 34, color: colors.primary }}>♥</Text></View>
+            <View style={{ flex: 1, gap: 4 }}><Text variant="heading" style={{ color: colors.primary }}>{lang === "hi" ? "आपातकाल" : "EMERGENCY"}</Text>
+              <Text variant="small" tone="secondary">{lang === "hi" ? "साँस / हृदय संबंधी" : "Breathing/Cardiac"}</Text>
+              {type === "CARDIAC" || type === "BREATHING_DISTRESS" ? <Text variant="small" weight="bold">{t(type === "CARDIAC" ? "emergency.cardiac.label" : "emergency.breathing.label")}</Text> : null}
+            </View><Text variant="heading">{emergencyOpen ? "⌃" : "⌄"}</Text>
+          </Pressable>
+          {emergencyOpen ? <View style={{ gap: 8, padding: 12, borderLeftWidth: 3, borderColor: colors.primary }}>
+            <Text weight="semi">{lang === "hi" ? "आपातकाल का प्रकार चुनें" : "Choose the emergency"}</Text>
+            {(["BREATHING_DISTRESS", "CARDIAC"] as const).map(category => <Button key={category}
+              label={t(category === "CARDIAC" ? "emergency.cardiac.label" : "emergency.breathing.label")}
+              variant={type === category ? "primary" : "outline"} testID={`emergency-${category}`}
+              onPress={() => { setType(category); clicks.track("booking.category"); setEmergencyOpen(false); }} />)}
+            <Text variant="small" tone="secondary">{lang === "hi" ? "पिकअप और लैंडमार्क नीचे जाँचकर अनुरोध की पुष्टि करें।" : "Review your pickup and landmark below, then confirm the request."}</Text>
+          </View> : null}
         </View>
-        {type ? <MotionView changeKey={type}><Text variant="small" tone="secondary">{t(BOOKING_CATEGORIES.find(item => item.key === type)!.subKey)}</Text></MotionView> : null}
       </View>
 
       {pickupLandmark.trim().length === 1 ? <Text variant="small" tone="danger">{t("landmark.invalid")}</Text> : null}

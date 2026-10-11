@@ -22,6 +22,7 @@
  * distinction only matters on iOS) — it can call the app's normal
  * getSocket()/API helpers directly, same as any other module.
  */
+import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
@@ -80,9 +81,8 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: { data?: any;
  * permission the driver declined.
  */
 export async function startBackgroundLocationTracking(bookingId: string): Promise<boolean> {
+  if (activeBookingId !== bookingId) { lastFixAt = 0; tickCount = 0; }
   activeBookingId = bookingId;
-  lastFixAt = 0;
-  tickCount = 0;
   try {
     await AsyncStorage.setItem("jr_active_tracking_booking", bookingId);
     const fg = await Location.getForegroundPermissionsAsync();
@@ -92,6 +92,16 @@ export async function startBackgroundLocationTracking(bookingId: string): Promis
       const req = await Location.requestBackgroundPermissionsAsync();
       if (!req.granted) return false;
     }
+    if (AppState.currentState !== "active") {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => { listener.remove(); reject(new Error("location_start_requires_foreground")); }, 15_000);
+        const listener = AppState.addEventListener("change", state => {
+          if (state === "active") { clearTimeout(timer); listener.remove(); resolve(); }
+        });
+        if (AppState.currentState === "active") { clearTimeout(timer); listener.remove(); resolve(); }
+      });
+    }
+    if (activeBookingId !== bookingId) return false;
     const already = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
     if (already) return true;
     await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
@@ -105,6 +115,10 @@ export async function startBackgroundLocationTracking(bookingId: string): Promis
         notificationColor: "#E5322B"
       }
     });
+    if (activeBookingId !== bookingId) {
+      await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+      return false;
+    }
     return true;
   } catch (err) {
     console.error("[gps] background tracking unavailable", err);

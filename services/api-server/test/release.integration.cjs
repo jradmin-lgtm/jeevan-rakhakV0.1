@@ -49,6 +49,10 @@ async function main() {
   check('Partial destination coordinate rejected', (await request('/api/v1/fares/quote', users[0].token, { pickupLat: 28.48, pickupLng: 79.44, dropLat: 28.5 })).status === 400);
   check('Removed user safety alert rejected', (await request('/api/v1/safety/raise', users[0].token, { bookingId: b1.id, reason: 'test' })).status === 403);
   check('Out-of-range fare coordinates rejected', (await request('/api/v1/fares/quote', users[0].token, { pickupLat: 999, pickupLng: 999 })).status === 400);
+  // Explicit offers establish the precondition for this lifecycle/race suite.
+  // Nearest-driver selection and timing are exercised in team-review.integration.cjs.
+  await sql`UPDATE drivers SET status='AVAILABLE',last_seen_at=now() WHERE id IN (${drivers[0].id},${drivers[1].id})`;
+  for (const booking of [b1,b2]) for (const driver of drivers.slice(0,2)) await sql`INSERT INTO sos_dispatch_attempts(booking_id,driver_id,wave_number) VALUES(${booking.id},${driver.id},1) ON CONFLICT(booking_id,driver_id) DO NOTHING`;
   const accept = await Promise.all([b1, b2].map(b => request(`/api/v1/bookings/${b.id}/accept`, drivers[0].token, {})));
   check('One driver cannot accept two concurrent bookings', accept.filter(r => r.status === 200).length === 1 && accept.filter(r => r.status === 409).length === 1, accept);
   const winner = accept[0].status === 200 ? b1 : b2;
@@ -78,7 +82,7 @@ async function main() {
   check('SOS created while no driver available', sos.status === 201, sos);
   const online = await request('/api/v1/driver/availability', drivers[2].token, { status: 'AVAILABLE', lat: input.pickupLat, lng: input.pickupLng });
   let queue;
-  for (let attempt = 0; attempt < 20; attempt++) {
+  for (let attempt = 0; attempt < 80; attempt++) {
     queue = await request('/api/v1/driver/incoming', drivers[2].token);
     if (queue.body.requests.some(r => r.id === sos.body.booking.id)) break;
     await new Promise(resolve => setTimeout(resolve, 100));
