@@ -1,5 +1,54 @@
 # Jeevan Rakshak controlled team pilot
 
+<!-- JR_V4_CURRENT_BEGIN -->
+## Verified V4 completion and live release: 16 October 2026, 03:19 AM IST
+
+**LIVE CONTROLLED TEAM PILOT: Jeevan Rakshak 2.2.4 build 59.** API and realtime source 563cbd9 are observed live with preserved production environments. Portal 950ed84 and both APK 59 files are unchanged. The full isolated 10-ride, 30-minute application-client resilience test passed; this is not 50-ride capacity, an SLA or a monthly free-service guarantee.
+
+[Same printed QR / app updates](https://jr-admin.vercel.app/qr) · [Downloads](https://jr-admin.vercel.app/download-apk) · [Admin](https://jr-admin.vercel.app/admin-login). No QR reprint is needed. APK bytes were not downloaded again for this ledger update.
+
+### Full hosted result and exact live identities
+
+[GitHub-hosted V4 run 38806877311](https://github.com/jradmin-lgtm/jeevan-rakhakV0.1/actions/runs/38806877311) completed the unchanged 10-ride / 20-socket, 1,800-second workload, 1,800 queue checks, all arrival/pickup/completion/test-payment requests, final five-user automatic reconnect, 200-point offline replay and 1,412 unique stored GPS rows with zero duplicate rows. All ten views stayed within the reviewed 30-second freshness bound and socket recovery within 20 seconds. booking-poll p95 401.60ms, booking-poll-driver p95 313.50ms, live-gps-batch p95 712.80ms; GPS delivery p95 91.40ms. Realtime 3667/3670, missing 3, deadline misses 3. Maximum observed view age: 11.229 seconds. Three misses are consistent with controlled reconnects, but their exact cause is unproved. Raw HTTP: **PASS**; raw realtime: **FAIL**; raw sockets: **PASS**. Raw failures remain recorded even when bounded client recovery passes.
+
+Runtime/API/socket source `563cbd9eeb859b914f1874b6d2086de11b115f3e`; harness `38414608c9bb701b269b8f9ceb6464fa9e046e51`; wrapper `121f36091f589a25f0311666491f55c314c13b40`. Production CI run 38812169503 passed before release. API deployment `dep-db8kjak9v7es73eju760`; realtime deployment `dep-db8kj9tg1s2s73ais4cg`. Both exact builds and environments were observed live, including DB health. Portal remains source 950ed84. Existing production records, signing identity and accepted Maps configuration were retained.
+
+Public user59 SHA256 `bb439b8920d50b6945b42e38c0ba90bde19e8e257fcc054cd3841a8a5cb75b53`; driver59 `4f7a70833f1bd8544544954f68ca162a68b3f9e23811de348df989432d86efa4`. Their existing full public-download proof is reused, not presented as a new download. Four actual 58-to-59 same-signer upgrades/offline launches passed Android 11/15. Prior exact58 Google map/phase/pan/recenter evidence carries through identical JavaScript; no fresh 59 full Google ride or new screenshots were produced here.
+
+### Cleanup, bounded quota and remaining limits
+
+Final exact-run cleanup verified all owned fixtures inactive, drivers offline through the cleanup proof, both test services suspended, runner role dropped and both temporary GitHub secrets absent. Production was not mutated by test cleanup. Aggregate SHA256 `238d89971c902206bc1d1308cbb729eeacf8e1583baf30e7eadb7e4233b412f3`; final cleanup SHA256 `1a4c0a8abd3e72bd2720da11fb2acf9219e180bf5193102fd27a3eb5b9b02ce2`.
+
+The test counted 9,314,181 decoded HTTP request/response application bytes. Its conservative wire model was 24,628,362 bytes, below 30,000,000, including 6,000,000 non-HTTP reserve and 2x decoded multiplier. It did not stop at the budget. Invoice bytes were not measured. The preflight kept a 50 MB safety reserve; user-approved ceiling is 15% TOTAL of each monthly allowance, not 15% additional per run.
+
+Latest authenticated meter fetch: 16 October 03:19:24 AM IST. Provider data may lag; Neon metrics can lag up to an hour, Render latest hour may be partial and current-resource estimates can omit deleted resources. Fetch time is not provider-data freshness. Render service-age hours include sleep and are a ceiling, not billed hours. Remaining values are relative to readings, not guaranteed balances.
+
+| Meter | Used / assumed allowance | Used | Remaining relative to delayed reading |
+| --- | --- | --- | --- |
+| neon-transfer, reported | 0.17 / 5 GB | 3.34% | 4.83 GB |
+| neon-compute, estimate | 1.94 / 100 CU-hours | 1.94% | 98.06 CU-hours |
+| render-bandwidth, estimate | 0.43 / 5 GB | 8.64% | 4.57 GB |
+| render-hours, estimate | 25.99 / 750 hours | 3.47% | 724.01 hours |
+
+
+### Preserved failures and actual hardening
+
+All earlier failed/interrupted results remain failures. V3 setup run 38805334658 stopped before ride fixtures because a test-only compatibility pin still expected the old API build; no ride workload ran, and temporary secrets were removed. V4 added real cross-module plan validation before Docker traffic and corrected only the harness compatibility metadata. Earlier V2 run 38787766251 failed at 1,430/1,800 checks on a 39.901-second Cloudflare 520; its upstream cause remains unproved. A later successful run does not erase it. Earlier strict 10/50 failures, 348 missing events in38776443618 and interrupted Render generator evidence remain retained.
+
+Confirmed runtime hardening sets both API/realtime HTTP keep-alive and header timers to 120 seconds, longer than the documented upstream connection-reuse window. This addresses the verified idle-timeout mismatch class; it does not prove the original 520 was caused by idle reuse. The app retains failed GPS uploads and bounded recovery is now exercised through the full approved 10-ride workload. Maps providers were disabled during capacity testing; booking creation, nearest-driver dispatch selection and a real-payment gateway were outside this seeded workload; Maps renderers/Google quotas, provider login, real push/FCM, physical Infinix/XOS and physical silent/DND audibility were not certified.
+
+### Budget and launch scope
+
+Retain existing pricing sources and model assumptions: 1.448 MB application JSON per active ride-hour, 63.9 MB/APK, 38.47 MB per changed full backup. Four changed backups/day over 31 days is about 4.77 GB; 100 APK downloads about 6.39 GB; combined 11.16 GB before other traffic. At the existing $0.15/GB paid outbound assumption, traffic above 5 GB in that example is about $0.92 bandwidth-only, excluding instances/Maps/other services/tax. No paid plan or card change is approved. Two always-on services need 1,488 hours in 31 days against 750 shared free hours; a successful 30-minute run cannot guarantee a free month.
+
+The six-hour source-specific backup cooldown and verified document-byte reuse suppress redundant complete uploads. Real data changes still create full backups. This is not a distributed multi-writer lease or an exactly-once backup guarantee. Shared public Maps-key exposure and legacy signing custody remain accepted/open risks. Cached active ride/route/area and queued GPS recovery are implemented; downloadable offline map packs beyond 20 km remain a proposal. Backend coverage remains 1,000 km with 100 km display. No universal Android or zero-regression guarantee is claimed.
+<!-- JR_V4_CURRENT_END -->
+
+## Historical evidence retained below
+
+The current verified summary above supersedes dated status statements below. Earlier failures and their evidence remain unchanged.
+
+
 Verified live: 16 October 2026, 1:38 AM IST. This is the user-approved controlled team pilot. Functional release checks passed; the hosted ten-ride capacity result remains FAIL and fifty rides are not certified.
 
 The temporary rollout hold is closed after correcting native runtime metadata, fixing an empty-SOS dispatch wake gap, passing hosted standard CI, observing the API build live and verifying both public build 59 downloads. This is not a new capacity-test pass.
