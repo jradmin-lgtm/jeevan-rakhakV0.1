@@ -591,7 +591,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
         {sharing ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm, marginTop: space.md }}>
             <PulseDot size={10} color={colors.success} />
-            <Text variant="small" tone="secondary">
+            <Text variant="small" tone="secondary" style={{ flex: 1, minWidth: 0, flexShrink: 1 }}>
               {pushedAt
                 ? t("trip.gps_captured").replace("{n}", String(Math.floor((locationAge ?? 0) / 1000)))
                 : t("trip.sharing_location_note_starting")}
