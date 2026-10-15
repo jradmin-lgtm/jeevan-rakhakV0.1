@@ -1,6 +1,7 @@
 /* Hosted-only, isolated capacity exercise. Never remove the local runner's guards. */
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto'), assert = require('node:assert/strict');
 const {validateConfig, validateRuntime, percentile, validateAck} = require('./guards.cjs');
+const {loadDependency, createTransport} = require('./transport.cjs');
 const root = path.resolve(__dirname, '../..');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function parallel(items, limit, fn) {
@@ -16,6 +17,7 @@ function plan(c) {
   return {environment:c.environmentId,apiOrigin:c.apiOrigin,socketOrigin:c.socketOrigin,databaseName:c.databaseName,build:c.expectedBuild,
     rides:50,users:50,drivers:50,sockets:100,steadySeconds:c.cycles*5,steadyHttpRequests:c.cycles*100,
     offlinePoints:1000,offlineReplayRequests:100,reconnectUsers:25,mapHttpRequestCap:c.maxMapHttpCalls,
+    payloadMeasurement:'Decoded UTF-8 JSON response and request-body bytes only; excludes headers/TLS/compression and is not billed network transfer',
     excluded:['Real push/SMS/email','Booking creation and nearest-driver dispatch selection (fixtures pre-offered)','Phone map renderers and APK UI','Physical Android queue storage','Billing/quota guarantees','Login/OTP authentication provider']};
 }
 async function main() {
@@ -27,8 +29,9 @@ async function main() {
   assert.ok(reportFile, 'Report filename required');
   assert.ok(!fs.existsSync(reportFile), 'Do not overwrite previous evidence');
   validateRuntime(c,process.env);
-  const postgres=require(root+'/packages/db/node_modules/postgres');
-  const {io}=require(root+'/apps/driver-app/node_modules/socket.io-client');
+  const postgres=loadDependency('postgres', root+'/packages/db/node_modules/postgres');
+  const {io}=loadDependency('socket.io-client', root+'/apps/driver-app/node_modules/socket.io-client');
+  const transport=createTransport();
   const sql=postgres(process.env.JR_HOSTED_LOAD_DATABASE_URL,{max:4,connect_timeout:15,idle_timeout:20,ssl:{rejectUnauthorized:true},connection:{statement_timeout:15000,application_name:'jr-hosted-load'}});
   const runId='jr-hosted-load-'+Date.now()+'-'+crypto.randomBytes(4).toString('hex');
   const rides=Array.from({length:50},(_,index)=>({index,id:crypto.randomUUID(),userId:crypto.randomUUID(),driverId:crypto.randomUUID()}));
@@ -49,12 +52,15 @@ async function main() {
     return body+'.'+crypto.createHmac('sha256',process.env.JR_HOSTED_LOAD_JWT_SECRET).update(body).digest('base64url');
   }
   async function http(label,origin,url,token,body,statuses=[200],timeout=15000) {
-    check(); const at=performance.now(); const metric=report.http[label]??={times:[],statuses:{},unexpected:0};
+    check(); const at=performance.now(); const metric=report.http[label]??={times:[],statuses:{},unexpected:0,requestBodyUtf8Bytes:0,decodedResponseUtf8Bytes:0};
+    const requestBody=body===undefined?undefined:JSON.stringify(body);
+    metric.requestBodyUtf8Bytes+=requestBody===undefined?0:Buffer.byteLength(requestBody);
     try {
-      const response=await fetch(origin+url,{method:body===undefined?'GET':'POST',redirect:'error',signal:AbortSignal.timeout(timeout),headers:{...(token?{authorization:'Bearer '+token}:{}),'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
+      const response=await fetch(origin+url,{method:body===undefined?'GET':'POST',redirect:'error',signal:AbortSignal.timeout(timeout),dispatcher:transport.dispatcher,headers:{...(token?{authorization:'Bearer '+token}:{}),'content-type':'application/json'},...(requestBody===undefined?{}:{body:requestBody})});
       metric.statuses[response.status]=(metric.statuses[response.status]||0)+1;
+      const text=await response.text();metric.decodedResponseUtf8Bytes+=Buffer.byteLength(text);
       if(!statuses.includes(response.status)) { metric.unexpected++; throw new Error(`${label}: HTTP ${response.status}`); }
-      const data=await response.json();return data;
+      return JSON.parse(text);
     } catch(error) { if(!String(error.message).startsWith(label+': HTTP')) {metric.unexpected++;metric.statuses.transportOrJson=(metric.statuses.transportOrJson||0)+1;} throw error; }
     finally {metric.times.push(performance.now()-at);}
   }
@@ -196,6 +202,8 @@ async function main() {
       }catch(error){report.cleanup='FAILED';report.cleanupError=safe(error.message);report.verdict='FAIL';process.exitCode=1;}
     }
     try {await sql.end({timeout:5});} catch(error) {report.databaseCloseError=safe(error.message);report.verdict='FAIL';process.exitCode=1;}
+    try {await transport.close();} catch(error) {report.transportCloseError=safe(error.message);report.verdict='FAIL';process.exitCode=1;}
+    report.httpTransport=transport.summary();
     process.off('SIGINT',stop);process.off('SIGTERM',stop);
     report.finishedAt=new Date().toISOString();report.gps.deliveryMs=summary(gpsTimes);report.connectMs=summary(connectTimes);
     for(const metric of Object.values(report.http)){metric.latencyMs=summary(metric.times);delete metric.times;}

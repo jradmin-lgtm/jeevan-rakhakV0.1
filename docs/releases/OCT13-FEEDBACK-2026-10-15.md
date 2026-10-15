@@ -82,3 +82,21 @@ Second independent council: PASS 91/100 for backup/scheduler and hosted-runner/r
 Android15 local end-to-end requests exercised actual create/cascade and native service handling: normal incoming request used looping device ringtone on the alarm stream, SOS used looping bundled buzzer, accept stopped the alert service and released its player, and normal incoming alert remained foreground after backgrounding the app. This did not exercise remote FCM delivery or establish physical OEM/silent-mode audibility.
 
 Both Gradle applications now declare shared workspace source and Expo environment files as bundle-task inputs, excluding dependency/build/backup directories. Final production builds force initial bundle regeneration, then inspect new hosted endpoints and corrected marker code in the actual APK. Existing signing identity and upgrade compatibility remain required.
+
+
+## Hosted measurements and portal verification, 15 October evening IST
+
+Candidate commit 0be6a348f78266f44cafb3e022ddb8577ed15f1f is serving on both alternate free Render services against the isolated load database. Production data is restored separately and has not been bound to these services. The public portal and APK downloads remain unswitched.
+
+The first 50-ride hosted attempt, with API pool 5, stopped after one HTTP 502. Booking-poll p95 was 3,411 ms; GPS-upload p95 was 2,853 ms. All 2,950 expected realtime GPS deliveries arrived, with zero cross-ride deliveries or duplicates. The second attempt with API pool 20 stopped on one GPS-upload transport timeout. Booking-poll p95 was about 2,897 ms; GPS-upload p95 about 2,900 ms. All 4,000 expected realtime deliveries arrived. Neither attempt met the 2,000 ms HTTP budget or completed the 30-minute test. The origin of the isolated transport failures remains unverified.
+
+A bounded diagnostic confirmed persistent HTTP connection reuse but still missed the client latency budget: booking-poll p95 2,879 ms and GPS-upload p95 3,079 ms. The corresponding sampled server-side response-time p95 was 911 ms. This establishes a measurement gap between server response time and the Mac client path, not proof that either side alone caused the delay. A remote guarded generator is being prepared to separate those paths. No threshold was relaxed. Hosted 50-ride capacity remains unapproved.
+
+A separate actual hosted booking creation, nearest-driver cascade, incoming request, acceptance and cancellation check passed. The Bhojipura landmark was retained. This check did not use push/SMS or Google credentials. Full hosted Google proxy testing is still pending.
+
+Root drove the actual admin portal against the isolated local clone: login, wrong action-password rejection, driver offline hold and release, active-ride offline rejection, legacy driver disable and re-enable, registered-email mismatch rejection, user restriction and restoration, and administrative cancellation. Database postconditions verified exactly one audit entry per protected action, cancelled outcome without a new payment, restored user access and restored driver availability. No production account was mutated. Screenshot and aggregate evidence are saved under jr-oct15-portal-qa and /tmp/jr-oct15-portal-ui-evidence.json.
+
+Both final 2.2.4 build 58 APK candidates are built, signed with the existing identity and inspected for new endpoints and all four supported ABIs. Expanded scans across 24 available private values found zero matches. Android 11 upgrade checks preserved authentication/profile state and queued GPS. Android 15 local journeys verified marker phase changes and normal/SOS native alert service handling. Remote FCM, physical Infinix startup and OEM silent/DND audibility were not run. Candidates remain unpublished pending hosted release checks.
+
+
+A one-time native PostgreSQL 18 schema-and-data archive was written locally alongside the original JSON backup. Archive size 28,997,932 bytes; SHA-256 c5ce3c9c7ce8e1622d072a3d104909fff35ba2043e973f9c8b9c98c2b4aae571. Actual restore into a temporary local PostgreSQL 18 instance passed for all 21 source tables and 6,894 rows. The verification instance was removed. The archive is private, outside Git, and adds no recurring backup schedule. Its private manifest is LOCAL DATABASE BACKUPS/2026-10-15/NATIVE-ARCHIVE-MANIFEST.json.

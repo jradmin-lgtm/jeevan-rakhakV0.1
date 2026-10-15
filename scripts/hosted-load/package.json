@@ -1,0 +1,10 @@
+{
+  "name": "jr-isolated-hosted-load",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "postgres": "3.4.9",
+    "socket.io-client": "4.8.3",
+    "undici": "6.28.1"
+  }
+}
