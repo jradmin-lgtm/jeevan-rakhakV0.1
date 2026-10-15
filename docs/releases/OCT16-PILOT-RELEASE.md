@@ -1,25 +1,28 @@
 # Jeevan Rakshak controlled team pilot
 
-Verified live: 16 October 2026, 1:03 AM IST. This is a controlled team pilot approved by the user, not a capacity-approved launch. The hosted 10-ride result remains FAIL and 50 rides are not certified.
+Verified live: 16 October 2026, 1:38 AM IST. This is the user-approved controlled team pilot. Functional release checks passed; the hosted ten-ride capacity result remains FAIL and fifty rides are not certified.
+
+The temporary rollout hold is closed after correcting native runtime metadata, fixing an empty-SOS dispatch wake gap, passing hosted standard CI, observing the API build live and verifying both public build 59 downloads. This is not a new capacity-test pass.
 
 ## Live release
 
-- User and driver APKs: 2.2.4, Android version code 58. Both were downloaded completely through the public contact-gated flow and their byte counts, SHA-256 hashes and signing certificate verified.
+- User and driver APKs: 2.2.4, Android version code 59. Both were downloaded completely through the public contact-gated flow and their byte counts, SHA-256 hashes and signing certificate verified.
 - Printed QR remains https://jr-admin.vercel.app/qr and redirects to https://jr-admin.vercel.app/download-apk. No QR reprint is required.
 - Operations portal: https://jr-admin.vercel.app. Existing ops password, signed-session settings and protected-action password retained. Actual browser login, usage refresh, forecast, keep-warm disclosure and driver decision-history rendering checked. No real driver or booking was modified for this verification.
-- Portal/application source: e47ced68216e67300f63c5dbc84fc6ee00ba19c0. Vercel production deployment dpl_9VGfS4XCB1CBBB5bzgB5wD6GCQx8 is READY with the existing public domain.
-- API source: 5252631d2bac20e4a4a805137dd6692ec3cbfb46. Realtime source: 0be6a348f78266f44cafb3e022ddb8577ed15f1f. Both exact builds observed live. Their application/database/realtime source matches the release under the respective paths.
+- Portal/application source: 950ed84a6ba9244ac654adab5d32d77ada7eaf7b. Vercel production deployment dpl_C9b6xmkK1hcgX69LJLt8pxk89azR is READY with the existing public domain.
+- API source: 950ed84a6ba9244ac654adab5d32d77ada7eaf7b. Realtime source: 0be6a348f78266f44cafb3e022ddb8577ed15f1f. Both exact builds observed live. Only the API SOS runner changed in the final hotfix. Realtime and app JavaScript behavior are unchanged under their respective paths.
 - Both services use restored production database jr_restore_oct15_v1. Approved cutoff: 15 October 2026, 12:03:01 PM IST. Later original-account changes were intentionally excluded by approval; the original source remains untouched.
 
 ## Changes and verification scope
 
 | Area | Released change | Evidence and limit |
 | --- | --- | --- |
-| User and driver UI | Compact proportions, clearer request choices and ride-stage information, English/Hindi, wrapped driver GPS caption | Native/emulator and local interaction checks; exact final driver checked on Android 11, current user on Android 11/15 |
+| User and driver UI | Compact proportions, clearer request choices and ride-stage information, English/Hindi, wrapped driver GPS caption | All four final build 59 upgrades and offline cached launches passed on Android 11/15; JavaScript is byte-identical to public build 58, whose Google/UI checks remain historical |
 | Area and landmark | Area-first suggestions with optional recognisable meeting-point input, retained for driver details and ride recovery | Functional checks and 10 parallel landmark requests; not a guarantee that five useful areas always exist |
 | Maps | Google renderer with existing key, OSM fallback, manual-pan recenter, recovered renderer state and phase-aware vehicle labels | Actual emulator Google rendering/recenter checks; production config returns expected Google key and fallback URL |
 | Ride progression | After verified pickup, ambulance represents patient on board; old pickup marker/navigation removed where appropriate, drop navigation retained | Native/local phase-transition checks; not independent patient-phone GPS |
 | Poor connectivity | Cached active ride/route/landmark, owner-scoped GPS queue, partial acknowledgement and duplicate-safe replay | Local/native queue checks and short hosted reconnect proof; full 200-point hosted offline stage was not reached in the failed load run |
+| SOS availability recovery | An SOS with no current offer wakes immediately when a driver comes online, while active offers keep their 20-second deadline | Seven focused timer/concurrency/failure tests, fresh local integration and hosted standard CI passed |
 | Driver alerts | Bundled SOS buzzer, booking ringtone, native continuous-alert path and priority settings | Source/native/local checks; remote FCM and physical OEM silent/DND audibility were not run |
 | Admin actions | Protected operations with reason/audit, persistent offline hold, admin cancellation rather than invented completion/payment | 38 local feedback integration checks and actual isolated portal interactions; live controls/rendering checked without mutating real records |
 | Driver history | Actor-scoped Accepted/Rejected decision separate from final trip status | Local integration checks and actual live Accept/Reject table/Accepted-row rendering |
@@ -42,6 +45,10 @@ The harness incorrectly classified observed 520 as non-transient while the uncha
 
 All ten synthetic rides were cancelled and their drivers made offline in the isolated test database. Both temporary GitHub test secrets were deleted and the task database role dropped. Production now uses the separate restored database. Further load testing must not use these production endpoints or real records.
 
+## Latest usage reading
+
+At 16 October 2026, 1:36 AM IST, the authenticated live portal returned no provider-reading errors. Neon reported 0.166649 GB transfer, 3.33% of 5 GB. Estimated compute was 1.69778 CU-hours, 1.70% of 100. Render's current-service hourly aggregate estimated 0.296380 GB, 5.93% of 5 GB; its current-resource age model estimated up to 18.5309 of 750 hours, 2.47%. These delayed readings are not a live balance or invoice. The final build 59 download pair added 127,841,432 application bytes afterward. No paid service change was made.
+
 ## Remaining limits for the team
 
 - Pilot use is authorised; ten-ride and fifty-ride capacity are unverified. Capture any visible error with time, app version and ride reference.
@@ -49,16 +56,24 @@ All ten synthetic rides were cancelled and their drivers made offline in the iso
 - Existing shared public Google renderer/server key exposure remains accepted by the user. It is not fixed by a private-value scan. Separate restrictions still need Google Cloud access.
 - Signing compatibility is retained. The legacy signing key in repository history remains a risk requiring a reviewed migration.
 - Free service sleep, shared running-hour and transfer limits remain. No paid plan or card change was made. Opening Monthly usage runs health checks; it is not a 24/7 uptime service.
-- Current delayed readings must not be treated as live balance. The final two verification downloads transferred 127,841,436 application bytes after the usage snapshot; they may not yet be reflected in provider totals.
+- Current delayed readings must not be treated as live balance. The two build 58 and two build 59 public verification downloads transferred 255,682,868 application bytes altogether. The last pair transferred 127,841,432 bytes after the final usage snapshot and may not yet be reflected in provider totals. These are actual application bytes, not provider invoice totals.
 
 ## Release file identities
 
 | App | Bytes | SHA-256 |
 | --- | ---: | --- |
-| User | 63,873,517 | 04a627b2da5eba89536b9d4bbbd998b6c9c0826b60d7562114aae3df2c04fd13 |
-| Driver | 63,967,919 | 2477ecfe7ccbf9179d04bb6d8f85f298f43f786a70e8abb220cc3a643ca09e9b |
+| User | 63,873,517 | bb439b8920d50b6945b42e38c0ba90bde19e8e257fcc054cd3841a8a5cb75b53 |
+| Driver | 63,967,915 | 4f7a70833f1bd8544544954f68ca162a68b3f9e23811de348df989432d86efa4 |
 
 Both actual public downloads verify with retained signer SHA-256 fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c. Prior published APK files remain for rollback.
+
+## CI failures and corrections
+
+The original hosted load run 38787766251 remains failed for its observed GPS HTTP520. Separate standard CI runs 38793591540 and 38796332381 also remain historically failed. The first exposed native runtime 2.2.3 alongside app 2.2.4. Both compiled APKs now carry runtime 2.2.4/code 59; actual active expo-updates module execution was not established. The second exposed an SOS availability scenario, which led to a real empty-first-wave wake fix without shortening any existing offer deadline.
+
+The independent review also caught and closed a lost-retry failure path. Stale integration fixtures were corrected to create durable driver offers, respect both legitimate acceptance/offline race outcomes, and retain original offline GPS timestamps without rewinding live location. No production permissions were weakened. [Hosted standard CI run 38798456932](https://github.com/jradmin-lgtm/jeevan-rakhakV0.1/actions/runs/38798456932) passed every step for source 950ed84, including ten isolated booking/permissions/admin suites. This GitHub-hosted functional check is distinct from a Render capacity load test.
+
+Build 59 upgraded published build 58 without uninstall on both Android 11 and 15 for each app and rendered cached synthetic profiles/rides offline. Android 11 private storage was byte-identical immediately across upgrade; Android 15 private-byte equality was inaccessible. A scoped decompressed-APK scan found no matches for 19 private credential values or PEM private-key markers. The accepted public Google renderer key remains exposed by design and was excluded. No fresh build 59 full Google ride was run; earlier build 58 Google evidence is carried because both app JavaScript bundles are identical.
 
 ## Evidence
 

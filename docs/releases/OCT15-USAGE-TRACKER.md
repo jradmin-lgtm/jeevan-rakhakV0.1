@@ -1,10 +1,10 @@
 # Monthly usage tracker candidate
 
-## Latest verified status: 16 October 2026, 1:03 AM IST
+## Latest verified status: 16 October 2026, 1:38 AM IST
 
-User-authorised controlled team pilot is live. Both 2.2.4 build58 APKs were downloaded through the existing public QR/contact gate, matched to the reviewed hashes and signing certificate, and the updated portal login/usage/history rendering verified. API and realtime exact sources are live on the approved restored database. See [OCT16-PILOT-RELEASE.md](OCT16-PILOT-RELEASE.md) for the release scope, evidence and unresolved risks.
+User-authorised controlled team pilot is live with both 2.2.4 build 59 APKs. Complete public QR/contact-gated downloads matched the reviewed SHA-256, retained signer, code 59 and runtime 2.2.4. API 950ed84 and realtime 0be6a34 are verified live against the approved restored production data. Existing admin login and protected actions are preserved. See [OCT16-PILOT-RELEASE.md](OCT16-PILOT-RELEASE.md) for current sources, verification and remaining risks.
 
-The hosted ten-ride run remains FAIL: 1,430/1,800 checks, one 39.901-second GPS HTTP520. Partial realtime delivered 2,910/2,910 updates with no missing/cross-ride events. This is not ten-ride or fifty-ride certification. Physical Infinix, remote FCM and physical silent/DND checks remain unverified. All test fixtures and temporary credentials were cleaned up. No new full hosted test was started against production.
+[Hosted standard CI 38798456932](https://github.com/jradmin-lgtm/jeevan-rakhakV0.1/actions/runs/38798456932) passed every step after native metadata and empty-SOS wake corrections. This functional CI is distinct from hosted capacity testing. The ten-ride load run 38787766251 remains FAIL: 1,430/1,800 checks and one 39.901-second GPS HTTP520. Partial realtime delivered 2,910/2,910 updates without missing/cross-ride events. Ten-ride and fifty-ride capacity, physical Infinix, remote FCM and physical silent/DND audibility remain unverified. No further full load test was run against production.
 
 ## Historical candidate notes
 
