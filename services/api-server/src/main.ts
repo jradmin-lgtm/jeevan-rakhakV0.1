@@ -22,6 +22,7 @@ import { registerMapConfigRoutes } from "./routes/map-config";
 import { emitEvent } from "./events";
 import { recoverBookingExpiry } from "./booking-maintenance";
 import { startDatabaseBackups } from "./backup";
+import { validateCapacityDiagnostics, createCapacityDiagnosticsLifecycle } from "./capacity-diagnostics";
 
 declare module "@fastify/jwt" {
   interface FastifyJWT {
@@ -63,6 +64,10 @@ function assertProductionReady() {
 
 async function bootstrap() {
   assertProductionReady();
+  const capacityEnabled = validateCapacityDiagnostics(process.env.JR_CAPACITY_DIAGNOSTICS ?? "false", process.env.DATABASE_URL);
+  const capacityDiagnostics = createCapacityDiagnosticsLifecycle(capacityEnabled, sample => app.log.warn(sample, "[capacity] temporary bounded diagnostics"));
+  app.addHook("onRequest", async request => capacityDiagnostics.onRequest(request.url));
+  app.addHook("onClose", async () => capacityDiagnostics.close());
 
   const allowedOrigins = config.corsAllowedOrigins
     .split(",")

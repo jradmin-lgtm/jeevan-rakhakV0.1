@@ -3,6 +3,7 @@ const fs = require('node:fs'), path = require('node:path'), crypto = require('no
 const {validateConfig, validateRuntime, percentile, validateAck, expectedBuildForOrigin} = require('./guards.cjs');
 const {loadDependency, createTransport} = require('./transport.cjs');
 const {measureDatabaseRoundTrips} = require('./database-probe.cjs');
+const {failureResponse} = require('./failure-response.cjs');
 const root = path.resolve(__dirname, '../..');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function parallel(items, limit, fn) {
@@ -36,7 +37,7 @@ async function main() {
   const sql=postgres(process.env.JR_HOSTED_LOAD_DATABASE_URL,{max:4,connect_timeout:15,idle_timeout:20,ssl:{rejectUnauthorized:true},connection:{statement_timeout:15000,application_name:'jr-hosted-load'}});
   const runId='jr-hosted-load-'+Date.now()+'-'+crypto.randomBytes(4).toString('hex');
   const rides=Array.from({length:50},(_,index)=>({index,id:crypto.randomUUID(),userId:crypto.randomUUID(),driverId:crypto.randomUUID()}));
-  const report={schemaVersion:1,runId,scope,startedAt:new Date().toISOString(),verdict:'NOT_RUN',stages:[],http:{},gps:{expected:0,received:0,duplicates:0,crossRide:0,unexpected:0},socketErrors:0,cleanup:'not_required',maps:{enabled:c.mapsEnabled,httpCalls:0,available:0,unavailable:0},limitations:scope.excluded};
+  const report={schemaVersion:1,runId,scope,startedAt:new Date().toISOString(),verdict:'NOT_RUN',stages:[],http:{},failureResponses:[],gps:{expected:0,received:0,duplicates:0,crossRide:0,unexpected:0},socketErrors:0,cleanup:'not_required',maps:{enabled:c.mapsEnabled,httpCalls:0,available:0,unavailable:0},limitations:scope.excluded};
   const sockets=[],pending=new Map(),seen=new Set(),uploadedTimestamps=new Set(),gpsTimes=[],connectTimes=[];
   const deadline=Date.now()+c.cycles*5000+15*60_000;
   let seeded=false,stopping=false;
@@ -60,7 +61,7 @@ async function main() {
       const response=await fetch(origin+url,{method:body===undefined?'GET':'POST',redirect:'error',signal:AbortSignal.timeout(timeout),dispatcher:transport.dispatcher,headers:{...(token?{authorization:'Bearer '+token}:{}),'content-type':'application/json'},...(requestBody===undefined?{}:{body:requestBody})});
       metric.statuses[response.status]=(metric.statuses[response.status]||0)+1;
       const text=await response.text();metric.decodedResponseUtf8Bytes+=Buffer.byteLength(text);
-      if(!statuses.includes(response.status)) { metric.unexpected++; throw new Error(`${label}: HTTP ${response.status}`); }
+      if(!statuses.includes(response.status)) { metric.unexpected++;if(report.failureResponses.length<5)report.failureResponses.push(failureResponse(label,response.status,response.headers,text,safe)); throw new Error(`${label}: HTTP ${response.status}`); }
       return JSON.parse(text);
     } catch(error) { if(!String(error.message).startsWith(label+': HTTP')) {metric.unexpected++;metric.statuses.transportOrJson=(metric.statuses.transportOrJson||0)+1;} throw error; }
     finally {metric.times.push(performance.now()-at);}
