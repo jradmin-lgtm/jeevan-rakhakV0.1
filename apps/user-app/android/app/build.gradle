@@ -109,7 +109,7 @@ android {
         applicationId 'com.jeevanrakshak.user'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 58
+        versionCode 59
         versionName "2.2.4"
     }
     signingConfigs {
