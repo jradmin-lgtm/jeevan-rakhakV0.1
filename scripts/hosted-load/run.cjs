@@ -16,7 +16,7 @@ async function parallel(items, limit, fn) {
 function summary(xs) { return {count:xs.length,p50:percentile(xs,.5),p95:percentile(xs,.95),p99:percentile(xs,.99),max:xs.length?Math.round(Math.max(...xs)*10)/10:null}; }
 function plan(c) {
   validateConfig(c);
-  const client=c.scenario==='PRODUCTION_CLIENT_RESILIENCE'?require('./client-workload.cjs').workloadPlan(c):null;
+  const client=['PRODUCTION_CLIENT_RESILIENCE','PRODUCTION_CLIENT_RESILIENCE_V2'].includes(c.scenario)?require('./client-workload.cjs').workloadPlan(c):null;
   return {environment:c.environmentId,apiOrigin:c.apiOrigin,socketOrigin:c.socketOrigin,databaseName:c.databaseName,build:c.expectedBuild,socketBuild:c.expectedSocketBuild??c.expectedBuild,
     ...(client?{client}:{}),rides:c.rides,users:c.rides,drivers:c.rides,sockets:c.rides*2,steadySeconds:c.cycles*5,steadyHttpRequests:client?client.nominalUserPolls+client.nominalDriverPolls+client.nominalSampledGpsPoints:c.cycles*c.rides*2,
     offlinePoints:c.rides*20,offlineReplayRequests:c.rides*2,databaseProbeQueries:111,reconnectUsers:c.rides/2,mapHttpRequestCap:c.maxMapHttpCalls,
@@ -36,13 +36,14 @@ async function main() {
   const {io}=loadDependency('socket.io-client', root+'/apps/driver-app/node_modules/socket.io-client');
   const transport=createTransport();
   const sql=postgres(process.env.JR_HOSTED_LOAD_DATABASE_URL,{max:4,connect_timeout:15,idle_timeout:20,ssl:{rejectUnauthorized:true},connection:{statement_timeout:15000,application_name:'jr-hosted-load'}});
-  const clientScenario=c.scenario==='PRODUCTION_CLIENT_RESILIENCE';
+  const realtimeV2=c.scenario==='PRODUCTION_CLIENT_RESILIENCE_V2';
+  const clientScenario=['PRODUCTION_CLIENT_RESILIENCE','PRODUCTION_CLIENT_RESILIENCE_V2'].includes(c.scenario);
   const runId='jr-hosted-load-'+Date.now()+'-'+crypto.randomBytes(4).toString('hex');
   const rides=Array.from({length:c.rides},(_,index)=>({index,id:crypto.randomUUID(),userId:crypto.randomUUID(),driverId:crypto.randomUUID()}));
   const report={schemaVersion:1,runId,scope,startedAt:new Date().toISOString(),verdict:'NOT_RUN',stages:[],http:{},failureResponses:[],gps:{expected:0,received:0,duplicates:0,crossRide:0,unexpected:0},socketErrors:0,cleanup:'not_required',maps:{enabled:c.mapsEnabled,httpCalls:0,available:0,unavailable:0},limitations:scope.excluded};
   const sockets=[],pending=new Map(),seen=new Set(),uploadedTimestamps=new Set(),gpsTimes=[],connectTimes=[];
   const deadline=Date.now()+c.cycles*5000+15*60_000;
-  let seeded=false,stopping=false;
+  let seeded=false,stopping=false,realtime=null;
   const stop=()=>{stopping=true;}; process.once('SIGINT',stop);process.once('SIGTERM',stop);
   const check=()=>assert.ok(!stopping && Date.now()<deadline,'Run interrupted or time budget exceeded');
   const safe=message=>{
@@ -74,19 +75,15 @@ async function main() {
     try {await fn();row.status='pass';}catch(error){row.status='fail';row.error=safe(error.message);throw error;}finally{row.durationMs=Math.round(performance.now()-at);console.log(JSON.stringify({stage:name,status:row.status,durationMs:row.durationMs}));}
   }
   async function connect(ride,role) {
+    if(realtimeV2){const socket=await realtime.connect(ride,role);sockets.push(socket);if(role==='user')socket.on('driver:location:update',p=>receive(ride,p));if(!socket.connected)await reconnect(socket);return socket;}
     const socket=io(c.socketOrigin,{auth:{token:role==='user'?ride.ut:ride.dt},transports:['websocket'],reconnection:false,autoConnect:false,timeout:15000});sockets.push(socket);
     socket.on('connect_error',()=>{report.socketErrors++;});
     socket.on('session:error',()=>{report.socketErrors++;});
     socket.on('connect',()=>socket.emit('booking:subscribe',{bookingId:ride.id}));
-    if(role==='user')socket.on('driver:location:update',point=>{
-      if(point.bookingId!==ride.id){report.gps.crossRide++;return;}
-      const key=point.bookingId+':'+point.ts;
-      if(seen.has(key)){report.gps.duplicates++;return;}
-      if(!pending.has(key)){report.gps.unexpected++;return;}
-      seen.add(key);gpsTimes.push(performance.now()-pending.get(key));pending.delete(key);report.gps.received++;
-    });
+    if(role==='user')socket.on('driver:location:update',point=>receive(ride,point));
     await reconnect(socket);return socket;
   }
+  function receive(ride,point){if(point?.bookingId!==ride.id){report.gps.crossRide++;return;}const key=point.bookingId+':'+point.ts;if(seen.has(key)){report.gps.duplicates++;return;}if(!pending.has(key)){report.gps.unexpected++;return;}seen.add(key);gpsTimes.push(performance.now()-pending.get(key));pending.delete(key);report.gps.received++;}
   async function reconnect(socket) {
     const at=performance.now();
     await new Promise((resolve,reject)=>{
@@ -97,8 +94,9 @@ async function main() {
     });connectTimes.push(performance.now()-at);
   }
   function point(ride,sequence,ts=Date.now()) {return {bookingId:ride.id,lat:28.4771+ride.index*.00002+sequence*.000001,lng:79.4381,ts};}
-  function emit(ride,p) {const key=p.bookingId+':'+p.ts;assert.ok(!pending.has(key)&&!seen.has(key),'Unique GPS probe required');pending.set(key,performance.now());report.gps.expected++;ride.ds.emit('driver:location',p);}
-  async function drained() {const until=Date.now()+c.deliveryTimeoutMs;while(pending.size&&Date.now()<until){check();await sleep(100);}assert.equal(pending.size,0,'Missing GPS deliveries after bounded observation');}
+  function emit(ride,p) {const key=p.bookingId+':'+p.ts;assert.ok(!pending.has(key)&&!seen.has(key),'Unique GPS probe required');pending.set(key,performance.now());report.gps.expected++;if(realtimeV2)realtime.emitted(ride,p);ride.ds.emit('driver:location',p);}
+  async function drained() {const observed=new Set(pending.keys()),outstanding=()=>realtimeV2?[...observed].some(k=>pending.has(k)):pending.size;const until=Date.now()+c.deliveryTimeoutMs;while(outstanding()&&Date.now()<until){check();await sleep(100);}if(realtimeV2){realtime.monitor.captureDrainDeadline();report.rawRealtimeVerdict=realtime.summary().rawRealtimeVerdict;report.gps.deadlineMisses=realtime.summary().deadlineMisses;realtime.check();}else assert.equal(pending.size,0,'Missing GPS deliveries after bounded observation');}
+  if(realtimeV2)realtime=require('./realtime-client.cjs').createRealtimeClient({rides,origin:c.socketOrigin,io,http:(label,url,token,body,timeout)=>http(label,c.apiOrigin,url,token,body,[200],timeout),report});
   try {
     await stage('Verify hosted build, isolation marker and empty test domain',async()=>{
       assert.ok(!c.apiOrigin.endsWith('.invalid')&&!c.socketOrigin.endsWith('.invalid'),'Replace example hosts');
@@ -132,7 +130,7 @@ async function main() {
       await sleep(2000);rides.forEach(r=>emit(r,point(r,0)));await drained();
       await parallel(rides,c.rides/2,async(r,i)=>{await api('forbidden-other-ride','/api/v1/bookings/'+rides[(i+1)%c.rides].id,r.ut,undefined,[403]);});
     });
-    if(clientScenario)await require('./client-workload.cjs').runClientWorkload({c,rides,http:(label,url,token,body,timeout)=>http(label,c.apiOrigin,url,token,body,[200],timeout),emit,point,check,sleep,drained,uploadedTimestamps,report,directory:fs.mkdtempSync('/tmp/jr-client-queue-'),sql,stage});
+    if(clientScenario)await require('./client-workload.cjs').runClientWorkload({c,rides,http:(label,url,token,body,timeout)=>http(label,c.apiOrigin,url,token,body,[200],timeout),emit,point,check,sleep,drained,uploadedTimestamps,report,directory:fs.mkdtempSync('/tmp/jr-client-queue-'),sql,stage,realtime});
     else await stage(`${c.rides} concurrent active rides at five-second cadence`,async()=>{
       await sleep(1100); // Respect the realtime server's per-driver one-second packet limit after the initial probe.
       const start=performance.now();let overruns=0;
@@ -150,8 +148,10 @@ async function main() {
       await drained();report.steady={cycles:c.cycles,durationMs:Math.round(performance.now()-start),requests:c.cycles*c.rides*2,overrunCycles:overruns};
     });
     await stage(`Reconnect ${c.rides/2} users and verify fresh delivery`,async()=>{
-      const sample=rides.slice(0,c.rides/2);sample.forEach(r=>r.us.disconnect());await parallel(sample,c.rides/2,r=>reconnect(r.us));await sleep(2000);
-      sample.forEach(r=>emit(r,point(r,2000)));await drained();report.reconnect={users:c.rides/2,verifiedFreshDeliveries:c.rides/2};
+      const sample=rides.slice(0,c.rides/2);
+      if(realtimeV2){report.reconnect=await require('./realtime-client.cjs').recoverUsers({realtime,rides,emit,point,check,sleep});assert.equal(realtime.summary().controlledDisconnects,c.rides/2,'All forced user engine closures must be observed');}
+      else{sample.forEach(r=>r.us.disconnect());await parallel(sample,c.rides/2,r=>reconnect(r.us));await sleep(2000);sample.forEach(r=>emit(r,point(r,2000)));}
+      await drained();if(realtimeV2)realtime.close();else report.reconnect={users:c.rides/2,verifiedFreshDeliveries:c.rides/2};
     });
     await stage(`Replay ${c.rides*20} buffered points twice and retain rejected points`,async()=>{
       const batches=rides.map(r=>({r,points:Array.from({length:20},(_,i)=>{
@@ -191,13 +191,14 @@ async function main() {
       await parallel(rides,c.rides,async r=>{const d=await api('complete','/api/v1/bookings/'+r.id+'/complete',r.dt,{});assert.equal(d.booking.status,'COMPLETED');});
       await parallel(rides,c.rides,async r=>{const d=await api('mark-paid','/api/v1/bookings/'+r.id+'/mark-paid',r.ut,{couponCode:'PILOT100'});assert.equal(d.paid.inr,0);});
     });
-    assert.equal(report.gps.crossRide,0);assert.equal(report.gps.duplicates,0);assert.equal(report.gps.unexpected,0);assert.equal(report.socketErrors,0);assert.equal(report.gps.received,report.gps.expected);
+    assert.equal(report.gps.crossRide,0);assert.equal(report.gps.duplicates,0);assert.equal(report.gps.unexpected,0);assert.equal(report.socketErrors,0);if(!realtimeV2)assert.equal(report.gps.received,report.gps.expected);else{realtime.check();report.realtimeClient.monitor=realtime.summary();report.rawRealtimeVerdict=realtime.summary().rawRealtimeVerdict;}
     assert.ok(percentile(report.http['booking-poll'].times,.95)<=c.httpP95Ms,'Booking poll p95 exceeds predeclared budget');
     assert.ok(percentile(report.http['live-gps-batch'].times,.95)<=c.httpP95Ms,'GPS upload p95 exceeds predeclared budget');
     assert.ok(percentile(gpsTimes,.95)<=c.gpsP95Ms,'Realtime delivery p95 exceeds predeclared budget');
-    if(clientScenario){assert.ok(percentile(report.http['booking-poll-driver'].times,.95)<=c.httpP95Ms,'Driver booking poll p95 exceeds unchanged budget');report.rawTransportVerdict=Object.values(report.http).some(m=>m.unexpected>0)?'FAIL':'PASS';report.resilienceVerdict='PASS';report.strictCapacityCertification=false;report.verdict='CLIENT_RESILIENCE_PASS';}else report.verdict='PASS';
+    if(clientScenario){assert.ok(percentile(report.http['booking-poll-driver'].times,.95)<=c.httpP95Ms,'Driver booking poll p95 exceeds unchanged budget');report.rawTransportVerdict=Object.values(report.http).some(m=>m.unexpected>0)?'FAIL':'PASS';report.resilienceVerdict='PASS';report.strictCapacityCertification=false;report.verdict=realtimeV2?'CLIENT_RESILIENCE_V2_PASS':'CLIENT_RESILIENCE_PASS';}else report.verdict='PASS';
   } catch(error) {report.verdict='FAIL';if(clientScenario){report.rawTransportVerdict=Object.values(report.http).some(m=>m.unexpected>0)?'FAIL':'PASS';report.resilienceVerdict='FAIL';report.strictCapacityCertification=false;}report.error=safe(error.message);process.exitCode=1;}
   finally {
+    if(realtime){realtime.close();try{await realtime.settle();}catch{report.verdict='FAIL';report.resilienceVerdict='FAIL';process.exitCode=1;}report.realtimeClient.monitor=realtime.summary();realtime.close();}
     sockets.forEach(socket=>socket.disconnect());
     if(seeded) {
       try {

@@ -1,9 +1,9 @@
 const assert=require('node:assert/strict');
 const {API_BUILD,SOURCE_SHA256,createQueue,fileStorage}=require('./production-queue.cjs');
-function validateClientScenario(c){assert.equal(c.scenario,'PRODUCTION_CLIENT_RESILIENCE');assert.equal(c.rides,10);assert.equal(c.cycles,360);assert.equal(c.expectedBuild,API_BUILD);assert.equal(c.mapsEnabled,false);assert.equal(c.httpP95Ms,2000);assert.equal(c.gpsP95Ms,1500);assert.equal(c.deliveryTimeoutMs,15000);assert.equal(c.clientRecoveryDeadlineMs,60000);assert.equal(c.controlled502Confirmed,true);}
-function workloadPlan(c){validateClientScenario(c);return{scenario:c.scenario,strictCapacityCertification:false,queueSourceSHA256:SOURCE_SHA256,userPollMs:5000,driverPollMs:12000,socketFixMs:5000,gpsSampleEveryFixes:3,foregroundFlushMs:15000,httpRequestTimeoutMs:45000,recoveryDeadlineMs:60000,nominalUserPolls:3600,nominalDriverPolls:1500,nominalSampledGpsPoints:1210,note:'First GPS fix is queued; then every third fix. Concurrent queue flushes share one upload. Batch HTTP count can differ after recovery; raw failures are never erased.'};}
+function validateClientScenario(c){assert.ok(['PRODUCTION_CLIENT_RESILIENCE','PRODUCTION_CLIENT_RESILIENCE_V2'].includes(c.scenario));if(c.scenario==='PRODUCTION_CLIENT_RESILIENCE_V2'){assert.equal(c.uiWarmupMs,20000);assert.equal(c.uiFreshnessMs,30000);assert.equal(c.realtimeRecoveryMs,20000);}assert.equal(c.rides,10);assert.equal(c.cycles,360);assert.equal(c.expectedBuild,API_BUILD);assert.equal(c.mapsEnabled,false);assert.equal(c.httpP95Ms,2000);assert.equal(c.gpsP95Ms,1500);assert.equal(c.deliveryTimeoutMs,15000);assert.equal(c.clientRecoveryDeadlineMs,60000);assert.equal(c.controlled502Confirmed,true);}
+function workloadPlan(c){validateClientScenario(c);return{scenario:c.scenario,strictCapacityCertification:false,...(c.scenario==='PRODUCTION_CLIENT_RESILIENCE_V2'?{uiWarmupMs:20000,warmupOutsideSteady:true,uiFreshnessMs:30000,realtimeRecoveryMs:20000}:{}),queueSourceSHA256:SOURCE_SHA256,userPollMs:5000,driverPollMs:12000,socketFixMs:5000,gpsSampleEveryFixes:3,foregroundFlushMs:15000,httpRequestTimeoutMs:45000,recoveryDeadlineMs:60000,nominalUserPolls:3600,nominalDriverPolls:1500,nominalSampledGpsPoints:1210,note:'First GPS fix is queued; then every third fix. Concurrent queue flushes share one upload. Batch HTTP count can differ after recovery; raw failures are never erased.'};}
 function naturalFault(error){if(error?.status!=null)return[408,429,500,502,503,504].includes(error.status);return['AbortError','TimeoutError'].includes(error?.name)||error?.message==='fetch failed'||['ECONNRESET','ETIMEDOUT','EAI_AGAIN','ENETUNREACH','ECONNREFUSED'].includes(error?.cause?.code);}
-async function runClientWorkload({c,rides,http,emit,point,check,sleep,drained,uploadedTimestamps,report,directory,sql,stage,clock={now:()=>performance.now(),wall:()=>Date.now()},log=console.log}){
+async function runClientWorkload({c,rides,http,emit,point,check,sleep,drained,uploadedTimestamps,report,directory,sql,stage,realtime=null,clock={now:()=>performance.now(),wall:()=>Date.now()},log=console.log}){
  validateClientScenario(c);const now=clock.now,wall=clock.wall;const storage=fileStorage(directory),fault={armed:false,injected:0};
  const row=report.client={...workloadPlan(c),rawHttpErrors:[],recoveredHttpEpisodes:[],queueChecks:0,maxPendingPoints:0,maxPendingAgeMs:0,unresolvedPoints:null,controlledFault:{injectedStatus:502,injectedAttempts:0,includedInNaturalRawErrors:false,verdict:'NOT_RUN'}};
  let phase='controlled';const queues=new Map();
@@ -20,13 +20,16 @@ async function runClientWorkload({c,rides,http,emit,point,check,sleep,drained,up
  });
  phase='steady';const busy=new Map(),inflight=new Set(),episodes=new Map();let fatal=null;
  const recovered=key=>{const started=episodes.get(key);if(started!==undefined){const delay=now()-started;assert.ok(delay<=60000,'Client recovery exceeded60s');row.recoveredHttpEpisodes.push({kind:key.split(':')[0],delayMs:Math.round(delay)});episodes.delete(key);}};
- const launch=(key,fn)=>{if(busy.has(key))return;const launchedAt=now();const op=(async()=>{try{await fn();recovered(key);}catch(error){row.rawHttpErrors.push({kind:key.split(':')[0],status:error?.status??null});if(!episodes.has(key))episodes.set(key,launchedAt);if(!naturalFault(error))fatal=new Error('Non-transient client operation failed');}})();busy.set(key,op);inflight.add(op);op.finally(()=>{busy.delete(key);inflight.delete(op);});};
+ const failed=(key,error,launchedAt)=>{row.rawHttpErrors.push({kind:key.split(':')[0],status:error?.status??null});if(!episodes.has(key))episodes.set(key,launchedAt);if(!naturalFault(error))fatal=new Error('Non-transient client operation failed');};
+ if(realtime)realtime.attachPollHooks({recovered,failed});
+ const launch=(key,fn)=>{if(busy.has(key))return;const launchedAt=now();const op=(async()=>{try{await fn();recovered(key);}catch(error){failed(key,error,launchedAt);}})();busy.set(key,op);inflight.add(op);op.finally(()=>{busy.delete(key);inflight.delete(op);});};
  const flush=r=>launch('queue:'+r.id,()=>queues.get(r.id).flushLocationQueue());
+ if(realtime)await stage('Separate20s actual UI warmup before full1800steady ticks',()=>realtime.warmup({emit,point,check,sleep}));
  await stage('10 app-matched rides for30minutes with raw errors and recovery tracked separately',async()=>{
-  const start=now();let gpsTick=0;
+  const start=now();let gpsTick=0,stopTail=null,complete=false;
   try{for(let second=0;second<1800;second++){
-   check();if(fatal)throw fatal;
-   if(second%5===0){gpsTick++;for(const r of rides){const p=point(r,gpsTick);emit(r,p);if(gpsTick===1||gpsTick%3===0){await queues.get(r.id).queueLocation(p);uploadedTimestamps.add(p.bookingId+':'+p.ts);flush(r);}launch('user-poll:'+r.id,async()=>{const data=await http('booking-poll','/api/v1/bookings/'+r.id,r.ut,undefined,45000);assert.equal(data.booking.id,r.id);assert.equal(data.booking.driverId,r.driverId);});}}
+   check();if(fatal)throw fatal;if(realtime)realtime.check();
+   if(second%5===0){gpsTick++;for(const r of rides){const p=point(r,gpsTick);emit(r,p);if(gpsTick===1||gpsTick%3===0){await queues.get(r.id).queueLocation(p);uploadedTimestamps.add(p.bookingId+':'+p.ts);flush(r);}if(realtime)void realtime.refresh(r);else launch('user-poll:'+r.id,async()=>{const data=await http('booking-poll','/api/v1/bookings/'+r.id,r.ut,undefined,45000);assert.equal(data.booking.id,r.id);assert.equal(data.booking.driverId,r.driverId);});}}
    if(second%12===0)for(const r of rides)launch('driver-poll:'+r.id,async()=>{const data=await http('booking-poll-driver','/api/v1/bookings/'+r.id,r.dt,undefined,45000);assert.equal(data.booking.id,r.id);assert.equal(data.booking.driverId,r.driverId);});
    if(second%15===0)rides.forEach(flush);
    let pending=0,age=0;for(const r of rides){const points=storage.points(r.driverId);pending+=points.length;for(const p of points)age=Math.max(age,wall()-p.ts);assert.ok(queues.get(r.id).storageErrors()===0,'Production queue storage operation failed');}
@@ -34,10 +37,12 @@ async function runClientWorkload({c,rides,http,emit,point,check,sleep,drained,up
    if(second%60===59)log(JSON.stringify({stage:'client-steady',seconds:second+1,totalSeconds:1800,pendingGpsPoints:pending,pendingSocketGps:report.gps.expected-report.gps.received,rawHttpErrors:row.rawHttpErrors.length}));
    await sleep(Math.max(0,start+(second+1)*1000-now()));
   }
-  }finally{await Promise.allSettled([...inflight]);}
-  if(fatal)throw fatal;for(const r of rides){await queues.get(r.id).flushLocationQueue();recovered('queue:'+r.id);}for(const key of [...episodes.keys()]){const[kind,id]=key.split(':'),r=rides.find(x=>x.id===id);assert.ok(r&&['user-poll','driver-poll'].includes(kind));const data=await http(kind==='user-poll'?'booking-poll':'booking-poll-driver','/api/v1/bookings/'+r.id,kind==='user-poll'?r.ut:r.dt,undefined,45000);assert.equal(data.booking.id,r.id);assert.equal(data.booking.driverId,r.driverId);recovered(key);}await drained();
+  complete=true;
+  }finally{if(realtime&&complete)stopTail=realtime.startTail({emit,point});await Promise.allSettled([...inflight]);}
+  try{if(realtime)await realtime.settle();if(fatal)throw fatal;for(const r of rides){await queues.get(r.id).flushLocationQueue();recovered('queue:'+r.id);}for(const key of [...episodes.keys()]){const[kind,id]=key.split(':'),r=rides.find(x=>x.id===id);assert.ok(r&&['user-poll','driver-poll'].includes(kind));if(realtime&&kind==='user-poll'){await realtime.refresh(r);realtime.check();assert.ok(!episodes.has(key),'Authorized user refresh did not recover');continue;}const data=await http(kind==='user-poll'?'booking-poll':'booking-poll-driver','/api/v1/bookings/'+r.id,kind==='user-poll'?r.ut:r.dt,undefined,45000);assert.equal(data.booking.id,r.id);assert.equal(data.booking.driverId,r.driverId);recovered(key);}await drained();if(realtime){realtime.check();row.realtimeSnapshot=realtime.summary();}
   row.unresolvedPoints=rides.reduce((n,r)=>n+storage.points(r.driverId).length,0);assert.equal(row.unresolvedPoints,0);for(const r of rides)assert.equal((await queues.get(r.id).locationQueueStatus()).pending,0);
   assert.equal(episodes.size,0,'Client poll or queue error did not recover');row.steadyDurationMs=Math.round(now()-start);
+  }finally{stopTail?.();}
  });
 }
 module.exports={validateClientScenario,workloadPlan,naturalFault,runClientWorkload};
