@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { configureIncomingAlerts, revokeIncomingAlertSession, stopIncomingAlert } from "./incomingAlerts";
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import * as TaskManager from "expo-task-manager";
@@ -26,6 +27,7 @@ function dismissBookingIdFrom(data: Record<string, unknown> | null | undefined):
   return data?.type === "dismiss" && typeof data.bookingId === "string" ? data.bookingId : null;
 }
 async function dismissForBooking(bookingId: string) {
+  await stopIncomingAlert(bookingId);
   const presented = await Notifications.getPresentedNotificationsAsync();
   for (const notification of presented) {
     if (notification.request.content.data?.bookingId === bookingId || notification.request.identifier === bookingId) {
@@ -59,6 +61,7 @@ async function bounded<T>(operation: Promise<T>, milliseconds: number): Promise<
 export async function revokePushSession(session: string | null): Promise<void> {
   registrationGeneration += 1;
   teardownPushDismissHandlers();
+  await revokeIncomingAlertSession();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 4000);
   try {
@@ -79,6 +82,7 @@ export function registerPushToken(): Promise<void> {
     try {
       const session = await getToken();
       if (!session) throw new Error("Push registration requires a session");
+      await configureIncomingAlerts();
       if (!Device.isDevice) { publish("unavailable"); return; }
       const existing = await Notifications.getPermissionsAsync();
       const permission = existing.granted ? existing : await Notifications.requestPermissionsAsync();

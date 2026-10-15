@@ -22,6 +22,17 @@ class PriorityAlertsModule(private val context: ReactApplicationContext) : React
   private fun manager(): NotificationManager = context.getSystemService(NotificationManager::class.java)
     ?: throw IllegalStateException("Android notification service unavailable")
 
+  @ReactMethod fun configure(token: String, api: String, promise: Promise) {
+    try { RequestAlertService.configure(context,token,api);promise.resolve(null) }
+    catch(error:Exception){promise.reject("ALERT_SESSION_FAILED",error)}
+  }
+  @ReactMethod fun startRequest(id:String,sos:Boolean,promise:Promise){
+    try{RequestAlertService.start(context,id,sos,verifiedOffer=true);promise.resolve(null)}
+    catch(error:Exception){promise.reject("ALERT_START_FAILED",error)}
+  }
+  @ReactMethod fun stopRequest(id:String,promise:Promise){RequestAlertService.stop(context,id);promise.resolve(null)}
+  @ReactMethod fun stopRequests(promise:Promise){RequestAlertService.stopRequests();promise.resolve(null)}
+  @ReactMethod fun clearRequests(promise:Promise){RequestAlertService.clear(context);promise.resolve(null)}
   @ReactMethod fun status(promise: Promise) {
     try {
       PriorityAlerts.ensure(context)

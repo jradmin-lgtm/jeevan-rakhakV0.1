@@ -1,5 +1,6 @@
 import { registerUiEventRoutes } from "./routes/ui-events";
-import { applyTeamReviewMigration } from "@jr/db";
+import { applyTeamReviewMigration, applyFeedbackMigration } from "@jr/db";
+import { registerAdminOperationRoutes } from "./routes/admin-operations";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
@@ -19,8 +20,8 @@ import { registerDownloadRoutes } from "./routes/download";
 import { registerPlacesRoutes } from "./routes/places";
 import { registerMapConfigRoutes } from "./routes/map-config";
 import { emitEvent } from "./events";
-import { expirePendingBookings } from "./booking-maintenance";
-import { runDatabaseBackup } from "./backup";
+import { recoverBookingExpiry } from "./booking-maintenance";
+import { startDatabaseBackups } from "./backup";
 
 declare module "@fastify/jwt" {
   interface FastifyJWT {
@@ -152,6 +153,7 @@ async function bootstrap() {
   await registerUiEventRoutes(app);
   await registerDriverRoutes(app);
   await registerAdminRoutes(app);
+  await registerAdminOperationRoutes(app);
   await registerHospitalRoutes(app);
   await registerSafetyRoutes(app);
   await registerDownloadRoutes(app);
@@ -620,6 +622,7 @@ async function bootstrap() {
 
     app.log.info("[migrate] schema v1.4.0 ready (KYC redesign: employment_type/employee_number/puc_number/fitness_number + driver_documents + preferred_lang)");
     await applyTeamReviewMigration();
+    await applyFeedbackMigration();
   } catch (err) {
     // Thumb rule: migrations FATAL-EXIT on failure. Silent catch+warn here
     // previously let the service start with a broken schema (system_events
@@ -674,21 +677,14 @@ async function bootstrap() {
     }
   }, 6 * 60 * 60 * 1000);
 
-  // 2026-08-11: full DB backup to a private Drive folder, every 6h + once on
-  // boot. Independent of Neon's own point-in-time restore (6h window on
-  // Free) — this is a durable, separate copy so a bad migration or an
-  // accidental destructive op still has a recovery path beyond Neon's own
-  // retention window. Never blocks startup or a request; failures just log.
-  void runDatabaseBackup().catch((err) => app.log.error({ err }, "[backup] initial run failed"));
-  setInterval(() => {
-    void runDatabaseBackup().catch((err) => app.log.error({ err }, "[backup] scheduled run failed"));
-  }, 6 * 60 * 60 * 1000);
+  // Full snapshots stay six hours apart across process restarts.
+  const stopDatabaseBackups = startDatabaseBackups(error => app.log.error({ error }, "[backup] scheduled snapshot failed; retry in five minutes"));
+  app.addHook("onClose", async () => stopDatabaseBackups());
 
   await pgClient`DELETE FROM ui_events WHERE received_at < now() - interval '30 days'`;
   const clickRetentionTimer = setInterval(() => { void pgClient`DELETE FROM ui_events WHERE received_at < now() - interval '30 days'`.catch(error => app.log.error({ error }, "Click event retention failed")); }, 86400_000);
   clickRetentionTimer.unref();
-  const maintenanceTimer = setInterval(() => { void expirePendingBookings(app).catch((err) => app.log.error({ err }, "[maintenance] booking expiry failed")); }, 30_000);
-  app.addHook("onClose", async () => { clearInterval(maintenanceTimer); });
+  await recoverBookingExpiry(app);
   await app.listen({ host: "0.0.0.0", port: config.apiPort });
   app.log.info(`api-server listening on :${config.apiPort}`);
   // Mark a clean boot in the timeline.

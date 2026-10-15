@@ -10,7 +10,7 @@ const pointSchema = z.object({
   headingDeg: z.number().finite().min(0).max(360).optional(),
   ts: z.number().int().positive()
 });
-const batchSchema = z.object({ points: z.array(pointSchema).min(1).max(100) });
+const batchSchema = z.object({ points: z.array(pointSchema).min(1).max(100), partial: z.boolean().optional() });
 
 export async function registerLocationBatchRoutes(app: FastifyInstance) {
   app.post("/api/v1/driver/location-batch", {
@@ -21,26 +21,30 @@ export async function registerLocationBatchRoutes(app: FastifyInstance) {
     const parsed = batchSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_location_batch", details: parsed.error.flatten() });
     const now = Date.now();
-    if (parsed.data.points.some(p => p.ts > now + 10_000)) return reply.code(400).send({ error: "future_location_fix" });
+    if (!parsed.data.partial && parsed.data.points.some(p => p.ts > now + 10_000)) return reply.code(400).send({ error: "future_location_fix" });
     const points = [...new Map(parsed.data.points.map(p => [`${p.bookingId}:${p.ts}`, p])).values()];
     const bookingIds = [...new Set(points.map(p => p.bookingId))];
     const result = await sql.begin(async tx => {
       // Trip transitions lock the booking before its driver. Keep the same order.
       const owned = await tx`SELECT id, status, driver_id FROM bookings WHERE id = ANY(${bookingIds}::uuid[]) ORDER BY id FOR SHARE`;
-      if (owned.length !== bookingIds.length) return { forbidden: true as const };
+      if (!parsed.data.partial && owned.length !== bookingIds.length) return { forbidden: true as const };
       const currentIds = new Set(owned.filter(b => b.driver_id === req.user.sub).map(b => b.id));
       const released = points.filter(p => !currentIds.has(p.bookingId));
+      const historical = new Set<string>();
       if (released.length) {
         const windows = await tx`SELECT c.booking_id, c.created_at AS ended_at, e.created_at AS started_at
           FROM booking_cancellations c JOIN LATERAL (SELECT created_at FROM booking_events
           WHERE booking_id = c.booking_id AND type = 'booking.accepted' AND actor = ${`driver:${req.user.sub}`}
           AND created_at <= c.created_at ORDER BY created_at DESC LIMIT 1) e ON true
           WHERE c.booking_id = ANY(${bookingIds}::uuid[]) AND c.driver_id = ${req.user.sub}`;
-        if (released.some(p => !windows.some(w => w.booking_id === p.bookingId && p.ts >= +new Date(w.started_at) - 30_000 && p.ts <= +new Date(w.ended_at)))) return { forbidden: true as const };
+        for (const p of released) if (windows.some(w => w.booking_id === p.bookingId && p.ts >= +new Date(w.started_at) - 30_000 && p.ts <= +new Date(w.ended_at))) historical.add(`${p.bookingId}:${p.ts}`);
+        if (!parsed.data.partial && released.some(p => !historical.has(`${p.bookingId}:${p.ts}`))) return { forbidden: true as const };
       }
       const driver = await tx`SELECT id FROM drivers WHERE id = ${req.user.sub} FOR UPDATE`;
       if (!driver.length) return { forbidden: true as const };
-      const valid = points;
+      const rejected = points.filter(p => p.ts > now + 10_000 || (!currentIds.has(p.bookingId) && !historical.has(`${p.bookingId}:${p.ts}`))).map(p => ({ bookingId: p.bookingId, ts: p.ts, reason: p.ts > now + 10_000 ? "future_location_fix" : "not_assigned_to_booking" }));
+      const rejectedKeys = new Set(rejected.map(p => `${p.bookingId}:${p.ts}`));
+      const valid = points.filter(p => !rejectedKeys.has(`${p.bookingId}:${p.ts}`));
       if (valid.length) {
         const rows = valid.map(p => ({ booking_id: p.bookingId, lat: p.lat, lng: p.lng, speed_kmh: p.speedKmh ?? null, heading_deg: p.headingDeg ?? null, recorded_at: new Date(p.ts).toISOString() }));
         await tx`INSERT INTO driver_locations (driver_id, booking_id, lat, lng, speed_kmh, heading_deg, recorded_at)
@@ -55,9 +59,9 @@ export async function registerLocationBatchRoutes(app: FastifyInstance) {
             WHERE id = ${req.user.sub} AND (last_seen_at IS NULL OR last_seen_at < ${at})`;
         }
       }
-      return { forbidden: false as const, accepted: valid.length, expired: points.length - valid.length };
+      return { forbidden: false as const, accepted: valid.length, expired: 0, acknowledged: valid.map(p => ({ bookingId: p.bookingId, ts: p.ts })), rejected };
     });
     if (result.forbidden) return reply.code(403).send({ error: "not_assigned_to_booking" });
-    return { ok: true, accepted: result.accepted, expired: result.expired };
+    return { ok: true, accepted: result.accepted, expired: result.expired, ...(parsed.data.partial ? { acknowledged: result.acknowledged, rejected: result.rejected } : {}) };
   });
 }

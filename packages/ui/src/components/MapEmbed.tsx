@@ -1,5 +1,5 @@
 import React, { memo, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, AppState, Pressable, StyleSheet, View } from "react-native";
 import { WebView } from "react-native-webview";
 import { Text } from "./Text";
 import { colors, radius, space } from "../tokens";
@@ -21,6 +21,7 @@ export type MapProviderConfig = {
 
 type Props = {
   pickup: Point;
+  showPickup?: boolean;
   driver?: Point | null;
   drop?: Point | null;
   height?: number;
@@ -79,6 +80,7 @@ const OSM_FALLBACK: MapProviderConfig = {
 
 function MapEmbedInner({
   pickup,
+  showPickup = true,
   driver,
   drop,
   height = 240,
@@ -92,13 +94,18 @@ function MapEmbedInner({
   const [tilesUnavailable, setTilesUnavailable] = useState(false);
   const [retry, setRetry] = useState(0);
   const webRef = useRef<WebView | null>(null);
+  const healthyAt = useRef(Date.now());
+  const recoveryCount = useRef(0);
+  const currentStatus = useRef({ mapError, tilesUnavailable });
+  currentStatus.current = { mapError, tilesUnavailable };
 
   const cfg = mapConfig && mapConfig.provider ? mapConfig : OSM_FALLBACK;
 
   // Lock the very first coords into a ref so the HTML stays stable across
   // re-renders. `useMemo` with [] deps doesn't satisfy React strict-mode
   // dev-time double-runs; a ref is the cleanest "compute once" primitive.
-  const initialRef = useRef({
+  const latestRef = useRef({
+    showPickup,
     pLat: Number(pickup.lat),
     pLng: Number(pickup.lng),
     pLabel: pickup.label ?? "Pickup",
@@ -110,6 +117,13 @@ function MapEmbedInner({
     drLabel: drop?.label ?? "Drop",
     routePath: routePath ?? null
   });
+  latestRef.current = {
+    showPickup,
+    pLat: Number(pickup.lat), pLng: Number(pickup.lng), pLabel: pickup.label ?? "Pickup",
+    dLat: driver ? Number(driver.lat) : null, dLng: driver ? Number(driver.lng) : null, dLabel: driver?.label ?? "Driver",
+    drLat: drop ? Number(drop.lat) : null, drLng: drop ? Number(drop.lng) : null, drLabel: drop?.label ?? "Drop",
+    routePath: routePath ?? null
+  };
 
   // The renderer is baked into the HTML, so the map must remount if the
   // provider resolves AFTER first paint (fallback OSM -> server-provided
@@ -118,12 +132,40 @@ function MapEmbedInner({
   const providerKey = `${cfg.provider}:${cfg.googleBrowserKey}`;
 
   const html = useMemo(
-    () => buildEmbedHtml(initialRef.current, cfg),
+    () => buildEmbedHtml(latestRef.current, cfg),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [providerKey]
+    [providerKey, retry]
   );
 
   useEffect(() => { setLoaded(false); setMapError(false); setTilesUnavailable(false); }, [providerKey, retry]);
+  // A dead WebView cannot send an online event. Probe it from the native side
+  // too, and retry with backoff while preserving the current ride snapshot.
+  useEffect(() => {
+    healthyAt.current = Date.now();
+    const check = () => {
+      if (AppState.currentState !== "active") return;
+      if (Date.now() - healthyAt.current > 30_000) {
+        console.error("[map] renderer heartbeat missing; recovering current ride map");
+        setLoaded(false); setMapError(true);
+      }
+      webRef.current?.injectJavaScript("if(window.jrMap && window.__jrMapReady && document.getElementById('map') && document.getElementById('map').children.length && window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'jr:map:heartbeat'})); true;");
+    };
+    const timer = setInterval(check, 10_000);
+    const listener = AppState.addEventListener("change", state => {
+      if (state === "active") { healthyAt.current = Date.now(); if (currentStatus.current.mapError) setRetry(value => value + 1); else check(); }
+    });
+    return () => { clearInterval(timer); listener.remove(); };
+  }, [providerKey, retry]);
+  useEffect(() => {
+    if (!mapError) return;
+    const delay = Math.min(30_000, 2_000 * 2 ** Math.min(recoveryCount.current, 4));
+    const timer = setTimeout(() => {
+      if (AppState.currentState !== "active") return;
+      recoveryCount.current += 1;
+      setRetry(value => value + 1);
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [mapError, retry]);
   useEffect(() => {
     if (loaded) { setMapError(false); return; }
     const timeout = setTimeout(() => { console.error("Map renderer did not report ready within 20 seconds"); setMapError(true); }, 20_000);
@@ -142,6 +184,7 @@ function MapEmbedInner({
   useEffect(() => {
     if (!loaded || !webRef.current) return;
     const payload = JSON.stringify({
+      showPickup,
       pickup: { lat: pickup.lat, lng: pickup.lng, label: pickup.label ?? "Pickup" },
       driver: driver ? { lat: driver.lat, lng: driver.lng, label: driver.label ?? "Driver" } : null,
       drop: drop ? { lat: drop.lat, lng: drop.lng, label: drop.label ?? "Drop" } : null,
@@ -154,7 +197,7 @@ function MapEmbedInner({
     webRef.current.injectJavaScript(
       `(window.jrMap ? window.jrMap.update(${payload}) : (window.jrPending = ${payload})); true;`
     );
-  }, [loaded, pickup.lat, pickup.lng, pickup.label, driver?.lat, driver?.lng, driver?.label, drop?.lat, drop?.lng, drop?.label, routeKey, routeProvider, providerKey]);
+  }, [loaded, showPickup, pickup.lat, pickup.lng, pickup.label, driver?.lat, driver?.lng, driver?.label, drop?.lat, drop?.lng, drop?.label, routeKey, routeProvider, providerKey]);
 
   const recenter = () => {
     if (!webRef.current) return;
@@ -177,7 +220,9 @@ function MapEmbedInner({
         onMessage={(event) => {
           try {
             const message = JSON.parse(event.nativeEvent.data);
-            if (message.type === "jr:map:ready") { setLoaded(true); setMapError(false); if (message.provider === "google" || message.provider === "osm") onProviderChange?.(message.provider); }
+            if (message.type === "jr:map:heartbeat") healthyAt.current = Date.now();
+            if (message.type === "jr:map:online") { if (mapError || tilesUnavailable) setRetry(value => value + 1); }
+            if (message.type === "jr:map:ready") { healthyAt.current = Date.now(); recoveryCount.current = 0; setLoaded(true); setMapError(false); if (message.provider === "google" || message.provider === "osm") onProviderChange?.(message.provider); }
             if (message.type === "jr:map:error") { console.error("Map renderer failed", message.message ?? "Position update failed"); setLoaded(false); setMapError(true); }
             if (message.type === "jr:map:tiles-unavailable") setTilesUnavailable(true);
             if (message.type === "jr:map:tiles-available") setTilesUnavailable(false);
@@ -204,7 +249,7 @@ function MapEmbedInner({
       />
       {!loaded && mapError ? (
         <View style={styles.loading}>
-          <Text>Map unavailable. Check your connection.</Text>
+          <Text>Map unavailable. Retrying automatically.</Text>
           <Pressable accessibilityRole="button" onPress={() => setRetry(value => value + 1)} style={{ padding: 14 }}><Text>Retry map</Text></Pressable>
         </View>
       ) : !loaded ? (

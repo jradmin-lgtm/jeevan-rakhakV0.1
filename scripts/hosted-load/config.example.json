@@ -1,0 +1,17 @@
+{
+  "environmentId": "jr-load-replace-me",
+  "databaseName": "jr_load_replace_me",
+  "apiOrigin": "https://api-load.example.invalid",
+  "socketOrigin": "https://socket-load.example.invalid",
+  "expectedBuild": "0000000000000000000000000000000000000000",
+  "rides": 50,
+  "cycles": 360,
+  "mapsEnabled": false,
+  "maxMapHttpCalls": 0,
+  "providerQuotaBudgetConfirmed": false,
+  "httpP95Ms": 2000,
+  "gpsP95Ms": 1500,
+  "deliveryTimeoutMs": 15000,
+  "isolatedHostingConfirmed": false,
+  "outboundNotificationsDisabled": false
+}

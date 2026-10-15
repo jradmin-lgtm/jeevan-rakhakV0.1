@@ -1,4 +1,5 @@
 import React from "react";
+import { AdminOperation } from "../../AdminOperation";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { adminFetch } from "../../../../lib/adminFetch";
@@ -46,12 +47,7 @@ export default async function UserDetail({ params }: { params: Promise<{ id: str
             </p>
           </div>
         </div>
-        <DisableToggle
-          kind="user"
-          id={user.id}
-          initialDisabled={!!user.disabled}
-          apiBase={API_BASE}
-        />
+        <AdminOperation action={user.disabled ? "restore_user" : "restrict_user"} label={user.disabled ? "Restore user" : "Restrict user"} targetId={user.id} registeredEmail={user.email} targetLabel={user.email ?? user.name ?? "Selected user"} apiBase={API_BASE} />
       </div>
 
       <div className="row">

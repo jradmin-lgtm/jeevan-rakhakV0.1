@@ -6,6 +6,7 @@ build/
 .expo/
 .gradle/
 .vercel/
+.neon
 **/.cxx/
 .env
 .env.*

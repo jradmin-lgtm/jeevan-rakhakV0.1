@@ -175,7 +175,7 @@ export const auth = {
 export const me = {
   get: () => api<{ role: string; profile: any }>("/api/v1/me"),
   registerPushToken: (token: string) =>
-    api<{ ok: true }>("/api/v1/me/push-token", { method: "POST", body: { token } }),
+    api<{ ok: true }>("/api/v1/me/push-token", { method: "POST", body: { token, alertProtocol: 2 } }),
   update: (patch: { name?: string; preferredLang?: "en" | "hi" }) =>
     api<{ role: string; profile: any }>("/api/v1/me", { method: "PATCH", body: patch }),
   // v1.0.13: Google Play account-deletion compliance. Refuses if the driver

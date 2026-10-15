@@ -16,6 +16,30 @@ function runtime(storage, send, owner = 'driver-one') {
   return module.exports;
 }
 const ack = async (_, request) => ({ ok: true, accepted: request.body.points.length, expired: 0 });
+test('partial acknowledgement syncs good fixes from the same ride and retains rejected fixes', async () => {
+  const storage = new Map();
+  let requests = 0;
+  const queue = runtime(storage, async (_, request) => {
+    requests++;
+    assert.equal(request.body.partial, true);
+    const rejected = request.body.points.filter(p => p.ts === 1002).map(p => ({ bookingId: p.bookingId, ts: p.ts, reason: 'future_location_fix' }));
+    const acknowledged = request.body.points.filter(p => p.ts !== 1002).map(p => ({ bookingId: p.bookingId, ts: p.ts }));
+    return { ok: true, accepted: acknowledged.length, expired: 0, acknowledged, rejected };
+  });
+  for (const i of [1,2,3]) await queue.queueLocation(point(i));
+  await assert.rejects(queue.flushLocationQueue(), /future_location_fix/);
+  assert.equal(requests, 1);
+  assert.equal((await queue.locationQueueStatus()).pending, 1);
+  const saved = JSON.parse(storage.get('jr.driver.location-queue.driver-one'));
+  assert.deepEqual(saved.points.map(p => p.ts), [1002]);
+});
+test('partial acknowledgement cannot remove a point the server did not explicitly accept', async () => {
+  const storage = new Map();
+  const queue = runtime(storage, async () => ({ ok: true, accepted: 1, expired: 0, acknowledged: [{ bookingId:'another-ride', ts:1001 }], rejected: [] }));
+  await queue.queueLocation(point(1));
+  await assert.rejects(queue.flushLocationQueue(), /acknowledge/);
+  assert.equal((await queue.locationQueueStatus()).pending, 1);
+});
 test('signal loss retains fixes and a new process syncs them with original timestamps', async () => {
   const storage = new Map();
   const offline = runtime(storage, async () => { throw Error('Network unavailable'); });
@@ -76,4 +100,26 @@ test('legacy data migrates only for its owner without losing points', async () =
   assert.equal(storage.has('jr.driver.location-queue'), false);
   await owner.flushLocationQueue();
   assert.equal((await owner.locationQueueStatus()).pending, 0);
+});
+
+for (const shape of [
+  { acknowledged: [] }, { rejected: [] },
+  { acknowledged: null, rejected: [] }, { acknowledged: [], rejected: null },
+  { acknowledged: {}, rejected: [] },
+  { acknowledged: [null], rejected: [] },
+  { acknowledged: [{ bookingId: 'ride-one', ts: 1001 }], rejected: [{ bookingId:'ride-one', ts:1002 }] }
+]) test('malformed partial ACK retains all points: ' + JSON.stringify(shape), async () => {
+  const storage = new Map();
+  const queue = runtime(storage, async () => ({ ok: true, accepted: 1, expired: 0, ...shape }));
+  await queue.queueLocation(point(1));
+  await assert.rejects(queue.flushLocationQueue(), /malformed partial/);
+  assert.equal((await queue.locationQueueStatus()).pending, 1);
+});
+test('duplicate partial ACK rows cannot delete stored locations', async () => {
+  const storage = new Map();
+  const accepted = { bookingId:'ride-one', ts:1001 };
+  const queue = runtime(storage, async () => ({ ok:true, accepted:1, expired:0, acknowledged:[accepted, accepted], rejected:[] }));
+  await queue.queueLocation(point(1));
+  await assert.rejects(queue.flushLocationQueue(), /acknowledge/);
+  assert.equal((await queue.locationQueueStatus()).pending, 1);
 });

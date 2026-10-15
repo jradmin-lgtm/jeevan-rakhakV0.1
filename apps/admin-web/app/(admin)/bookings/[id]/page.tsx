@@ -1,4 +1,5 @@
 import React from "react";
+import { AdminOperation } from "../../AdminOperation";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { adminFetch } from "../../../../lib/adminFetch";
@@ -51,6 +52,7 @@ export default async function BookingDetail({ params }: { params: Promise<{ id: 
           <DeleteBookingButton bookingId={id} apiBase={API_BASE} />
         </div>
       </div>
+      {["REQUESTED","ACCEPTED","ARRIVED","PICKED_UP"].includes(data.booking.status) ? <div style={{ marginBottom: 16 }}><AdminOperation action="cancel_trip" label="End trip" targetId={id} targetLabel={`Booking #${data.booking.displayId ?? id}`} apiBase={API_BASE} /></div> : null}
       <BookingDetailLive bookingId={id} initialData={data} apiBase={API_BASE} />
     </>
   );

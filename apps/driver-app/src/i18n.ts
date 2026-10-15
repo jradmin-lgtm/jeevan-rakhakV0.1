@@ -34,6 +34,13 @@ const en: Dict = {
 
   "trip.gps_active": "GPS active",
   "trip.gps_captured": "Location captured {n}s ago. Check Location sync for delivery status.",
+  "trip.map_pickup_and_ambulance": "Pickup & ambulance",
+  "trip.map_on_board": "Ambulance · patient on board",
+  "trip.map_trip_locations": "Trip locations",
+  "trip.location_stale": "Last known ambulance location, captured {n}s ago. Waiting for GPS. Distance and ETA are saved estimates.",
+  "trip.location_time_unknown": "Last known ambulance location. Capture time unavailable. Waiting for GPS; distance and ETA are saved estimates.",
+  "trip.saved_estimate": "Saved estimate",
+  "trip.saved_distance": "Saved distance",
   "trip.stop_location_failed": "Location sharing could not stop. Close the app and disable its location permission in phone settings.",
 
   "dashboard.live_city": "Live in {city}",
@@ -51,6 +58,7 @@ const en: Dict = {
   "trip.route_cached": "Saved road route · distance and ETA may be out of date. Map tiles may be unavailable offline.",
 
   "alerts.title": "Ride alert sounds",
+  "alerts.playback_error": "Request sound could not start. Check alert settings and permissions.",
   "alerts.ready": "Priority alerts are configured",
   "alerts.needs_setup": "Check alert permissions and sound",
   "alerts.checking": "Checking alert settings…",
@@ -545,6 +553,8 @@ const en: Dict = {
   "trip.step_sub.free_to_accept": "You're free to accept new requests.",
   "trip.pin_patient": "Patient",
   "trip.pin_you": "You",
+  "trip.pin_on_board": "Ambulance · patient on board",
+  "trip.pin_pickup": "Pickup",
   "trip.pin_hospital_fallback": "Hospital",
   "trip.pickup_section_label": "PICKUP",
   "trip.drop_hospital_sos_label": "DROP HOSPITAL (SOS)",
@@ -610,6 +620,13 @@ const hi: Dict = {
 
   "trip.gps_active": "GPS चालू",
   "trip.gps_captured": "स्थान {n} सेकंड पहले मिला। भेजे जाने की स्थिति लोकेशन सिंक में देखें।",
+  "trip.map_pickup_and_ambulance": "पिकअप और एम्बुलेंस",
+  "trip.map_on_board": "एम्बुलेंस · मरीज़ सवार है",
+  "trip.map_trip_locations": "यात्रा के स्थान",
+  "trip.location_stale": "एम्बुलेंस का अंतिम ज्ञात स्थान {n} सेकंड पहले मिला था। GPS की प्रतीक्षा है। दूरी और पहुँचने का समय पुराने अनुमान हैं।",
+  "trip.location_time_unknown": "एम्बुलेंस का अंतिम ज्ञात स्थान। स्थान मिलने का समय उपलब्ध नहीं है। GPS की प्रतीक्षा है; दूरी और पहुँचने का समय पुराने अनुमान हैं।",
+  "trip.saved_estimate": "सहेजा गया अनुमान",
+  "trip.saved_distance": "सहेजी गई दूरी",
   "trip.stop_location_failed": "स्थान साझा करना बंद नहीं हो सका। ऐप बंद करें और फोन की सेटिंग में इसकी लोकेशन अनुमति बंद करें।",
 
   "dashboard.live_city": "{city} में सेवा चालू",
@@ -627,6 +644,7 @@ const hi: Dict = {
   "trip.route_cached": "सहेजा हुआ रास्ता · दूरी और समय पुराने हो सकते हैं। ऑफलाइन में नक्शे के कुछ हिस्से उपलब्ध नहीं हो सकते।",
 
   "alerts.title": "राइड की अलर्ट ध्वनि",
+  "alerts.playback_error": "अनुरोध की आवाज़ शुरू नहीं हुई। अलर्ट सेटिंग और अनुमतियाँ जाँचें।",
   "alerts.ready": "प्राथमिकता अलर्ट की सेटिंग तैयार है",
   "alerts.needs_setup": "अलर्ट की अनुमति और ध्वनि जाँचें",
   "alerts.checking": "अलर्ट सेटिंग जाँची जा रही है…",
@@ -1106,6 +1124,8 @@ const hi: Dict = {
   "trip.step_sub.free_to_accept": "आप नई रिक्वेस्ट स्वीकार करने के लिए स्वतंत्र हैं।",
   "trip.pin_patient": "मरीज़",
   "trip.pin_you": "आप",
+  "trip.pin_on_board": "एम्बुलेंस · मरीज सवार है",
+  "trip.pin_pickup": "पिकअप",
   "trip.pin_hospital_fallback": "अस्पताल",
   "trip.pickup_section_label": "पिकअप",
   "trip.drop_hospital_sos_label": "ड्रॉप अस्पताल (SOS)",

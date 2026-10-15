@@ -10,6 +10,7 @@ import type { MapProviderConfig } from "../components/MapEmbed";
  * same for the address picker.
  */
 export type InitShape = {
+  showPickup?: boolean;
   pLat: number; pLng: number; pLabel: string;
   dLat: number | null; dLng: number | null; dLabel: string;
   drLat: number | null; drLng: number | null; drLabel: string;
@@ -74,6 +75,20 @@ function jrReady(){ window.__jrMapReady = true;
     window.jrPending = null;
   }
 }
+window.addEventListener('offline', function(){
+  if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'jr:map:tiles-unavailable'}));
+});
+window.addEventListener('online', function(){
+  if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'jr:map:online'}));
+});
+function jrCurrentInit(initial){
+  var p = window.__jrLatest || window.jrPending;
+  if(!p || !p.pickup) return initial;
+  return {showPickup:p.showPickup !== false,pLat:p.pickup.lat,pLng:p.pickup.lng,pLabel:p.pickup.label || initial.pLabel,
+    dLat:p.driver ? p.driver.lat : null,dLng:p.driver ? p.driver.lng : null,dLabel:p.driver ? p.driver.label : initial.dLabel,
+    drLat:p.drop ? p.drop.lat : null,drLng:p.drop ? p.drop.lng : null,drLabel:p.drop ? p.drop.label : initial.drLabel,
+    routePath:p.routePath || null};
+}
 `;
 
 /**
@@ -100,7 +115,9 @@ window.__jrBootLeaflet = function(INIT){
     var map = L.map('map', { zoomControl: true, attributionControl: true, dragging: true, scrollWheelZoom: true, doubleClickZoom: true, touchZoom: true }).setView(pickup, 14);
     L.tileLayer(${JSON.stringify(tileUrl).replace(/</g, "\\u003c")}, { attribution: ${JSON.stringify(tileAttribution).replace(/</g, "\\u003c")}, maxZoom: 19, detectRetina: true }).on("tileerror", function(){ if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({ type: "jr:map:tiles-unavailable" })); }).on("tileload", function(){ if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({ type: "jr:map:tiles-available" })); }).addTo(map);
 
-    var pickupMarker = L.marker(pickup, { icon: makePin(INIT.pLabel, 'pickup') }).addTo(map);
+    var showPickup = INIT.showPickup !== false;
+    var pickupMarker = L.marker(pickup, { icon: makePin(INIT.pLabel, 'pickup') });
+    if (showPickup) pickupMarker.addTo(map);
     var driverMarker = initialDriver ? L.marker(initialDriver, { icon: makePin(INIT.dLabel, 'driver') }).addTo(map) : null;
     var dropMarker   = initialDrop   ? L.marker(initialDrop,   { icon: makePin(INIT.drLabel, 'drop')   }).addTo(map) : null;
     var route = null, trail = null, navRoute = null;
@@ -115,7 +132,7 @@ window.__jrBootLeaflet = function(INIT){
     }
     function refreshRoute(){
       if (navRoute) { if (route) { map.removeLayer(route); route = null; } return; }
-      if (!driverMarker) { if (route) { map.removeLayer(route); route = null; } return; }
+      if (!showPickup || !driverMarker) { if (route) { map.removeLayer(route); route = null; } return; }
       var from = driverMarker.getLatLng(), to = pickupMarker.getLatLng();
       if (route) { route.setLatLngs([from, to]); }
       else { route = L.polyline([from, to], { className: 'jr-route', color: '#1E5EFF', weight: 4, opacity: .85 }).addTo(map); }
@@ -132,7 +149,7 @@ window.__jrBootLeaflet = function(INIT){
     map.getContainer().addEventListener("wheel", function(){ manuallyMoved = true; }, { passive: true });
     function fitAll(animate){
       if (manuallyMoved || map.getContainer().clientWidth < 50 || map.getContainer().clientHeight < 50) return;
-      var pts = [pickupMarker];
+      var pts = showPickup ? [pickupMarker] : [];
       if (driverMarker) pts.push(driverMarker);
       if (dropMarker) pts.push(dropMarker);
       if (navRoute) pts.push(navRoute);
@@ -171,8 +188,14 @@ window.__jrBootLeaflet = function(INIT){
 
     window.jrMap = {
       update: function(payload){
+        window.__jrLatest = payload;
         try {
-          if (payload.pickup) pickupMarker.setLatLng([payload.pickup.lat, payload.pickup.lng]);
+          var nextShowPickup = payload.showPickup !== false;
+          if (showPickup !== nextShowPickup) {
+            showPickup = nextShowPickup;
+            if (showPickup) pickupMarker.addTo(map); else map.removeLayer(pickupMarker);
+          }
+          if (payload.pickup) { pickupMarker.setLatLng([payload.pickup.lat, payload.pickup.lng]); pickupMarker.setIcon(makePin(payload.pickup.label || 'Pickup', 'pickup')); }
           if (payload.driver) {
             var dpt = [payload.driver.lat, payload.driver.lng];
             if (!driverMarker) {
@@ -180,6 +203,7 @@ window.__jrBootLeaflet = function(INIT){
               trailCoords = [dpt.slice()];
               fitAll(true);
             } else {
+              driverMarker.setIcon(makePin(payload.driver.label || 'Driver', 'driver'));
               animateMarkerTo(driverMarker, dpt);
               var last = trailCoords.length ? trailCoords[trailCoords.length - 1] : null;
               if (!last || Math.abs(last[0] - dpt[0]) > 1e-5 || Math.abs(last[1] - dpt[1]) > 1e-5) {
@@ -195,9 +219,10 @@ window.__jrBootLeaflet = function(INIT){
           if (payload.drop) {
             var drpt = [payload.drop.lat, payload.drop.lng];
             if (!dropMarker) { dropMarker = L.marker(drpt, { icon: makePin(payload.drop.label || 'Drop', 'drop') }).addTo(map); fitAll(true); }
-            else { animateMarkerTo(dropMarker, drpt); }
+            else { dropMarker.setIcon(makePin(payload.drop.label || 'Drop', 'drop')); animateMarkerTo(dropMarker, drpt); }
           } else if (dropMarker) { map.removeLayer(dropMarker); dropMarker = null; }
           if (Object.prototype.hasOwnProperty.call(payload, 'routePath')) setNavRoute(payload.routeProvider === 'google' && window.__jrMapProvider !== 'google' ? null : payload.routePath || null);
+          refreshRoute();
         } catch (e) {
           console.error("Map position update failed", e);
           if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type: "jr:map:error"}));
@@ -240,7 +265,10 @@ window.__jrBootGoogle = function(INIT){
   });
 
   window.__jrGoogleMap = map;
-  google.maps.event.addListenerOnce(map, "tilesloaded", function(){ window.__jrGoogleTilesReady = true; });
+  google.maps.event.addListener(map, "tilesloaded", function(){
+    window.__jrGoogleTilesReady = true;
+    if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'jr:map:tiles-available'}));
+  });
 
   // Custom OverlayView pins: the map is Google's, the pins stay ours.
   function JrPin(latLng, label, kind){
@@ -275,6 +303,8 @@ window.__jrBootGoogle = function(INIT){
   function ll(lat, lng){ return new google.maps.LatLng(lat, lng); }
 
   var pickupMarker = new JrPin(ll(INIT.pLat, INIT.pLng), INIT.pLabel, 'pickup');
+  var showPickup = INIT.showPickup !== false;
+  if(!showPickup) pickupMarker.setMap(null);
   var driverMarker = (INIT.dLat != null) ? new JrPin(ll(INIT.dLat, INIT.dLng), INIT.dLabel, 'driver') : null;
   var dropMarker   = (INIT.drLat != null) ? new JrPin(ll(INIT.drLat, INIT.drLng), INIT.drLabel, 'drop') : null;
   var route = null, trail = null, navRoute = null;
@@ -293,7 +323,7 @@ window.__jrBootGoogle = function(INIT){
   }
   function refreshRoute(){
     if (navRoute) { if (route) { route.setMap(null); route = null; } return; }
-    if (!driverMarker) { if (route) { route.setMap(null); route = null; } return; }
+    if (!showPickup || !driverMarker) { if (route) { route.setMap(null); route = null; } return; }
     var path = [driverMarker.getPos(), pickupMarker.getPos()];
     if (route) { route.setPath(path); } else { route = line(path, '#1E5EFF', 4, 0.85); }
   }
@@ -310,7 +340,7 @@ window.__jrBootGoogle = function(INIT){
     if (manuallyMoved) return;
     var b = new google.maps.LatLngBounds();
     var n = 0;
-    b.extend(pickupMarker.getPos()); n++;
+    if(showPickup) { b.extend(pickupMarker.getPos()); n++; }
     if (driverMarker) { b.extend(driverMarker.getPos()); n++; }
     if (dropMarker) { b.extend(dropMarker.getPos()); n++; }
     if (navRoute) { navRoute.getPath().forEach(function(p){ b.extend(p); }); n++; }
@@ -340,14 +370,18 @@ window.__jrBootGoogle = function(INIT){
 
   window.jrMap = {
     update: function(payload){
+      window.__jrLatest = payload;
+      if(showPickup !== (payload.showPickup !== false)) { showPickup = payload.showPickup !== false; pickupMarker.setMap(showPickup ? map : null); }
       try {
-        if (payload.pickup) pickupMarker.setPos(ll(payload.pickup.lat, payload.pickup.lng));
+        if (payload.pickup) { pickupMarker.setPos(ll(payload.pickup.lat, payload.pickup.lng)); pickupMarker.html = jrPinHtml(payload.pickup.label || 'Pickup', 'pickup'); if(pickupMarker.div) pickupMarker.div.innerHTML = pickupMarker.html; }
         if (payload.driver) {
           if (!driverMarker) {
             driverMarker = new JrPin(ll(payload.driver.lat, payload.driver.lng), payload.driver.label || 'Driver', 'driver');
             trailCoords = [ll(payload.driver.lat, payload.driver.lng)];
             fitAll();
           } else {
+            driverMarker.html = jrPinHtml(payload.driver.label || 'Driver', 'driver');
+            if (driverMarker.div) driverMarker.div.innerHTML = driverMarker.html;
             animateMarkerTo(driverMarker, payload.driver.lat, payload.driver.lng);
             var last = trailCoords.length ? trailCoords[trailCoords.length - 1] : null;
             if (!last || Math.abs(last.lat() - payload.driver.lat) > 1e-5 || Math.abs(last.lng() - payload.driver.lng) > 1e-5) {
@@ -362,9 +396,14 @@ window.__jrBootGoogle = function(INIT){
         }
         if (payload.drop) {
           if (!dropMarker) { dropMarker = new JrPin(ll(payload.drop.lat, payload.drop.lng), payload.drop.label || 'Drop', 'drop'); fitAll(); }
-          else { animateMarkerTo(dropMarker, payload.drop.lat, payload.drop.lng); }
+          else {
+            dropMarker.html = jrPinHtml(payload.drop.label || 'Drop', 'drop');
+            if (dropMarker.div) dropMarker.div.innerHTML = dropMarker.html;
+            animateMarkerTo(dropMarker, payload.drop.lat, payload.drop.lng);
+          }
         } else if (dropMarker) { dropMarker.setMap(null); dropMarker = null; }
         if (Object.prototype.hasOwnProperty.call(payload, 'routePath')) setNavRoute(payload.routeProvider === 'google' && window.__jrMapProvider !== 'google' ? null : payload.routePath || null);
+        refreshRoute();
       } catch (e) {
         console.error('Map position update failed');
         if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'jr:map:error',message:'Position update failed'}));
@@ -426,6 +465,7 @@ function jrForceFallback(){
   var el = document.getElementById('map');
   if (el) el.innerHTML = '';
   window.__jrLeafletBooted = false;
+  INIT = jrCurrentInit(INIT);
   INIT.routePath = null;
   if (window.jrPending) window.jrPending.routePath = null;
   window.__jrBootLeaflet(INIT);

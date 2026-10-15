@@ -1,3 +1,4 @@
+import { stopIncomingAlert } from "../incomingAlerts";
 import React, { useEffect, useRef, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -131,6 +132,7 @@ export function SosIncomingModal({ onAccept }: Props) {
     setBusy(true);
     try {
       const r = await bookingsApi.accept(active.bookingId);
+      void stopIncomingAlert(active.bookingId).catch(error => console.error("[alerts] response stop failed",error));
       setActive(null);
       onAccept(r.booking);
     } catch (e: any) {

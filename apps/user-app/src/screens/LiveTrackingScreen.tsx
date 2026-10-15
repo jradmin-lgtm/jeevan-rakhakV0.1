@@ -23,6 +23,7 @@ import {
   useRideRoute,
   newerFix,
   remainingRoute,
+  formatEta,
   dialog
 } from "@jr/ui";
 import { Booking, bookings as bookingsApi } from "../api";
@@ -344,18 +345,18 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
   } else if (booking.status === "ACCEPTED" && driverPos) {
     const km = haversineKm(driverPos.lat, driverPos.lng, booking.pickupLat, booking.pickupLng);
     timerLabel = t(savedEstimate ? "live.saved_eta" : "live.timer_driver_arrives_in");
-    timerValue = (navEta?.min ?? estimateEtaMin(km)) < 1 ? "<1 min" : `~${Math.round(navEta?.min ?? estimateEtaMin(km))} min`;
+    timerValue = formatEta(navEta?.min ?? estimateEtaMin(km), lang);
   } else if (booking.status === "ARRIVED") {
     timerLabel = t("live.timer_driver_waiting");
     timerValue = t("live.timer_at_pickup");
   } else if (booking.status === "PICKED_UP" && navEta) {
     // Prefer the OSRM road-based ETA when we have it (CR#3).
     timerLabel = t(savedEstimate ? "live.saved_eta" : "live.timer_hospital_eta");
-    timerValue = navEta.min < 1 ? "<1 min" : `~${Math.round(navEta.min)} min`;
+    timerValue = formatEta(navEta.min, lang);
   } else if (booking.status === "PICKED_UP" && driverPos && booking.dropLat != null && booking.dropLng != null) {
     const km = haversineKm(driverPos.lat, driverPos.lng, booking.dropLat, booking.dropLng);
     timerLabel = t(savedEstimate ? "live.saved_eta" : "live.timer_hospital_eta");
-    timerValue = `~${estimateEtaMin(km)} min`;
+    timerValue = formatEta(estimateEtaMin(km), lang);
   } else if (booking.status === "PICKED_UP") {
     timerLabel = t("live.timer_enroute");
     timerValue = formatDuration(elapsedSec);
@@ -483,8 +484,10 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
             ) : null}
           </View>
           <MapEmbed
+            key={`ride:${booking.id}`}
+            showPickup={booking.status !== "PICKED_UP" || !driverPos}
             pickup={{ lat: booking.pickupLat, lng: booking.pickupLng, label: t("live.pin_pickup") }}
-            driver={!finished && driverPos ? { lat: driverPos.lat, lng: driverPos.lng, label: t("live.pin_driver") } : null}
+            driver={!finished && driverPos ? { lat: driverPos.lat, lng: driverPos.lng, label: booking.status === "PICKED_UP" ? t("live.pin_on_board") : t("live.pin_driver") } : null}
             drop={booking.dropLat != null && booking.dropLng != null
               ? { lat: booking.dropLat, lng: booking.dropLng, label: booking.dropAddress ?? t("live.pin_hospital_fallback") }
               : null}
@@ -508,7 +511,7 @@ export function LiveTrackingScreen({ booking: initial, onClose, onPayment }: Pro
                   <View style={{ alignItems: "center" }}>
                     <Text variant="tiny" tone="secondary">{t(savedEstimate ? "live.saved_eta" : "live.eta_label")}</Text>
                     <Text variant="heading" weight="bold" tone="primary">
-                      {mapEtaMin < 1 ? "<1 min" : `~${Math.round(mapEtaMin)} min`}
+                      {formatEta(mapEtaMin, lang)}
                     </Text>
                   </View>
                 </View>

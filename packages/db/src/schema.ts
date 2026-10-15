@@ -121,6 +121,8 @@ export const drivers = pgTable(
     // v1.1.0 push: FCM device token — used to alert the driver of a new
     // SOS/booking even when the app is backgrounded/killed.
     pushToken: text("push_token"),
+    pushAlertProtocol: integer("push_alert_protocol").default(1).notNull(),
+    adminOffline: boolean("admin_offline").default(false).notNull(),
     // CR3/CR4 (2026-08): synced from the driver app's language toggle so
     // server-composed push templates (SOS/booking alerts) can localize.
     preferredLang: text("preferred_lang").default("en").notNull(),

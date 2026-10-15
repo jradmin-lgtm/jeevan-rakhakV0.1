@@ -2,7 +2,7 @@ import { clicks } from "../clicks";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import * as Location from "expo-location";
-import { AppHeader, Button, Card, Input, MapEmbed, MotionView, Screen, Text, colors, space, OutOfServiceArea, dialog } from "@jr/ui";
+import { AppHeader, Button, Card, Input, MapEmbed, MotionView, Screen, Text, colors, space, OutOfServiceArea, dialog, formatEta } from "@jr/ui";
 import { bookings as bookingsApi, fares as faresApi, serviceArea as serviceAreaApi, FareQuote, EmergencyType, Booking } from "../api";
 import { PickupLandmark } from "./PickupLandmark";
 import { MapLocationPicker } from "./MapLocationPicker";
@@ -447,7 +447,7 @@ export function BookAmbulanceScreen({ onCancel, onBooked }: Props) {
                   {/* 2026-08-17: prefer the real-traffic liveEtaMin (Google
                       Directions) when the backend has it; etaMin (static
                       formula) is the fallback and is always present. */}
-                  <Text variant="tiny" tone="muted">~{quote.liveEtaMin ?? quote.etaMin} min</Text>
+                  <Text variant="tiny" tone="muted">{formatEta(quote.liveEtaMin ?? quote.etaMin, lang)}</Text>
                 </View>
               ) : null}
             </>

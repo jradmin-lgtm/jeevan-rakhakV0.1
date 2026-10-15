@@ -6,6 +6,7 @@ import { stopBackgroundLocationTracking } from "../backgroundLocation";
 import { rideCache } from "../rideCache";
 import { PriorityAlertSettings } from "../components/PriorityAlertSettings";
 import { LocationSyncNotice } from "../components/LocationSyncNotice";
+import { startIncomingAlert, stopIncomingAlert, clearIncomingAlerts } from "../incomingAlerts";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Animated, Pressable, RefreshControl, View } from "react-native";
 import * as Location from "expo-location";
@@ -75,6 +76,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
   const { t } = useT();
   const focused = useIsFocused();
   const [available, setAvailable] = useState(profile?.status !== "OFFLINE");
+  useEffect(() => { if (profile?.adminOffline || profile?.status === "OFFLINE") setAvailable(false); }, [profile?.adminOffline, profile?.status]);
   // v1.0.15: emit a "I'm online" heartbeat to the SOS cascade engine every
   // 60s while the toggle is on and the app is foregrounded. Pauses
   // automatically when backgrounded.
@@ -114,6 +116,17 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
   // (instant) but never replace it wholesale, so neither SOS nor normal
   // requests can silently overwrite the other.
   const [requests, setRequests] = useState<Record<string, IncomingRequest>>({});
+  const [audioError, setAudioError] = useState<string | null>(null);
+  const ringing = useRef(new Set<string>());
+  useEffect(() => {
+    if (activeTrip) { ringing.current.clear(); void clearIncomingAlerts().catch(error => console.error("[alerts] stop failed",error)); return; }
+    const ids = new Set(Object.keys(requests));
+    for (const id of ringing.current) if (!ids.has(id)) { ringing.current.delete(id); void stopIncomingAlert(id).catch(error => console.error("[alerts] withdrawal stop failed",error)); }
+    for (const req of Object.values(requests)) if (!ringing.current.has(req.id)) {
+      ringing.current.add(req.id);
+      void startIncomingAlert(req.id,!!req.is_sos).then(() => setAudioError(null)).catch(error => { ringing.current.delete(req.id); console.error("[alerts] playback failed",error);setAudioError(t("alerts.playback_error")); });
+    }
+  }, [requests, activeTrip, t]);
   // Dismiss ≠ reject: the high-priority SOS flash (SosIncomingModal) is a
   // separate surface from this list. Dismissing the flash does NOT call the
   // reject endpoint, so the server row stays REQUESTED and the next
@@ -430,6 +443,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
     try {
       clicks.track("driver.accept");
       const r = await bookingsApi.accept(req.id);
+      void stopIncomingAlert(req.id).catch(error => console.error("[alerts] response stop failed",error));
       // Set activeTrip optimistically + synchronously so the !activeTrip gate
       // engages this render: it unmounts the SosIncomingModal / safety cards
       // immediately, closing the ~8s window (until the next /bookings/mine
@@ -468,6 +482,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
     try {
       clicks.track("driver.reject");
       await bookingsApi.reject(req.id);
+      void stopIncomingAlert(req.id).catch(error => console.error("[alerts] response stop failed",error));
       dismissed.current.add(req.id);
       setRequests(previous => { const { [req.id]: removed, ...remaining } = previous; return remaining; });
     } catch (error) {
@@ -684,6 +699,7 @@ export function DashboardScreen({ profile, onLogout, onTrip, onProfile, onEarnin
         </View>
       </Card>
 
+      {audioError ? <Text variant="small" tone="danger" accessibilityRole="alert">{audioError}</Text> : null}
       <PriorityAlertSettings />
       <PushStatusNotice />
 

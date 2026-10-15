@@ -4,6 +4,7 @@ import { Text } from "./Text";
 import { Button } from "./Button";
 import { Input } from "./Input";
 import { colors, space } from "../tokens";
+import { formatEta } from "../maps/formatEta";
 
 /**
  * v1.0.15: extracted from BookAmbulanceScreen so the new PaymentScreen
@@ -114,8 +115,8 @@ function FareBreakdownInner({
           </View>
           {!hideEta && quote.etaMin != null ? (
             <View style={styles.fareRow}>
-              <Text variant="tiny" tone="muted">⏱  Ambulance arrives in</Text>
-              <Text variant="tiny" tone="muted">~{quote.etaMin} min</Text>
+              <Text variant="tiny" tone="muted">{hi ? "⏱  एम्बुलेंस आने में समय" : "⏱  Ambulance arrives in"}</Text>
+              <Text variant="tiny" tone="muted">{formatEta(quote.etaMin, lang)}</Text>
             </View>
           ) : null}
         </>

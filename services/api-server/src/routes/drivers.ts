@@ -92,6 +92,7 @@ export async function registerDriverRoutes(app: FastifyInstance) {
       const result = await db.transaction(async tx => {
         const [account] = await tx.select().from(drivers).where(eq(drivers.id, sub)).limit(1).for("update");
         if (!account) return { error: "driver_not_found", code: 404 };
+        if (status === "AVAILABLE" && account.adminOffline) return { error: "admin_offline", code: 403 };
         if (status === "AVAILABLE" && !account.kycVerified) return { error: "kyc_required", code: 403 };
         // This is a non-locking read. A simultaneous accept/complete sets its
         // final driver status after this short transaction releases the driver.
@@ -189,6 +190,8 @@ export async function registerDriverRoutes(app: FastifyInstance) {
     async (req: any, reply) => {
       const { sub, role } = req.user;
       if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
+      const [account] = await db.select({ status: drivers.status, adminOffline: drivers.adminOffline }).from(drivers).where(eq(drivers.id, sub));
+      if (!account || account.status !== "AVAILABLE" || account.adminOffline) return reply.send({ sos: [] });
       const rows = await db
         .select({ booking: bookings, attempt: sosDispatchAttempts })
         .from(sosDispatchAttempts)
@@ -232,6 +235,8 @@ export async function registerDriverRoutes(app: FastifyInstance) {
     async (req: any, reply) => {
       const { sub, role } = req.user;
       if (role !== "driver") return reply.code(403).send({ error: "driver_only" });
+      const [account] = await db.select({ status: drivers.status, adminOffline: drivers.adminOffline }).from(drivers).where(eq(drivers.id, sub));
+      if (!account || account.status !== "AVAILABLE" || account.adminOffline) return reply.send({ requests: [] });
       // SOS requests dispatched to THIS driver, still open, not rejected by them.
       const sosRows = await pgClient`
         SELECT b.id, b.display_id, b.emergency_type, b.pickup_lat, b.pickup_lng,

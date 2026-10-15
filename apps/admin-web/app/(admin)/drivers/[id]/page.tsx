@@ -1,4 +1,5 @@
 import React from "react";
+import { AdminOperation } from "../../AdminOperation";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { adminFetch } from "../../../../lib/adminFetch";
@@ -27,7 +28,9 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
   const { id } = await params;
   const data = await getDriver(id);
   if (!data) notFound();
-  const { driver, bookings, totals, assignedHospitals = [], allHospitals = [], documents = {}, pendingDocUpdates = [] } = data;
+  const { driver, bookings: assignedBookings, requestHistory, totals, assignedHospitals = [], allHospitals = [], documents = {}, pendingDocUpdates = [] } = data;
+
+  const bookings = requestHistory ?? assignedBookings;
 
   return (
     <>
@@ -73,6 +76,7 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
         />
       </div>
 
+      <div style={{ marginBottom: 16 }}><AdminOperation action={driver.adminOffline ? "release_offline" : "force_offline"} label={driver.adminOffline ? "Release offline hold" : "Force offline"} targetId={driver.id} targetLabel={driver.name ?? "Selected driver"} apiBase={API_BASE} /></div>
       <div className="row">
         <div className="card">
           <h3 style={{ margin: "0 0 12px" }}>Profile</h3>
@@ -189,13 +193,13 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
 
       <div className="card" style={{ marginTop: 16, padding: 0 }}>
         <div style={{ padding: 16, borderBottom: "1px solid var(--border)" }}>
-          <h3 style={{ margin: 0 }}>Recent trip history · latest 100</h3>
+          <h3 style={{ margin: 0 }}>Request decisions · latest 100</h3>
         </div>
         <div style={{ overflowX: "auto" }}>
           <table className="table">
             <thead>
               <tr>
-                <th>When</th>
+                <th>Decision time</th><th>Request</th><th>Accept / Reject</th>
                 <th>Emergency</th>
                 <th>Pickup → Drop</th>
                 <th>Fare → Payable</th>
@@ -206,11 +210,11 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
             </thead>
             <tbody>
               {bookings.length === 0 ? (
-                <tr><td colSpan={7} className="muted" style={{ padding: 24, textAlign: "center" }}>No trips yet.</td></tr>
+                <tr><td colSpan={9} className="muted" style={{ padding: 24, textAlign: "center" }}>No trips yet.</td></tr>
               ) : (
                 bookings.map((b: any) => (
-                  <tr key={b.id}>
-                    <td className="mono muted">{formatIST(b.createdAt)}</td>
+                  <tr key={b.decisionId ?? b.id}>
+                    <td className="mono muted">{b.decisionAt ? formatIST(b.decisionAt) : "Not recorded"}</td><td>#{b.displayId ?? b.id.slice(0,8)}<div className="muted">{b.isSos ? "SOS" : "Book an Ambulance"}</div></td><td>{b.driverDecision ?? "Unavailable"}</td>
                     <td>{prettyEmergency(b.emergencyType)}</td>
                     <td>
                       <div>{b.pickupAddress ?? "-"}</div>

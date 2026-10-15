@@ -474,6 +474,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
     }
+    if (parsed.data.disabled !== undefined) return reply.code(403).send({ error: "use_password_protected_admin_operation" });
     const [updated] = await db
       .update(users)
       .set({ ...parsed.data, updatedAt: new Date() })
@@ -496,6 +497,28 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       .orderBy(desc(bookings.createdAt))
       .limit(100);
 
+    const requestHistory = await pgClient`
+      SELECT b.*, q.decision AS driver_decision, q.at AS decision_at, q.key AS decision_id
+      FROM (
+        SELECT e.booking_id, CASE WHEN e.type='booking.accepted' THEN 'Accepted' ELSE 'Rejected' END AS decision, e.created_at AS at, e.id::text AS key
+        FROM booking_events e WHERE e.actor=${`driver:${id}`} AND e.type IN ('booking.accepted','sos.rejected')
+        UNION ALL
+        SELECT a.booking_id, CASE WHEN a.accepted_at IS NOT NULL THEN 'Accepted' ELSE 'Rejected' END, COALESCE(a.accepted_at,a.rejected_at), 'attempt:'||a.id::text
+        FROM sos_dispatch_attempts a WHERE a.driver_id=${id} AND (a.accepted_at IS NOT NULL OR a.rejected_at IS NOT NULL)
+        AND NOT EXISTS (SELECT 1 FROM booking_events e WHERE e.booking_id=a.booking_id AND e.actor=${`driver:${id}`}
+          AND e.type=CASE WHEN a.accepted_at IS NOT NULL THEN 'booking.accepted' ELSE 'sos.rejected' END)
+        UNION ALL
+        SELECT old.id,'Accepted',old.accepted_at,'legacy:'||old.id::text FROM bookings old
+        WHERE old.driver_id=${id} AND old.accepted_at IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM booking_events e WHERE e.booking_id=old.id AND e.actor=${`driver:${id}`} AND e.type='booking.accepted')
+        AND NOT EXISTS (SELECT 1 FROM sos_dispatch_attempts a WHERE a.booking_id=old.id AND a.driver_id=${id} AND a.accepted_at IS NOT NULL)
+        UNION ALL
+        SELECT old.id,'Not recorded',NULL::timestamptz,'unrecorded:'||old.id::text FROM bookings old
+        WHERE old.driver_id=${id} AND old.accepted_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM booking_events e WHERE e.booking_id=old.id AND e.actor=${`driver:${id}`} AND e.type IN ('booking.accepted','sos.rejected'))
+        AND NOT EXISTS (SELECT 1 FROM sos_dispatch_attempts a WHERE a.booking_id=old.id AND a.driver_id=${id} AND (a.accepted_at IS NOT NULL OR a.rejected_at IS NOT NULL))
+      ) q JOIN bookings b ON b.id=q.booking_id ORDER BY COALESCE(q.at,b.created_at) DESC,q.key DESC LIMIT 100`;
+    const decisions = requestHistory.map(row => Object.fromEntries(Object.entries(row).map(([key,value]) => [key.replace(/_([a-z])/g, (_,c) => c.toUpperCase()),value])));
     const [totals] = await db.select({
       total: count(),
       completed: drizzleSql<number>`count(*) filter (where ${bookings.status} = 'COMPLETED')::int`,
@@ -552,6 +575,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     return reply.send({
       driver: d,
       bookings: history,
+      requestHistory: decisions,
       totals,
       assignedHospitals,
       allHospitals,

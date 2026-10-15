@@ -8,6 +8,7 @@ type Queue = { owner: string; points: QueuedLocation[] };
 let serial: Promise<unknown> = Promise.resolve();
 let flushing: Promise<void> | null = null;
 let lastError: string | null = null;
+const pointKey = (p: { bookingId: string; ts: number }) => `${p.bookingId}:${p.ts}`;
 let expiredCount = 0;
 
 function locked<T>(operation: () => Promise<T>): Promise<T> {
@@ -55,13 +56,14 @@ export function flushLocationQueue(): Promise<void> {
   flushing = (async () => {
     try {
       const blocked = new Set<string>();
+      const blockedPoints = new Set<string>();
       let rejectedBatch: Error | null = null;
       for (let wave = 0; wave < 48; wave += 1) {
-        const batch = await locked(async () => { const queue = await readQueue(); const first = queue.points.find(p => !blocked.has(p.bookingId)); return { owner: queue.owner, points: first ? queue.points.filter(p => p.bookingId === first.bookingId).slice(0, 100) : [] }; });
+        const batch = await locked(async () => { const queue = await readQueue(); const first = queue.points.find(p => !blocked.has(p.bookingId) && !blockedPoints.has(pointKey(p))); return { owner: queue.owner, points: first ? queue.points.filter(p => p.bookingId === first.bookingId && !blockedPoints.has(pointKey(p))).slice(0, 100) : [] }; });
         if (!batch.points.length) { if (rejectedBatch) throw rejectedBatch; lastError = null; return; }
-        let response: { ok: boolean; accepted: number; expired: number };
+        let response: { ok: boolean; accepted: number; expired: number; acknowledged?: Array<{ bookingId: string; ts: number }>; rejected?: Array<{ bookingId: string; ts: number; reason: string }> };
         try {
-          response = await api<typeof response>("/api/v1/driver/location-batch", { method: "POST", body: { points: batch.points } });
+          response = await api<typeof response>("/api/v1/driver/location-batch", { method: "POST", body: { points: batch.points, partial: true } });
         } catch (error) {
           if ([400, 403].includes((error as { status?: number }).status ?? 0)) {
             blocked.add(batch.points[0].bookingId);
@@ -70,8 +72,21 @@ export function flushLocationQueue(): Promise<void> {
           }
           throw error;
         }
+        let sent: Set<string>;
+        if (Object.prototype.hasOwnProperty.call(response, "acknowledged") || Object.prototype.hasOwnProperty.call(response, "rejected")) {
+          if (!Array.isArray(response.acknowledged) || !Array.isArray(response.rejected)) throw new Error("Server returned a malformed partial location acknowledgement");
+          const validPoint = (p: unknown): p is { bookingId: string; ts: number } => !!p && typeof p === "object" && typeof (p as { bookingId?: unknown }).bookingId === "string" && Number.isFinite((p as { ts?: number }).ts);
+          if (!response.acknowledged.every(validPoint) || !response.rejected.every(p => validPoint(p) && typeof p.reason === "string")) throw new Error("Server returned a malformed partial location acknowledgement");
+          const expected = new Set(batch.points.map(pointKey));
+          sent = new Set(response.acknowledged.map(pointKey));
+          const rejected = new Set(response.rejected.map(pointKey));
+          if (!response.ok || sent.size !== response.acknowledged.length || rejected.size !== response.rejected.length || sent.size !== response.accepted || response.expired !== 0 || sent.size + rejected.size !== expected.size || [...sent, ...rejected].some(k => !expected.has(k)) || [...sent].some(k => rejected.has(k))) throw new Error("Server did not acknowledge the complete location batch");
+          for (const key of rejected) blockedPoints.add(key);
+          if (rejected.size) rejectedBatch = new Error(response.rejected.map(p => p.reason).includes("future_location_fix") ? "future_location_fix: check automatic phone date and time" : "not_assigned_to_booking: saved points need support review");
+        } else {
         if (!response.ok || !Number.isInteger(response.accepted) || !Number.isInteger(response.expired) || response.accepted < 0 || response.expired < 0 || response.accepted + response.expired !== batch.points.length) throw new Error("Server did not acknowledge the complete location batch");
-        const sent = new Set(batch.points.map(p => `${p.bookingId}:${p.ts}`));
+        sent = new Set(batch.points.map(pointKey));
+        }
         await locked(async () => {
           const queue = await readQueue();
           if (queue.owner !== batch.owner) throw new Error("Driver changed during location sync");

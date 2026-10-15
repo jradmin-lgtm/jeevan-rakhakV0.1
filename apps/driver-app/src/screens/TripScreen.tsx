@@ -23,7 +23,8 @@ import {
   radius,
   space,
   useRideRoute,
-  remainingRoute
+  remainingRoute,
+  formatEta
 } from "@jr/ui";
 import { Booking, bookings as bookingsApi, driver as driverApi, safety as safetyApi } from "../api";
 import { getSocket } from "../socket";
@@ -100,6 +101,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
   // preparing"; surfaces a reassuring banner to the driver.
   const [hospitalPreparing, setHospitalPreparing] = useState(false);
   const [pushedAt, setPushedAt] = useState<number | null>(null);
+  const [locationClock, setLocationClock] = useState(Date.now);
   const [myPos, setMyPos] = useState<{ lat: number; lng: number } | null>(null);
   // v1.0.15: SOS map-picker visibility. Opens as a fullscreen modal when the
   // driver needs to set the drop hospital for an SOS booking that arrived
@@ -362,7 +364,18 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
 
   const finished = ["COMPLETED", "CANCELLED", "TIMED_OUT"].includes(booking.status);
   const failed = ["CANCELLED", "TIMED_OUT"].includes(booking.status);
-  const sharing = !finished && pushedAt != null && Date.now() - pushedAt <= 30_000;
+  useEffect(() => {
+    if (finished || pushedAt == null) return;
+    // Freshness must still age when GPS and network updates stop arriving.
+    const update = () => setLocationClock(Date.now());
+    update();
+    const timer = setInterval(update, 1000);
+    const resume = AppState.addEventListener("change", state => { if (state === "active") update(); });
+    return () => { clearInterval(timer); resume.remove(); };
+  }, [finished, pushedAt]);
+  const locationAge = pushedAt == null ? null : Math.max(0, locationClock - pushedAt);
+  const staleLocation = !finished && !!myPos && (locationAge == null || locationAge > 30_000);
+  const sharing = !finished && !!myPos && locationAge != null && locationAge <= 30_000;
   // v1.3.2 (safety): the small header SafetyButton appears only once the ride is
   // VERIFIED and ongoing, i.e. the patient OTP is verified at pickup and the trip
   // is in progress (PICKED_UP). Subset of the server raise gate, so a raise can
@@ -487,18 +500,18 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
             if (booking.status === "ACCEPTED") {
               const km = haversineKm(myPos.lat, myPos.lng, booking.pickupLat, booking.pickupLng);
               label = t("trip.eta_to_pickup");
-              value = `~${navEta?.min ?? estimateEtaMin(km)} min · ${(navEta?.km ?? km).toFixed(1)} km`;
+              value = `${formatEta(navEta?.min ?? estimateEtaMin(km), lang)} · ${(navEta?.km ?? km).toFixed(1)} km`;
             } else if (booking.status === "PICKED_UP" && navEta) {
               // Prefer the OSRM road-based ETA when available (CR#6).
               label = t("trip.eta_to_hospital");
-              value = `${navEta.min < 1 ? "<1" : "~" + Math.round(navEta.min)} min · ${navEta.km.toFixed(1)} km`;
+              value = `${formatEta(navEta.min, lang)} · ${navEta.km.toFixed(1)} km`;
             } else if (booking.status === "PICKED_UP" && booking.dropLat != null && booking.dropLng != null) {
               const km = haversineKm(myPos.lat, myPos.lng, booking.dropLat, booking.dropLng);
               label = t("trip.eta_to_hospital");
-              value = `~${estimateEtaMin(km)} min · ${km.toFixed(1)} km`;
+              value = `${formatEta(estimateEtaMin(km), lang)} · ${km.toFixed(1)} km`;
             }
             if (!label || !value) return null;
-            if (routeSource === "cached") label = lang === "hi" ? "सहेजा गया अनुमान" : "Saved estimate";
+            if (routeSource === "cached" || staleLocation) label = t("trip.saved_estimate");
             return (
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, alignItems: "baseline", justifyContent: "space-between", marginTop: space.sm, paddingTop: space.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
                 <Text variant="small" tone="secondary">{label}</Text>
@@ -533,8 +546,8 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
       ) : null}
 
       <Card flat padding="sm">
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: space.sm }}>
-          <Text variant="label" tone="secondary">{t("trip.patient_and_you")}</Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, justifyContent: "space-between", alignItems: "center", marginBottom: space.sm }}>
+          <Text variant="label" tone="secondary" style={{ flexShrink: 1 }}>{t(finished ? "trip.map_trip_locations" : booking.status === "PICKED_UP" ? "trip.map_on_board" : "trip.map_pickup_and_ambulance")}</Text>
           {sharing ? (
             <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
               <PulseDot size={8} color={colors.success} rings={1} />
@@ -542,9 +555,14 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
             </View>
           ) : null}
         </View>
+        {staleLocation ? <Text variant="small" tone="danger" style={{ marginBottom: space.sm }}>
+          {locationAge == null ? t("trip.location_time_unknown") : t("trip.location_stale").replace("{n}", String(Math.floor(locationAge / 1000)))}
+        </Text> : null}
         <MapEmbed
-          pickup={{ lat: booking.pickupLat, lng: booking.pickupLng, label: t("trip.pin_patient") }}
-          driver={myPos ? { lat: myPos.lat, lng: myPos.lng, label: t("trip.pin_you") } : null}
+          key={`ride:${booking.id}`}
+          showPickup={booking.status !== "PICKED_UP" || !myPos}
+          pickup={{ lat: booking.pickupLat, lng: booking.pickupLng, label: t("trip.pin_pickup") }}
+          driver={myPos ? { lat: myPos.lat, lng: myPos.lng, label: booking.status === "PICKED_UP" ? t("trip.pin_on_board") : t("trip.pin_you") } : null}
           drop={booking.dropLat != null && booking.dropLng != null
             ? { lat: booking.dropLat, lng: booking.dropLng, label: booking.dropAddress ?? t("trip.pin_hospital_fallback") }
             : null}
@@ -557,15 +575,15 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
         {myPos && booking.status === "ACCEPTED" ? (
           <View style={{ flexDirection: "row", justifyContent: "space-around", paddingVertical: space.sm }}>
             <View style={{ alignItems: "center" }}>
-              <Text variant="small" tone="secondary">{t("trip.distance_label")}</Text>
+              <Text variant="small" tone="secondary">{t(staleLocation ? "trip.saved_distance" : "trip.distance_label")}</Text>
               <Text variant="heading" weight="bold">
                 {(navEta?.km ?? haversineKm(myPos.lat, myPos.lng, booking.pickupLat, booking.pickupLng)).toFixed(1)} km
               </Text>
             </View>
             <View style={{ alignItems: "center" }}>
-              <Text variant="small" tone="secondary">{t("trip.eta_label")}</Text>
+              <Text variant="small" tone="secondary">{t(staleLocation || routeSource === "cached" ? "trip.saved_estimate" : "trip.eta_label")}</Text>
               <Text variant="heading" weight="bold" tone="primary">
-                ~{navEta?.min ?? estimateEtaMin(haversineKm(myPos.lat, myPos.lng, booking.pickupLat, booking.pickupLng))} min
+                {formatEta(navEta?.min ?? estimateEtaMin(haversineKm(myPos.lat, myPos.lng, booking.pickupLat, booking.pickupLng)), lang)}
               </Text>
             </View>
           </View>
@@ -575,7 +593,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
             <PulseDot size={10} color={colors.success} />
             <Text variant="small" tone="secondary">
               {pushedAt
-                ? t("trip.gps_captured").replace("{n}", String(Math.max(0, Math.round((Date.now() - pushedAt) / 1000))))
+                ? t("trip.gps_captured").replace("{n}", String(Math.floor((locationAge ?? 0) / 1000)))
                 : t("trip.sharing_location_note_starting")}
             </Text>
           </View>
@@ -621,7 +639,7 @@ export function TripScreen({ booking: initial, onClose }: { booking: Booking; on
           <Text variant="small" tone="muted">
             {booking.pickupLat.toFixed(5)}, {booking.pickupLng.toFixed(5)}
           </Text>
-          {!finished ? (
+          {!finished && booking.status !== "PICKED_UP" ? (
             <Button
               label={t("trip.open_maps")}
               variant="outline"

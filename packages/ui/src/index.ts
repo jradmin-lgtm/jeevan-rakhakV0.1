@@ -42,6 +42,7 @@ export {
 export type { JrSignInError } from "./auth/googleSignIn";
 
 export { newerFix, remainingRoute } from "./maps/tracking";
+export { formatEta } from "./maps/formatEta";
 
 export { MotionView } from "./components/MotionView";
 export { useReducedMotion } from "./hooks/useReducedMotion";

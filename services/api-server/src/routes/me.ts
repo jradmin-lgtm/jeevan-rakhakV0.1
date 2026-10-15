@@ -44,7 +44,7 @@ export async function registerMeRoutes(app: FastifyInstance) {
   // v1.1.0 push: register/refresh the caller's FCM device token. Works for
   // both user + driver (keyed off the JWT role). Idempotent — the app POSTs
   // this after login and on token refresh.
-  const pushTokenSchema = z.object({ token: z.string().min(10).max(4096) });
+  const pushTokenSchema = z.object({ token: z.string().min(10).max(4096), alertProtocol: z.literal(2).optional() });
   app.post(
     "/api/v1/me/push-token",
     { preHandler: [(app as any).authenticate] },
@@ -62,7 +62,7 @@ export async function registerMeRoutes(app: FastifyInstance) {
         await tx`UPDATE users SET push_token = NULL WHERE push_token = ${parsed.data.token}`;
         await tx`UPDATE drivers SET push_token = NULL WHERE push_token = ${parsed.data.token}`;
         if (role === "user") await tx`UPDATE users SET push_token = ${parsed.data.token}, updated_at = now() WHERE id = ${sub}`;
-        else await tx`UPDATE drivers SET push_token = ${parsed.data.token}, updated_at = now() WHERE id = ${sub}`;
+        else await tx`UPDATE drivers SET push_token = ${parsed.data.token}, push_alert_protocol = ${parsed.data.alertProtocol ?? 1}, updated_at = now() WHERE id = ${sub}`;
       });
       return reply.send({ ok: true });
     }

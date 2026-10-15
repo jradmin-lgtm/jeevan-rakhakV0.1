@@ -50,7 +50,8 @@ export async function sendPush(
   title: string,
   body: string,
   data?: Record<string, string>,
-  channelId?: string
+  channelId?: string,
+  continuous = false
 ): Promise<void> {
   if (!token) return;
   const a = getAuth();
@@ -89,9 +90,9 @@ export async function sendPush(
         body: JSON.stringify({
           message: {
             token,
-            notification: { title, body },
-            data: payloadData,
-            android
+            ...(continuous ? {} : { notification: { title, body } }),
+            data: continuous ? { ...payloadData, type: "jr_offer", title, body } : payloadData,
+            android: continuous ? { priority: "HIGH", ttl: "60s" } : android
           }
         })
       }
@@ -116,7 +117,8 @@ export async function sendPush(
  */
 export async function dismissPush(
   token: string | null | undefined,
-  bookingId: string
+  bookingId: string,
+  driverId?: string
 ): Promise<void> {
   if (!token || !bookingId) return;
   const a = getAuth();
@@ -142,7 +144,7 @@ export async function dismissPush(
             // the `bookingId` in `data` (the original push set its tag=bookingId).
             // collapseKey is fine (it's not a notification block) and lets this
             // supersede a still-queued duplicate of the same booking.
-            data: { type: "dismiss", bookingId },
+            data: { type: "dismiss", bookingId, ...(driverId ? { driverId } : {}) },
             android: {
               priority: "HIGH",
               collapseKey: bookingId
@@ -196,12 +198,13 @@ export async function pushToDriver(
 ): Promise<void> {
   try {
     const [d] = await db
-      .select({ t: drivers.pushToken, lang: drivers.preferredLang })
+      .select({ t: drivers.pushToken, lang: drivers.preferredLang, protocol: drivers.pushAlertProtocol })
       .from(drivers)
       .where(eq(drivers.id, driverId))
       .limit(1);
     const { title, body } = renderPushTemplate(key, d?.lang, vars);
-    await sendPush(d?.t, title, body, data, channelId);
+    const continuous = d?.protocol === 2 && !!data?.bookingId && (data.kind === "sos" || data.kind === "booking");
+    await sendPush(d?.t, title, body, continuous ? { ...data, driverId } : data, channelId, continuous);
   } catch (error) {
     console.error("Push notification operation failed", error);
   }
@@ -227,7 +230,7 @@ export async function dismissPushToUser(userId: string, bookingId: string): Prom
 export async function dismissPushToDriver(driverId: string, bookingId: string): Promise<void> {
   try {
     const [d] = await db.select({ t: drivers.pushToken }).from(drivers).where(eq(drivers.id, driverId)).limit(1);
-    await dismissPush(d?.t, bookingId);
+    await dismissPush(d?.t, bookingId, driverId);
   } catch (error) {
     console.error("Push notification operation failed", error);
   }

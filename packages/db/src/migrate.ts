@@ -1,5 +1,6 @@
 import { sql } from "./client";
 import { applyTeamReviewMigration } from "./teamReviewMigration";
+import { applyFeedbackMigration } from "./feedbackMigration";
 
 const ddl = `
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -145,6 +146,7 @@ async function main() {
   console.log("[migrate] applying schema...");
   await sql.unsafe(ddl);
   await applyTeamReviewMigration();
+  await applyFeedbackMigration();
   console.log("[migrate] done.");
   await sql.end();
   process.exit(0);

@@ -78,6 +78,7 @@ async function getEligibleDrivers(pickupLat: number, pickupLng: number): Promise
       and(
         eq(drivers.status, "AVAILABLE"),
         eq(drivers.disabled, false),
+        eq(drivers.adminOffline, false),
         eq(drivers.kycVerified, true),
         // Defense in depth (overlap guard): never even target a driver who
         // currently holds an active assigned booking. A driver mid-ride should

@@ -1,4 +1,5 @@
 import { realtimeRequest } from "../realtime-http";
+import { scheduleBookingExpiry } from "../booking-maintenance";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, count, desc, eq, isNull, sql as drizzleSql } from "drizzle-orm";
@@ -275,6 +276,8 @@ export async function registerBookingRoutes(app: FastifyInstance) {
         })
         .returning();
 
+      if (!created.isSos) scheduleBookingExpiry(app, created.dispatchStartedAt);
+
       await db.insert(bookingEvents).values({
         bookingId: created.id,
         actor: `user:${sub}`,
@@ -444,6 +447,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
             eq(bookings.status, "REQUESTED"),
             isNull(bookings.driverId),
             eq(bookings.isSos, false),
+            drizzleSql`EXISTS (SELECT 1 FROM drivers d WHERE d.id = ${req.user.sub} AND d.status = 'AVAILABLE' AND d.admin_offline = false AND d.disabled = false)`,
             drizzleSql`EXISTS (SELECT 1 FROM sos_dispatch_attempts a WHERE a.booking_id = ${bookings.id} AND a.driver_id = ${req.user.sub} AND a.rejected_at IS NULL AND a.accepted_at IS NULL AND a.pushed_at >= ${bookings.dispatchStartedAt})`
           )
         )
@@ -560,7 +564,7 @@ export async function registerBookingRoutes(app: FastifyInstance) {
             eq(bookings.status, "REQUESTED"),
             isNull(bookings.driverId),
             drizzleSql`EXISTS (SELECT 1 FROM sos_dispatch_attempts a WHERE a.booking_id = ${bookings.id} AND a.driver_id = ${sub} AND a.rejected_at IS NULL AND a.accepted_at IS NULL AND a.pushed_at >= ${bookings.dispatchStartedAt})`,
-            drizzleSql`EXISTS (SELECT 1 FROM drivers d WHERE d.id = ${sub} AND d.status = 'AVAILABLE' AND d.disabled = false AND d.kyc_verified = true)`,
+            drizzleSql`EXISTS (SELECT 1 FROM drivers d WHERE d.id = ${sub} AND d.status = 'AVAILABLE' AND d.disabled = false AND d.admin_offline = false AND d.kyc_verified = true)`,
             drizzleSql`NOT EXISTS (
               SELECT 1 FROM ${bookings} AS active_b
               WHERE active_b.driver_id = ${sub}
@@ -599,20 +603,10 @@ export async function registerBookingRoutes(app: FastifyInstance) {
       await emitToHospital(updated);
       // v1.1.0 push: wake the patient even if their app is backgrounded.
       void pushToUser(updated.userId, "booking_assigned", {}, { bookingId: id, status: "ACCEPTED" });
-      // Mark this driver's attempt row accepted (for SOS) + notify the
-      // patient + dismiss losers' modals. Wrapped so a normal-flow accept
-      // (not via cascade) still goes through cleanly.
+      // Acceptance is already persisted transactionally. Only notification
+      // delivery remains here, so a slow socket cannot rewrite decision time.
       {
         try {
-          await db
-            .update(sosDispatchAttempts)
-            .set({ acceptedAt: new Date() })
-            .where(
-              and(
-                eq(sosDispatchAttempts.bookingId, id),
-                eq(sosDispatchAttempts.driverId, sub)
-              )
-            );
           const { stopCascade, notifyCascadeLosers } = await import("../sos-cascade.js");
           stopCascade(id);
           await notifyCascadeLosers(id, sub);
