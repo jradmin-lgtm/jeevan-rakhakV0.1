@@ -1,10 +1,10 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),vm=require('node:vm'),assert=require('node:assert/strict');
 const {stripTypeScriptTypes}=require('node:module');
-const API_BUILD='5252631d2bac20e4a4a805137dd6692ec3cbfb46';
+const API_BUILD='563cbd9eeb859b914f1874b6d2086de11b115f3e';
 const SOURCE_SHA256='5df69cfd58fb659b64d76f4fcae62048deac5b0450d57cf5a82946c78c11f469';
 function sourcePath(){const packaged=path.join(__dirname,'production-location-queue.ts');return fs.existsSync(packaged)?packaged:path.resolve(__dirname,'../../apps/driver-app/src/locationQueue.ts');}
 function prepareSource(source){
- assert.equal(crypto.createHash('sha256').update(source).digest('hex'),SOURCE_SHA256,'Production queue source differs from reviewed API525 companion app');
+ assert.equal(crypto.createHash('sha256').update(source).digest('hex'),SOURCE_SHA256,'Production queue source differs from reviewed companion app');
  const storage='import AsyncStorage from "@react-native-async-storage/async-storage";',api='import { api, getCachedProfile } from "./api";';
  assert.equal(source.split(storage).length,2);assert.equal(source.split(api).length,2);
  const stripped=stripTypeScriptTypes(source.replace(storage,'const AsyncStorage=dependencies.storage;').replace(api,'const {api,getCachedProfile}=dependencies;'),{mode:'strip'});
