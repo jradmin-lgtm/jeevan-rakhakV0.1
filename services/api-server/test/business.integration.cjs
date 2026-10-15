@@ -88,13 +88,29 @@ async function main() {
  for(let run=0;run<6;run++) {
   const newRide=await booking('REQUESTED');
   await sql`UPDATE bookings SET driver_id=NULL WHERE id=${newRide}`;
+  await sql`UPDATE drivers SET status='AVAILABLE' WHERE id=${driver.id}`;
+  await sql`INSERT INTO sos_dispatch_attempts(booking_id,driver_id,wave_number) VALUES(${newRide},${driver.id},1)`;
   const availability=fetch(base+'/api/v1/driver/availability',{method:'POST',headers:{authorization:'Bearer '+dt,'content-type':'application/json'},body:JSON.stringify({status:'OFFLINE'})});
   const [toggle,accepted]=await Promise.all([availability,api(newRide,'accept',dt)]);
   const [state]=await sql`SELECT status FROM drivers WHERE id=${driver.id}`;
-  check('Concurrent availability cannot override accepted trip '+(run+1),[200,409].includes(toggle.status)&&accepted.status===200&&state.status==='ON_TRIP',{toggle:toggle.status,accepted:accepted.status,state});
+  const [rideState]=await sql`SELECT status,driver_id FROM bookings WHERE id=${newRide}`;
+  const acceptWon=accepted.status===200&&toggle.status===409&&state.status==='ON_TRIP'&&rideState.status==='ACCEPTED'&&rideState.driver_id===driver.id;
+  const offlineWon=toggle.status===200&&accepted.status===409&&accepted.body.error==='already_taken'&&state.status==='OFFLINE'&&rideState.status==='REQUESTED'&&rideState.driver_id===null;
+  check('Concurrent availability and acceptance serialize safely '+(run+1),acceptWon||offlineWon,{toggle:toggle.status,accepted:accepted.status,state,rideState});
   await sql`UPDATE bookings SET status='CANCELLED' WHERE id=${newRide}`;
   await sql`UPDATE drivers SET status='OFFLINE' WHERE id=${driver.id}`;
  }
+ // Also force the acceptance-first order so race scheduling cannot skip its guard.
+ const acceptedFirst=await booking('REQUESTED');
+ await sql`UPDATE bookings SET driver_id=NULL WHERE id=${acceptedFirst}`;
+ await sql`UPDATE drivers SET status='AVAILABLE' WHERE id=${driver.id}`;
+ await sql`INSERT INTO sos_dispatch_attempts(booking_id,driver_id,wave_number) VALUES(${acceptedFirst},${driver.id},1)`;
+ const acceptedFirstResult=await api(acceptedFirst,'accept',dt);
+ const afterAcceptToggle=await fetch(base+'/api/v1/driver/availability',{method:'POST',headers:{authorization:'Bearer '+dt,'content-type':'application/json'},body:JSON.stringify({status:'OFFLINE'})});
+ const [acceptedFirstState]=await sql`SELECT status FROM drivers WHERE id=${driver.id}`;
+ check('Offline toggle cannot override a committed accepted trip',acceptedFirstResult.status===200&&afterAcceptToggle.status===409&&acceptedFirstState.status==='ON_TRIP',{accepted:acceptedFirstResult.status,toggle:afterAcceptToggle.status,state:acceptedFirstState});
+ await sql`UPDATE bookings SET status='CANCELLED' WHERE id=${acceptedFirst}`;
+ await sql`UPDATE drivers SET status='OFFLINE' WHERE id=${driver.id}`;
  if(env.TEST_RESULTS_FILE) fs.writeFileSync(env.TEST_RESULTS_FILE,JSON.stringify(results,null,2));
  assert.ok(results.every(r=>r.pass),'Business regression failures');
 }

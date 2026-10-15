@@ -39,6 +39,8 @@ async function main() {
  await api('/api/v1/driver/availability',dt,{status:'AVAILABLE'});ds.emit('driver:availability',{available:true});await pause(200);await emit();await pause(200);check('Verified available driver receives offer',offers===1);
  const [offer] = await sql`INSERT INTO bookings(user_id,status,emergency_type,pickup_lat,pickup_lng,pickup_address,pickup_landmark,ride_otp_code) VALUES (${user.id},'REQUESTED','OPD_AMBULANCE',28.4,79.4,'Access test pickup','Village temple north gate','1234') RETURNING id`;
  check('Unassigned driver cannot fetch private booking',await api('/api/v1/bookings/'+offer.id,dt)===403);
+ // Offer-summary permissions require a durable offer to this driver.
+ await sql`INSERT INTO sos_dispatch_attempts(booking_id,driver_id,wave_number) VALUES(${offer.id},${driver.id},1)`;
  const offerResponse=await fetch(base+'/api/v1/driver/incoming',{headers:{authorization:'Bearer '+dt}});
  check('Available driver can refresh offer summaries',offerResponse.status===200);
  const offered=(await offerResponse.json()).requests.find(row=>row.id===offer.id);

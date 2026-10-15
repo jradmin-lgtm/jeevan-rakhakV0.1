@@ -76,6 +76,10 @@ async function main() {
   check('Complete transition', (await request(`/api/v1/bookings/${winner.id}/complete`, drivers[0].token, {})).status === 200);
   check('Cannot regress completed ride to arrived', (await request(`/api/v1/bookings/${winner.id}/arrived`, drivers[0].token, {})).status === 409);
   check('Repeated complete rejected', (await request(`/api/v1/bookings/${winner.id}/complete`, drivers[0].token, {})).status === 409);
+  // Completion makes driver 0 AVAILABLE. Take it offline through the real API so
+  // the online-recovery scenario below has no existing recipient/wave deadline.
+  const offline = await request('/api/v1/driver/availability', drivers[0].token, { status: 'OFFLINE' });
+  check('Finished driver offline before no-available-driver scenario', offline.status === 200 && offline.body.driver.status === 'OFFLINE', offline);
   const concurrent = await Promise.all(Array.from({ length: 8 }, () => request('/api/v1/bookings', users[2].token, input)));
   check('Concurrent create leaves one active user booking', concurrent.filter(r => r.status === 201).length === 1 && concurrent.every(r => [201, 409, 429].includes(r.status)), concurrent);
   const sos = await request('/api/v1/bookings', users[3].token, { ...input, emergencyType: 'CARDIAC', isSos: true, pickupLandmark: 'Village temple north gate' });

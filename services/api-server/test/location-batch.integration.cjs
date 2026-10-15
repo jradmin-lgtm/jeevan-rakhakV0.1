@@ -43,8 +43,12 @@ async function main() {
   await request([{ ...historical, lat: 10, ts: now - 700000 }]);
   const [driver] = await sql`SELECT last_lat, last_seen_at FROM drivers WHERE id = ${driverId}`;
   check('History cannot move live position or freshness backward', driver.last_lat === current.lat && +driver.last_seen_at === current.ts);
-  const expired = await request([{ ...historical, ts: now - 25 * 3600000 }]);
-  check('Expired history explicitly reported', expired.status === 200 && expired.body.accepted === 0 && expired.body.expired === 1);
+  const delayedTs = now - 25 * 3600000;
+  const delayed = await request([{ ...historical, ts: delayedTs }]);
+  check('Owned offline history remains recoverable after24hours', delayed.status === 200 && delayed.body.accepted === 1 && delayed.body.expired === 0);
+  const [delayedRows] = await sql`SELECT COUNT(*)::int AS n FROM driver_locations WHERE driver_id = ${driverId} AND booking_id = ${bookingId} AND recorded_at = ${new Date(delayedTs).toISOString()}`;
+  const [afterDelayed] = await sql`SELECT last_lat, last_seen_at FROM drivers WHERE id = ${driverId}`;
+  check('Delayed history keeps original capture time without rewinding live GPS', delayedRows.n === 1 && afterDelayed.last_lat === current.lat && +afterDelayed.last_seen_at === current.ts);
   check('Future timestamps rejected', (await request([{ ...current, ts: now + 60000 }])).status === 400);
   check('Out-of-range coordinates rejected', (await request([{ ...current, lat: 100 }])).status === 400);
   check('Batch size bounded', (await request(Array.from({ length: 101 }, () => current))).status === 400);

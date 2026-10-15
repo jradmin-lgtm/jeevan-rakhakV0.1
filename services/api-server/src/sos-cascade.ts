@@ -13,9 +13,9 @@ import { realtimeRequest } from "./realtime-http";
  *   t=200s : if still no accept → fire critical alert, patient sees
  *            "no driver yet — call the mobile line", booking stays REQUESTED
  *
- * Drivers who reject are removed from future waves. The eligible-driver list
- * is frozen at booking-creation time so a driver coming online mid-cascade
- * won't get retroactively pushed.
+ * Drivers who reject are removed from future waves. Eligibility is refreshed
+ * each wave. Coming online can wake an SOS that has no current-cycle offer;
+ * an existing offer always retains its persisted wave deadline.
  *
  * State lives in two places:
  *   - In-memory `runners` map (timer + transient state)
@@ -46,7 +46,7 @@ const STALENESS_MIN = Number(process.env.SOS_CASCADE_STALENESS_MIN ?? 5);
 
 type EligibleDriver = { driverId: string; distanceKm: number };
 
-type RunnerState = { bookingId: string; timer: NodeJS.Timeout | null; stopped: boolean };
+type RunnerState = { bookingId: string; timer: NodeJS.Timeout | null; stopped: boolean; waitingForDriver: boolean; running: Promise<void> | null };
 const runners = new Map<string, RunnerState>();
 const starting = new Map<string, Promise<void>>();
 export const DISPATCH_WINDOW_MS = MAX_DRIVERS * WAVE_INTERVAL_MS + 30_000;
@@ -170,15 +170,28 @@ async function emitToUser(userId: string, event: string, payload: unknown) {
 
 function schedule(app: FastifyInstance, state: RunnerState, delay: number) {
   if (state.stopped) return;
-  state.timer = setTimeout(() => {
+  if (state.timer) clearTimeout(state.timer);
+  const timer = setTimeout(() => {
+    if (state.stopped || state.timer !== timer) return;
+    state.timer = null;
     void runWave(app, state).catch(error => {
       app.log.error({ error, bookingId: state.bookingId }, "Dispatch wave failed; retry scheduled");
       schedule(app, state, WAVE_INTERVAL_MS);
     });
   }, Math.max(100, delay));
+  state.timer = timer;
 }
 
 async function runWave(app: FastifyInstance, state: RunnerState): Promise<void> {
+  if (state.running) return state.running;
+  if (state.stopped) return;
+  state.waitingForDriver = false;
+  const running = runWaveOnce(app, state).finally(() => { state.running = null; });
+  state.running = running;
+  return running;
+}
+
+async function runWaveOnce(app: FastifyInstance, state: RunnerState): Promise<void> {
   if (state.stopped) return;
   const [booking] = await db.select().from(bookings).where(eq(bookings.id, state.bookingId)).limit(1);
   if (!booking || booking.status !== "REQUESTED" || booking.driverId) { stopCascade(state.bookingId); return; }
@@ -194,7 +207,7 @@ async function runWave(app: FastifyInstance, state: RunnerState): Promise<void> 
     if (delay > 0) return { delay };
     if (cycle.length >= MAX_DRIVERS || (!b.isSos && Date.now() - +b.dispatchStartedAt >= DISPATCH_WINDOW_MS)) return { exhausted: b };
     const target = eligible.find(d => !rows.some(a => a.driverId === d.driverId && (a.rejectedAt || a.pushedAt >= b.dispatchStartedAt)));
-    if (!target) return Date.now() - +b.dispatchStartedAt >= DISPATCH_WINDOW_MS ? { exhausted: b } : { delay: WAVE_INTERVAL_MS };
+    if (!target) return Date.now() - +b.dispatchStartedAt >= DISPATCH_WINDOW_MS ? { exhausted: b } : { delay: WAVE_INTERVAL_MS, waitingForDriver: b.isSos && cycle.length === 0 };
     const wave = cycle.length + 1;
     await tx.insert(sosDispatchAttempts).values({ bookingId: b.id, driverId: target.driverId, waveNumber: wave, distanceKm: target.distanceKm })
       .onConflictDoUpdate({ target: [sosDispatchAttempts.bookingId, sosDispatchAttempts.driverId], set: { waveNumber: wave, distanceKm: target.distanceKm, pushedAt: new Date(), acceptedAt: null, rejectedAt: null } });
@@ -227,6 +240,7 @@ async function runWave(app: FastifyInstance, state: RunnerState): Promise<void> 
       stopCascade(b.id); return;
     }
   }
+  state.waitingForDriver = "waitingForDriver" in outcome && outcome.waitingForDriver === true;
   schedule(app, state, "delay" in outcome ? outcome.delay! : WAVE_INTERVAL_MS);
 }
 
@@ -234,7 +248,7 @@ export async function startCascade(app: FastifyInstance, bookingId: string): Pro
   if (starting.has(bookingId)) return starting.get(bookingId)!;
   if (runners.has(bookingId)) return;
   const pending = (async () => {
-    const state: RunnerState = { bookingId, timer: null, stopped: false };
+    const state: RunnerState = { bookingId, timer: null, stopped: false, waitingForDriver: false, running: null };
     runners.set(bookingId, state);
     try { await runWave(app, state); }
     catch (error) { app.log.error({ error, bookingId }, "Initial dispatch failed; retry scheduled"); schedule(app, state, WAVE_INTERVAL_MS); throw error; }
@@ -283,6 +297,19 @@ export async function resumeOnBoot(app: FastifyInstance): Promise<void> {
 }
 
 export async function offerPendingSosToDriver(app: FastifyInstance, _driverId: string): Promise<void> {
-  // Availability can recover a missing runner, but cannot jump ahead of its persisted wave clock.
+  // Recover missing runners first; an existing offer must retain its wave clock.
   await resumeOnBoot(app);
+  for (const state of runners.values()) {
+    // A concurrent timer may still be checking eligibility. Wait for its result
+    // before deciding whether this SOS has an empty first wave to wake.
+    if (state.running) await state.running;
+    if (state.stopped || !state.waitingForDriver) continue;
+    if (state.timer) { clearTimeout(state.timer); state.timer = null; }
+    try { await runWave(app, state); }
+    catch (error) {
+      app.log.error({ error, bookingId: state.bookingId }, "Availability dispatch wake failed; retry scheduled");
+      schedule(app, state, WAVE_INTERVAL_MS);
+      throw error;
+    }
+  }
 }
