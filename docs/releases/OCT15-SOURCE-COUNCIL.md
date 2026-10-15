@@ -41,3 +41,9 @@ SHA-256:
 - `services/api-server/src/routes/location-batch.ts`: `769ba074225634306efd4d621031c96cc5e428949d8046e1fd3d7e9d1eece9e3`
 - `services/api-server/src/backup.ts`: `3df198ffd5232f4c74d5efefc7f86db2fc3689709a0a6f7af6534a3f605ac7eb`
 - `services/api-server/src/booking-maintenance.ts`: `771ed55c869c2ba08312beb274d2a459cf6d37733a29b581ae8e9999ba9d6350`
+
+## Subsequent backup upload suppression change
+
+After the reviewed d8c084a candidate, this reviewer implemented conservative complete-content duplicate upload suppression in backup.ts and backup-transfer.test.cjs. Identical verified source-matched contents update only Drive metadata, preserving original capture time and recording Drive `jrBackupCheckedAt` separately from original `jrBackupTakenAt`. The log reports this as `verifiedUnchangedAt`. Changed contents still upload complete format2 snapshots. Canonical hashing ignores table row/object-key order but preserves nested array order and duplicate rows. Invalid timestamps, corrupt prior content and failed metadata updates fail loudly. Different-source backups cannot suppress uploads.
+
+Independent backend review of this addition passed. The separate native reviewer's final backup/runner/restore council passed at 91/100, recorded in `jr-feedback-20261015/INDEPENDENT-BACKUP-LOAD-RESTORE-REVIEW.md`. The original 89/100 score above retains its original candidate scope; the later review covers this self-authored delta. Hosted and production verification remain separate gates. Actual isolated PostgreSQL test run: 13/13 passed, zero skips. API TypeScript check passed. Only the two owned files were mirrored to primary after validation. No commit, push or deployment was performed by this reviewer. Full active-service backups and API-streamed APKs still consume outbound bandwidth.

@@ -100,3 +100,10 @@ Both final 2.2.4 build 58 APK candidates are built, signed with the existing ide
 
 
 A one-time native PostgreSQL 18 schema-and-data archive was written locally alongside the original JSON backup. Archive size 28,997,932 bytes; SHA-256 c5ce3c9c7ce8e1622d072a3d104909fff35ba2043e973f9c8b9c98c2b4aae571. Actual restore into a temporary local PostgreSQL 18 instance passed for all 21 source tables and 6,894 rows. The verification instance was removed. The archive is private, outside Git, and adds no recurring backup schedule. Its private manifest is LOCAL DATABASE BACKUPS/2026-10-15/NATIVE-ARCHIVE-MANIFEST.json.
+
+
+## Remote generator result and next targeted fix
+
+The independently reviewed temporary free Render generator (source 19e8bd0a046b4ba17c7ea8c1ccf4fec170bfdc80) ran against unchanged API/socket candidate 0be6. The full intended 30-minute run stopped after 39 seconds of steady work: 399 successful booking polls plus one 502, and 399 successful GPS batches plus one 502. Poll p95 3,649 ms, upload p95 3,943 ms. All 450 realtime deliveries arrived; zero cross-ride deliveries, duplicates and socket errors. The generator report was preserved and the generator suspended. No production cutover occurred.
+
+A 60-second basic-health isolation check returned 1,200/1,200 HTTP 200. No-socket comparison returned poll-only 150/150 HTTP 200 at p95 2,860 ms; batch-only 150/150 at 1,751 ms; combined 300/300 at 3,336 ms. The exact origin of the earlier 502 responses remains unverified. These results support reducing the booking-read query path; they do not approve capacity. A narrow joined query is being tested against the original response and authorization contract before another hosted attempt.

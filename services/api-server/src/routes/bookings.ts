@@ -308,53 +308,35 @@ export async function registerBookingRoutes(app: FastifyInstance) {
     async (req: any, reply) => {
       const id = req.params.id as string;
       const { sub, role } = req.user;
-      const [b] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
-      if (!b) return reply.code(404).send({ error: "not_found" });
+      // Read the booking and its public contact fields in one consistent query.
+      // Account revocation still runs in authenticate; authorization stays below.
+      const [row] = await db.select({
+        booking: bookings,
+        driver: {
+          id: drivers.id, name: drivers.name, phone: drivers.phone,
+          vehicleNumber: drivers.vehicleNumber, vehicleType: drivers.vehicleType,
+          rating: drivers.rating, ratingCount: drivers.ratingCount,
+          lastLat: drivers.lastLat, lastLng: drivers.lastLng, lastSeenAt: drivers.lastSeenAt
+        },
+        user: { id: users.id, name: users.name, phone: users.phone }
+      }).from(bookings)
+        .leftJoin(drivers, eq(drivers.id, bookings.driverId))
+        .leftJoin(users, eq(users.id, bookings.userId))
+        .where(eq(bookings.id, id)).limit(1);
+      if (!row) return reply.code(404).send({ error: "not_found" });
+      const b = row.booking;
       if (!await canReadBooking(b, req.user)) return reply.code(403).send({ error: "forbidden" });
 
-      let driverProfile = null;
-      let driverPosition = null;
-      if (b.driverId) {
-        const [d] = await db.select().from(drivers).where(eq(drivers.id, b.driverId)).limit(1);
-        if (d) {
-          driverProfile = {
-            id: d.id,
-            name: d.name,
-            phone: d.phone,
-            vehicleNumber: d.vehicleNumber,
-            vehicleType: d.vehicleType,
-            rating: d.rating,
-            ratingCount: d.ratingCount
-          };
-          if (["ACCEPTED", "ARRIVED", "PICKED_UP"].includes(b.status) && d.lastLat != null && d.lastLng != null) {
-            driverPosition = {
-              lat: d.lastLat,
-              lng: d.lastLng,
-              lastSeenAt: d.lastSeenAt
-            };
-          }
-        }
-      }
-
-      // userProfile carries the patient-facing contact info the *driver* needs
-      // (name + phone for one-tap calling). Returned for both sides; the user
-      // app already has its own profile so this is mostly noise there, but
-      // including it unconditionally keeps the response shape consistent.
-      // Note: this exposes patient *contact*, NOT medical fields — those
-      // (patientCondition, patientNotes, paramedicAssessment) are returned
-      // separately on the booking row and the driver app filters them out
-      // per the visibility rule.
-      let userProfile = null;
-      if (b.userId) {
-        const [u] = await db.select().from(users).where(eq(users.id, b.userId)).limit(1);
-        if (u) {
-          userProfile = {
-            id: u.id,
-            name: u.name,
-            phone: u.phone
-          };
-        }
-      }
+      const d = row.driver;
+      const driverProfile = d ? {
+        id: d.id, name: d.name, phone: d.phone,
+        vehicleNumber: d.vehicleNumber, vehicleType: d.vehicleType,
+        rating: d.rating, ratingCount: d.ratingCount
+      } : null;
+      const driverPosition = d && ["ACCEPTED", "ARRIVED", "PICKED_UP"].includes(b.status)
+        && d.lastLat != null && d.lastLng != null
+        ? { lat: d.lastLat, lng: d.lastLng, lastSeenAt: d.lastSeenAt } : null;
+      const userProfile = row.user;
       return reply.send({ booking: bookingForRole(b, role), driverProfile, driverPosition, userProfile });
     }
   );
