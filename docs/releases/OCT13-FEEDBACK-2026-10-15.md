@@ -1,5 +1,13 @@
 # October 13 feedback implementation status
 
+## Latest verified status: 16 October 2026, 1:03 AM IST
+
+User-authorised controlled team pilot is live. Both 2.2.4 build58 APKs were downloaded through the existing public QR/contact gate, matched to the reviewed hashes and signing certificate, and the updated portal login/usage/history rendering verified. API and realtime exact sources are live on the approved restored database. See [OCT16-PILOT-RELEASE.md](OCT16-PILOT-RELEASE.md) for the release scope, evidence and unresolved risks.
+
+The hosted ten-ride run remains FAIL: 1,430/1,800 checks, one 39.901-second GPS HTTP520. Partial realtime delivered 2,910/2,910 updates with no missing/cross-ride events. This is not ten-ride or fifty-ride certification. Physical Infinix, remote FCM and physical silent/DND checks remain unverified. All test fixtures and temporary credentials were cleaned up. No new full hosted test was started against production.
+
+## Historical candidate notes
+
 Session: 15 October 2026 IST. Source: project JR CHANGES/New_App_Updates requests.docx. Seven requests and eight embedded images reviewed. Current implementation is not published.
 
 ## Confirmed decisions
