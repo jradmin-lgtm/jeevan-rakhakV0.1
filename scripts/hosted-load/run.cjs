@@ -1,7 +1,8 @@
 /* Hosted-only, isolated capacity exercise. Never remove the local runner's guards. */
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto'), assert = require('node:assert/strict');
-const {validateConfig, validateRuntime, percentile, validateAck} = require('./guards.cjs');
+const {validateConfig, validateRuntime, percentile, validateAck, expectedBuildForOrigin} = require('./guards.cjs');
 const {loadDependency, createTransport} = require('./transport.cjs');
+const {measureDatabaseRoundTrips} = require('./database-probe.cjs');
 const root = path.resolve(__dirname, '../..');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function parallel(items, limit, fn) {
@@ -14,9 +15,9 @@ async function parallel(items, limit, fn) {
 function summary(xs) { return {count:xs.length,p50:percentile(xs,.5),p95:percentile(xs,.95),p99:percentile(xs,.99),max:xs.length?Math.round(Math.max(...xs)*10)/10:null}; }
 function plan(c) {
   validateConfig(c);
-  return {environment:c.environmentId,apiOrigin:c.apiOrigin,socketOrigin:c.socketOrigin,databaseName:c.databaseName,build:c.expectedBuild,
+  return {environment:c.environmentId,apiOrigin:c.apiOrigin,socketOrigin:c.socketOrigin,databaseName:c.databaseName,build:c.expectedBuild,socketBuild:c.expectedSocketBuild??c.expectedBuild,
     rides:50,users:50,drivers:50,sockets:100,steadySeconds:c.cycles*5,steadyHttpRequests:c.cycles*100,
-    offlinePoints:1000,offlineReplayRequests:100,reconnectUsers:25,mapHttpRequestCap:c.maxMapHttpCalls,
+    offlinePoints:1000,offlineReplayRequests:100,databaseProbeQueries:111,reconnectUsers:25,mapHttpRequestCap:c.maxMapHttpCalls,
     payloadMeasurement:'Decoded UTF-8 JSON response and request-body bytes only; excludes headers/TLS/compression and is not billed network transfer',
     excluded:['Real push/SMS/email','Booking creation and nearest-driver dispatch selection (fixtures pre-offered)','Phone map renderers and APK UI','Physical Android queue storage','Billing/quota guarantees','Login/OTP authentication provider']};
 }
@@ -98,7 +99,7 @@ async function main() {
   try {
     await stage('Verify hosted build, isolation marker and empty test domain',async()=>{
       assert.ok(!c.apiOrigin.endsWith('.invalid')&&!c.socketOrigin.endsWith('.invalid'),'Replace example hosts');
-      for(const origin of [c.apiOrigin,c.socketOrigin]) {const h=await http('health',origin,'/health',null,undefined,[200],60000);assert.equal(h.build,c.expectedBuild,'Hosted build mismatch');}
+      for(const origin of [c.apiOrigin,c.socketOrigin]) {const h=await http('health',origin,'/health',null,undefined,[200],60000);assert.equal(h.build,expectedBuildForOrigin(c,origin),'Hosted build mismatch');}
       await http('db-health',c.apiOrigin,'/health/db',null,undefined,[200],30000);
       const [db]=await sql`SELECT current_database() AS name`;assert.equal(db.name,c.databaseName);
       const marker=await sql`SELECT environment_id,api_origin,socket_origin,outbound_notifications_disabled FROM jr_load_environment`;
@@ -106,6 +107,7 @@ async function main() {
       const [existing]=await sql`SELECT (SELECT count(*) FROM users WHERE NOT is_demo OR phone NOT LIKE 'jr-hosted-load-%' OR push_token IS NOT NULL)::int AS users,(SELECT count(*) FROM drivers WHERE NOT is_demo OR phone NOT LIKE 'jr-hosted-load-%' OR push_token IS NOT NULL)::int AS drivers,(SELECT count(*) FROM bookings WHERE NOT is_demo)::int AS bookings`;
       assert.deepEqual(existing,{users:0,drivers:0,bookings:0},'Database contains non-load identities or push tokens');
       const [active]=await sql`SELECT count(*)::int AS n FROM bookings WHERE status IN ('REQUESTED','ACCEPTED','ARRIVED','PICKED_UP')`;assert.equal(active.n,0,'Prior active test must be resolved first');
+      report.databaseRoundTrips=await measureDatabaseRoundTrips(postgres,process.env.JR_HOSTED_LOAD_DATABASE_URL);
     });
     await stage('Seed 50 isolated users, drivers and pre-offered requests',async()=>{
       const dispatchAt=new Date(Date.now()-1000);

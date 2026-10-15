@@ -16,6 +16,7 @@ function validateConfig(c) {
   publicOrigin(c.apiOrigin); publicOrigin(c.socketOrigin);
   assert.notEqual(c.apiOrigin, c.socketOrigin, 'Separate API and realtime service origins required');
   assert.match(c.expectedBuild, /^[a-f0-9]{40}$/);
+  if(c.expectedSocketBuild!==undefined)assert.match(c.expectedSocketBuild,/^[a-f0-9]{40}$/,'Explicit socket build must be a full SHA');
   assert.equal(c.rides, 50, 'This runner is capped at exactly 50 rides');
   assert.ok(Number.isInteger(c.cycles) && c.cycles >= 12 && c.cycles <= 360, '12 to 360 five-second cycles');
   assert.equal(typeof c.mapsEnabled, 'boolean');
@@ -50,4 +51,9 @@ function validateAck(data, points) {
   assert.ok([...accepted,...rejected].every(k=>expected.has(k)), 'Unknown ACK');
   return {accepted, rejected};
 }
-module.exports = {validateConfig, validateRuntime, percentile, validateAck};
+function expectedBuildForOrigin(c,origin){
+ if(origin===c.apiOrigin)return c.expectedBuild;
+ if(origin===c.socketOrigin)return c.expectedSocketBuild??c.expectedBuild;
+ throw new Error('Unknown target origin cannot be assigned a build');
+}
+module.exports = {validateConfig, validateRuntime, percentile, validateAck, expectedBuildForOrigin};

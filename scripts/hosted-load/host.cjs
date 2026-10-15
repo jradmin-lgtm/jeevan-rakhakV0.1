@@ -10,13 +10,13 @@ function createHost({config,env,configPath,reportPath,spawnRun=spawn,readReport=
  function authorized(req){const actual=crypto.createHash('sha256').update(req.headers.authorization??'').digest();return crypto.timingSafeEqual(expected,actual);}
  const server=http.createServer((req,res)=>{
   const send=(status,value)=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(value));};
-  if(req.url==='/health'&&req.method==='GET')return send(200,{status:'ok',service:'isolated-load-generator',generatorBuild,targetBuild:config.expectedBuild});
+  if(req.url==='/health'&&req.method==='GET')return send(200,{status:'ok',service:'isolated-load-generator',generatorBuild,targetBuild:config.expectedBuild,targetSocketBuild:config.expectedSocketBuild??config.expectedBuild});
   if(!authorized(req))return send(401,{error:'unauthorized'});
-  if(req.url==='/status'&&req.method==='GET')return send(200,{state,exitCode,progress,generatorBuild,targetBuild:config.expectedBuild,runProtection:'Process and local report only; restart durability is not guaranteed'});
+  if(req.url==='/status'&&req.method==='GET')return send(200,{state,exitCode,progress,generatorBuild,targetBuild:config.expectedBuild,targetSocketBuild:config.expectedSocketBuild??config.expectedBuild,runProtection:'Process and local report only; restart durability is not guaranteed'});
   if(req.url==='/report'&&req.method==='GET'){
    if(state!=='finished')return send(409,{error:'report_not_ready'});
    const report=readReport();if(!report)return send(500,{error:'missing_report'});
-   res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});return res.end(JSON.stringify({...JSON.parse(report),generatorSourceBuild:generatorBuild,targetBuild:config.expectedBuild}));
+   res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});return res.end(JSON.stringify({...JSON.parse(report),generatorSourceBuild:generatorBuild,targetBuild:config.expectedBuild,targetSocketBuild:config.expectedSocketBuild??config.expectedBuild}));
   }
   if(req.url!=='/run'||req.method!=='POST')return send(404,{error:'not_found'});
   if(state!=='ready'||readReport())return send(409,{error:'run_already_started_or_recorded'});

@@ -7,7 +7,7 @@ test('control endpoints are private, run starts exactly once, reports stay unava
  let calls=0,report=null;const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=()=>{};
  const server=createHost({config,env,configPath:'/tmp/test-config',reportPath:'/tmp/test-report',readReport:()=>report,spawnRun(binary,args,options){calls++;assert.equal(args[1],'--run');assert.equal(options.env,env);return child;}});t.after(()=>server.close());const origin=await listening(server);
  const auth={authorization:'Bearer '+env.JR_HOSTED_LOAD_CONTROL_SECRET};
- assert.deepEqual(await(await fetch(origin+'/health')).json(),{status:'ok',service:'isolated-load-generator',generatorBuild:'unverified',targetBuild:config.expectedBuild});
+ assert.deepEqual(await(await fetch(origin+'/health')).json(),{status:'ok',service:'isolated-load-generator',generatorBuild:'unverified',targetBuild:config.expectedBuild,targetSocketBuild:config.expectedBuild});
  for(const endpoint of ['/run','/status','/report'])assert.equal((await fetch(origin+endpoint,{method:endpoint==='/run'?'POST':'GET'})).status,401);
  assert.equal(calls,0);assert.equal((await fetch(origin+'/run',{method:'POST',headers:auth})).status,202);assert.equal((await fetch(origin+'/run',{method:'POST',headers:auth})).status,409);assert.equal(calls,1);assert.equal((await fetch(origin+'/report',{headers:auth})).status,409);
  const log=JSON.stringify({stage:'steady',cycle:12,totalCycles:360,pendingGps:0});child.stdout.write(log.slice(0,15));child.stdout.write(log.slice(15)+'\n');assert.equal((await(await fetch(origin+'/status',{headers:auth})).json()).progress[0].cycle,12);

@@ -1,5 +1,5 @@
 const test = require('node:test'), assert = require('node:assert/strict');
-const {validateConfig, validateRuntime, percentile, validateAck} = require('./guards.cjs');
+const {validateConfig, validateRuntime, percentile, validateAck, expectedBuildForOrigin} = require('./guards.cjs');
 const config = () => ({environmentId:'jr-load-example',databaseName:'jr_load_example',apiOrigin:'https://api.example.invalid',socketOrigin:'https://socket.example.invalid',expectedBuild:'a'.repeat(40),rides:50,cycles:120,mapsEnabled:false,maxMapHttpCalls:0,providerQuotaBudgetConfirmed:false,httpP95Ms:2000,gpsP95Ms:1500,deliveryTimeoutMs:15000,isolatedHostingConfirmed:true,outboundNotificationsDisabled:true});
 test('requires explicit isolated hosted environment and bounded scope', () => {
   assert.doesNotThrow(()=>validateConfig(config()));
@@ -22,4 +22,11 @@ test('partial ACK accounts for exact retained points without duplicate or cross-
 });
 test('percentiles are nearest-rank and empty samples stay unknown', () => {
   assert.equal(percentile([],0.95),null);assert.equal(percentile(Array.from({length:100},(_,i)=>i+1),.95),95);
+});
+
+test('API and socket each require their exact declared build, with compatible legacy default',()=>{
+ const c=config();assert.equal(expectedBuildForOrigin(c,c.apiOrigin),c.expectedBuild);assert.equal(expectedBuildForOrigin(c,c.socketOrigin),c.expectedBuild);
+ c.expectedSocketBuild='b'.repeat(40);validateConfig(c);assert.equal(expectedBuildForOrigin(c,c.apiOrigin),'a'.repeat(40));assert.equal(expectedBuildForOrigin(c,c.socketOrigin),'b'.repeat(40));
+ assert.throws(()=>expectedBuildForOrigin(c,'https://unknown.example.invalid'),/Unknown target/);
+ for(const sha of ['',null,'short','z'.repeat(40)])assert.throws(()=>validateConfig({...c,expectedSocketBuild:sha}));
 });
