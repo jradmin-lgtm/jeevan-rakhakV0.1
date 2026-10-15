@@ -59,6 +59,9 @@ jobs:
       - name: SOS dispatch wake regression
         run: node --test services/api-server/test/sos-cascade-wake.test.cjs
 
+      - name: Render HTTP lifetime and testing budget regression
+        run: node --test services/api-server/test/http-keepalive.test.cjs scripts/hosted-load/usage-budget.test.cjs scripts/hosted-load/usage-budget-cleanup.test.cjs
+
       - name: Isolated booking and permissions regression
         env:
           DATABASE_URL: postgres://postgres:local-integration-only@127.0.0.1:5432/jr_release_test

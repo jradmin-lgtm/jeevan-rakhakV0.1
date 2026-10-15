@@ -35,6 +35,7 @@ async function main() {
   const postgres=loadDependency('postgres', root+'/packages/db/node_modules/postgres');
   const {io}=loadDependency('socket.io-client', root+'/apps/driver-app/node_modules/socket.io-client');
   const transport=createTransport();
+  const trafficBudget=require('./usage-budget.cjs').createTrafficBudget(c.usageBudget);
   const sql=postgres(process.env.JR_HOSTED_LOAD_DATABASE_URL,{max:4,connect_timeout:15,idle_timeout:20,ssl:{rejectUnauthorized:true},connection:{statement_timeout:15000,application_name:'jr-hosted-load'}});
   const realtimeV2=c.scenario==='PRODUCTION_CLIENT_RESILIENCE_V2';
   const clientScenario=['PRODUCTION_CLIENT_RESILIENCE','PRODUCTION_CLIENT_RESILIENCE_V2'].includes(c.scenario);
@@ -57,13 +58,14 @@ async function main() {
     return body+'.'+crypto.createHmac('sha256',process.env.JR_HOSTED_LOAD_JWT_SECRET).update(body).digest('base64url');
   }
   async function http(label,origin,url,token,body,statuses=[200],timeout=15000) {
-    check(); const at=performance.now(); const metric=report.http[label]??={times:[],statuses:{},unexpected:0,requestBodyUtf8Bytes:0,decodedResponseUtf8Bytes:0};
+    check(); if(trafficBudget)trafficBudget.assertCanStart(); const at=performance.now(); const metric=report.http[label]??={times:[],statuses:{},unexpected:0,requestBodyUtf8Bytes:0,decodedResponseUtf8Bytes:0};
     const requestBody=body===undefined?undefined:JSON.stringify(body);
     metric.requestBodyUtf8Bytes+=requestBody===undefined?0:Buffer.byteLength(requestBody);
+    if(trafficBudget)trafficBudget.consume(requestBody===undefined?0:Buffer.byteLength(requestBody));
     try {
       const response=await fetch(origin+url,{method:body===undefined?'GET':'POST',redirect:'error',signal:AbortSignal.timeout(timeout),dispatcher:transport.dispatcher,headers:{...(token?{authorization:'Bearer '+token}:{}),'content-type':'application/json'},...(requestBody===undefined?{}:{body:requestBody})});
       metric.statuses[response.status]=(metric.statuses[response.status]||0)+1;
-      const text=await response.text();metric.decodedResponseUtf8Bytes+=Buffer.byteLength(text);
+      const text=await response.text();metric.decodedResponseUtf8Bytes+=Buffer.byteLength(text);if(trafficBudget)trafficBudget.consume(Buffer.byteLength(text));
       if(!statuses.includes(response.status)) { metric.unexpected++;if(report.failureResponses.length<5)report.failureResponses.push(failureResponse(label,response.status,response.headers,text,safe)); const error=new Error(`${label}: HTTP ${response.status}`);error.status=response.status;throw error; }
       return JSON.parse(text);
     } catch(error) { if(!String(error.message).startsWith(label+': HTTP')) {metric.unexpected++;metric.statuses.transportOrJson=(metric.statuses.transportOrJson||0)+1;} throw error; }
@@ -211,6 +213,7 @@ async function main() {
     try {await sql.end({timeout:5});} catch(error) {report.databaseCloseError=safe(error.message);report.verdict='FAIL';process.exitCode=1;}
     try {await transport.close();} catch(error) {report.transportCloseError=safe(error.message);report.verdict='FAIL';process.exitCode=1;}
     report.httpTransport=transport.summary();
+    if(trafficBudget)report.usageBudget=trafficBudget.snapshot();
     process.off('SIGINT',stop);process.off('SIGTERM',stop);
     report.finishedAt=new Date().toISOString();report.gps.deliveryMs=summary(gpsTimes);report.connectMs=summary(connectTimes);
     for(const metric of Object.values(report.http)){metric.latencyMs=summary(metric.times);delete metric.times;}

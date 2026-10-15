@@ -104,6 +104,10 @@ const httpServer = createServer(async (req, res) => {
   res.end("not found");
 });
 
+// Match the Render origin connection lifetime without changing WebSocket heartbeats.
+httpServer.keepAliveTimeout = 120_000;
+httpServer.headersTimeout = 120_000;
+
 function send(res: ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(body == null ? "" : JSON.stringify(body));

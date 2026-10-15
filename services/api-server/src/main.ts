@@ -36,10 +36,13 @@ declare module "@fastify/jwt" {
 }
 
 const app = Fastify({
+  // Render may reuse origin connections for75seconds. Keep the origin open longer.
+  keepAliveTimeout: 120_000,
   logger: { level: process.env.LOG_LEVEL ?? "info", redact: ["req.headers.authorization", "req.headers.cookie", "req.headers[\"x-admin-key\"]", "req.headers[\"x-internal-secret\"]", "res.headers[\"set-cookie\"]"] },
   bodyLimit: 256 * 1024,
   trustProxy: true
 });
+app.server.headersTimeout = 120_000;
 
 /**
  * Boot-time hardening — refuse to start in production with insecure defaults.
