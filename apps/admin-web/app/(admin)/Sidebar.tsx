@@ -75,6 +75,7 @@ export function Sidebar() {
         { href: "/bookings", label: "Bookings", icon: I.clipboard },
         { href: "/alerts", label: "Alerts", icon: I.bell, badge: alerts },
         { href: "/support", label: "Help & Support", icon: I.help, badge: tickets },
+        { href: "/usage", label: "Monthly usage", icon: I.pulse },
       ],
     },
     {
