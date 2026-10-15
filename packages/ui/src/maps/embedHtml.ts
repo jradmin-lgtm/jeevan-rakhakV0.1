@@ -81,6 +81,36 @@ window.addEventListener('offline', function(){
 window.addEventListener('online', function(){
   if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'jr:map:online'}));
 });
+function jrCameraExtent(points){
+  var extent = [Infinity, Infinity, -Infinity, -Infinity];
+  points.forEach(function(p){
+    var lat = Number(p[0]), lng = Number(p[1]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) throw new Error('Invalid map coordinate');
+    extent[0] = Math.min(extent[0], lat); extent[1] = Math.min(extent[1], lng);
+    extent[2] = Math.max(extent[2], lat); extent[3] = Math.max(extent[3], lng);
+  });
+  return points.length ? extent : null;
+}
+function jrCameraChanged(previous, next, force){
+  if (!next) return false;
+  if (force || !previous) return true;
+  // Keep small five-second GPS changes from repeatedly zooming the map.
+  var latTolerance = Math.max((previous[2]-previous[0])*.15, .0005);
+  var lngTolerance = Math.max((previous[3]-previous[1])*.15, .0005);
+  return Math.abs(previous[0]-next[0]) > latTolerance || Math.abs(previous[2]-next[2]) > latTolerance || Math.abs(previous[1]-next[1]) > lngTolerance || Math.abs(previous[3]-next[3]) > lngTolerance;
+}
+// This limit affects only visual interpolation/trails, never accepted GPS or saved routes.
+function jrVisualDiscontinuity(a,b){
+  var r=Math.PI/180, dLat=(b[0]-a[0])*r, dLng=(b[1]-a[1])*r;
+  var h=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(a[0]*r)*Math.cos(b[0]*r)*Math.sin(dLng/2)*Math.sin(dLng/2);
+  return 6371*2*Math.asin(Math.sqrt(Math.min(1,Math.max(0,h)))) > 10;
+}
+function jrStopAnimation(marker){
+  if (!marker) return;
+  marker.__jrAnimationToken = (marker.__jrAnimationToken || 0) + 1;
+  if (marker.__jrAnimationFrame != null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(marker.__jrAnimationFrame);
+  marker.__jrAnimationFrame = null;
+}
 function jrCurrentInit(initial){
   var p = window.__jrLatest || window.jrPending;
   if(!p || !p.pickup) return initial;
@@ -120,6 +150,9 @@ window.__jrBootLeaflet = function(INIT){
     if (showPickup) pickupMarker.addTo(map);
     var driverMarker = initialDriver ? L.marker(initialDriver, { icon: makePin(INIT.dLabel, 'driver') }).addTo(map) : null;
     var dropMarker   = initialDrop   ? L.marker(initialDrop,   { icon: makePin(INIT.drLabel, 'drop')   }).addTo(map) : null;
+    pickupMarker.__jrTarget = pickup.slice();
+    if (driverMarker) driverMarker.__jrTarget = initialDriver.slice();
+    if (dropMarker) dropMarker.__jrTarget = initialDrop.slice();
     var route = null, trail = null, navRoute = null;
     var trailCoords = initialDriver ? [initialDriver.slice()] : [];
 
@@ -147,39 +180,56 @@ window.__jrBootLeaflet = function(INIT){
     map.getContainer().addEventListener("touchstart", function(){ manuallyMoved = true; }, { passive: true });
     map.getContainer().addEventListener("pointerdown", function(){ manuallyMoved = true; }, { passive: true });
     map.getContainer().addEventListener("wheel", function(){ manuallyMoved = true; }, { passive: true });
-    function fitAll(animate){
-      if (manuallyMoved || map.getContainer().clientWidth < 50 || map.getContainer().clientHeight < 50) return;
-      var pts = showPickup ? [pickupMarker] : [];
-      if (driverMarker) pts.push(driverMarker);
-      if (dropMarker) pts.push(dropMarker);
-      if (navRoute) pts.push(navRoute);
-      if (pts.length < 2) return;
-      map.fitBounds(L.featureGroup(pts).getBounds().pad(0.4), { maxZoom: 17, animate: !!animate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches, duration: 0.3 });
+    var lastCameraExtent = null, fitQueued = false, forceFit = false;
+    function fitAll(force){
+      if (manuallyMoved || map.getContainer().clientWidth < 100 || map.getContainer().clientHeight < 100) return;
+      var pts = [];
+      if (showPickup) pts.push(pickupMarker.__jrTarget);
+      if (driverMarker) pts.push(driverMarker.__jrTarget);
+      if (dropMarker) pts.push(dropMarker.__jrTarget);
+      if (navRoute) navRoute.getLatLngs().forEach(function(p){ pts.push([p.lat,p.lng]); });
+      var extent = jrCameraExtent(pts);
+      if (!jrCameraChanged(lastCameraExtent, extent, force)) return;
+      if (pts.length === 1) map.setView(pts[0],14);
+      else map.fitBounds(L.latLngBounds(pts).pad(0.4), { maxZoom:17, animate:false });
+      lastCameraExtent = extent;
     }
+    function requestFit(force){
+      forceFit = forceFit || !!force;
+      if (fitQueued) return;
+      fitQueued = true;
+      requestAnimationFrame(function(){ fitQueued=false; var requested=forceFit; forceFit=false; fitAll(requested); });
+    }
+
     function animateMarkerTo(marker, target){
       if (!marker) return;
+      jrStopAnimation(marker); marker.__jrTarget = [Number(target[0]),Number(target[1])];
+      target = marker.__jrTarget;
+      var token = marker.__jrAnimationToken;
       var start = marker.getLatLng();
       var startLat = start.lat, startLng = start.lng, endLat = target[0], endLng = target[1];
       if (Math.abs(startLat - endLat) < 1e-6 && Math.abs(startLng - endLng) < 1e-6) return;
+      if (jrVisualDiscontinuity([startLat,startLng],target)) { marker.setLatLng(target); refreshRoute(); return; }
       if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { marker.setLatLng(target); refreshRoute(); return; }
       var dur = 700, t0 = performance.now();
       function step(t){
-        var p = Math.min(1, (t - t0) / dur);
+        if (marker.__jrAnimationToken !== token) return;
+        var p = Math.max(0,Math.min(1, (t - t0) / dur));
         var e = 1 - Math.pow(1 - p, 3);
         marker.setLatLng([startLat + (endLat - startLat) * e, startLng + (endLng - startLng) * e]);
         refreshRoute();
-        if (p < 1) requestAnimationFrame(step);
+        if (p < 1) marker.__jrAnimationFrame = requestAnimationFrame(step);
       }
-      requestAnimationFrame(step);
+      marker.__jrAnimationFrame = requestAnimationFrame(step);
     }
 
     if (INIT.routePath) setNavRoute(INIT.routePath);
     refreshRoute();
-    fitAll(false);
+    requestFit(true);
 
     // Native WebView can acquire its final size after this inline script runs.
     // Re-measure before fitting, while retaining a user-controlled camera.
-    function resizeMap(){ map.invalidateSize({ pan: false }); fitAll(false); }
+    function resizeMap(){ map.invalidateSize({ pan: false }); requestFit(true); }
     window.addEventListener("resize", resizeMap);
     if (window.ResizeObserver) new ResizeObserver(resizeMap).observe(map.getContainer());
     requestAnimationFrame(resizeMap);
@@ -191,19 +241,21 @@ window.__jrBootLeaflet = function(INIT){
         window.__jrLatest = payload;
         try {
           var nextShowPickup = payload.showPickup !== false;
-          if (showPickup !== nextShowPickup) {
+          var phaseChanged = showPickup !== nextShowPickup;
+          if (phaseChanged) {
             showPickup = nextShowPickup;
             if (showPickup) pickupMarker.addTo(map); else map.removeLayer(pickupMarker);
           }
-          if (payload.pickup) { pickupMarker.setLatLng([payload.pickup.lat, payload.pickup.lng]); pickupMarker.setIcon(makePin(payload.pickup.label || 'Pickup', 'pickup')); }
+          if (payload.pickup) { pickupMarker.__jrTarget = [Number(payload.pickup.lat), Number(payload.pickup.lng)]; pickupMarker.setLatLng(pickupMarker.__jrTarget); pickupMarker.setIcon(makePin(payload.pickup.label || 'Pickup', 'pickup')); }
           if (payload.driver) {
-            var dpt = [payload.driver.lat, payload.driver.lng];
+            var dpt = [Number(payload.driver.lat), Number(payload.driver.lng)];
             if (!driverMarker) {
               driverMarker = L.marker(dpt, { icon: makePin(payload.driver.label || 'Driver', 'driver') }).addTo(map);
               trailCoords = [dpt.slice()];
-              fitAll(true);
+              driverMarker.__jrTarget = dpt.slice();
             } else {
               driverMarker.setIcon(makePin(payload.driver.label || 'Driver', 'driver'));
+              if (jrVisualDiscontinuity(driverMarker.__jrTarget,dpt)) trailCoords=[];
               animateMarkerTo(driverMarker, dpt);
               var last = trailCoords.length ? trailCoords[trailCoords.length - 1] : null;
               if (!last || Math.abs(last[0] - dpt[0]) > 1e-5 || Math.abs(last[1] - dpt[1]) > 1e-5) {
@@ -213,22 +265,26 @@ window.__jrBootLeaflet = function(INIT){
             }
             refreshTrail();
           } else if (driverMarker) {
-            map.removeLayer(driverMarker); driverMarker = null; trailCoords = [];
+            jrStopAnimation(driverMarker); map.removeLayer(driverMarker); driverMarker = null; trailCoords = [];
             refreshTrail(); refreshRoute();
           }
           if (payload.drop) {
-            var drpt = [payload.drop.lat, payload.drop.lng];
-            if (!dropMarker) { dropMarker = L.marker(drpt, { icon: makePin(payload.drop.label || 'Drop', 'drop') }).addTo(map); fitAll(true); }
+            var drpt = [Number(payload.drop.lat), Number(payload.drop.lng)];
+            if (!dropMarker) { dropMarker = L.marker(drpt, { icon: makePin(payload.drop.label || 'Drop', 'drop') }).addTo(map); dropMarker.__jrTarget = drpt.slice(); }
             else { dropMarker.setIcon(makePin(payload.drop.label || 'Drop', 'drop')); animateMarkerTo(dropMarker, drpt); }
-          } else if (dropMarker) { map.removeLayer(dropMarker); dropMarker = null; }
+          } else if (dropMarker) { jrStopAnimation(dropMarker); map.removeLayer(dropMarker); dropMarker = null; }
           if (Object.prototype.hasOwnProperty.call(payload, 'routePath')) setNavRoute(payload.routeProvider === 'google' && window.__jrMapProvider !== 'google' ? null : payload.routePath || null);
-          refreshRoute();
+          refreshRoute(); requestFit(phaseChanged);
         } catch (e) {
           console.error("Map position update failed", e);
           if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type: "jr:map:error"}));
         }
       },
-      recenter: function(){ manuallyMoved = false; fitAll(true); }
+      recenter: function(){
+        manuallyMoved = false;
+        [pickupMarker,driverMarker,dropMarker].forEach(function(marker){ if(marker){jrStopAnimation(marker);marker.setLatLng(marker.__jrTarget);} });
+        refreshRoute(); requestFit(true);
+      }
     };
     jrReady();
   }
@@ -272,7 +328,7 @@ window.__jrBootGoogle = function(INIT){
 
   // Custom OverlayView pins: the map is Google's, the pins stay ours.
   function JrPin(latLng, label, kind){
-    this.pos = latLng; this.html = jrPinHtml(label, kind); this.div = null;
+    this.pos = latLng; this.targetPos = latLng; this.html = jrPinHtml(label, kind); this.div = null;
     this.setMap(map);
   }
   JrPin.prototype = new google.maps.OverlayView();
@@ -300,7 +356,7 @@ window.__jrBootGoogle = function(INIT){
   JrPin.prototype.setPos = function(latLng){ this.pos = latLng; this.draw(); };
   JrPin.prototype.getPos = function(){ return this.pos; };
 
-  function ll(lat, lng){ return new google.maps.LatLng(lat, lng); }
+  function ll(lat, lng){ return new google.maps.LatLng(Number(lat), Number(lng)); }
 
   var pickupMarker = new JrPin(ll(INIT.pLat, INIT.pLng), INIT.pLabel, 'pickup');
   var showPickup = INIT.showPickup !== false;
@@ -336,52 +392,72 @@ window.__jrBootGoogle = function(INIT){
   map.getDiv().addEventListener("touchstart", function(){ manuallyMoved = true; }, { passive: true });
   map.getDiv().addEventListener("pointerdown", function(){ manuallyMoved = true; }, { passive: true });
   map.getDiv().addEventListener("wheel", function(){ manuallyMoved = true; }, { passive: true });
-  function fitAll(){
-    if (manuallyMoved) return;
-    var b = new google.maps.LatLngBounds();
-    var n = 0;
-    if(showPickup) { b.extend(pickupMarker.getPos()); n++; }
-    if (driverMarker) { b.extend(driverMarker.getPos()); n++; }
-    if (dropMarker) { b.extend(dropMarker.getPos()); n++; }
-    if (navRoute) { navRoute.getPath().forEach(function(p){ b.extend(p); }); n++; }
-    if (n < 2) { map.setCenter(pickupMarker.getPos()); map.setZoom(14); return; }
-    // Matches Leaflet's .pad(0.4) closely enough at this card size.
-    map.fitBounds(b, 48);
+  var lastCameraExtent = null, fitQueued = false, forceFit = false;
+  function fitAll(force){
+    if (window.__jrMapProvider !== 'google' || manuallyMoved || map.getDiv().clientWidth < 100 || map.getDiv().clientHeight < 100) return;
+    var b = new google.maps.LatLngBounds(), pts = [];
+    function add(p){b.extend(p);pts.push([p.lat(),p.lng()]);}
+    if(showPickup) add(pickupMarker.targetPos);
+    if(driverMarker) add(driverMarker.targetPos);
+    if(dropMarker) add(dropMarker.targetPos);
+    if(navRoute) navRoute.getPath().forEach(add);
+    var extent = jrCameraExtent(pts);
+    if(!jrCameraChanged(lastCameraExtent,extent,force))return;
+    if(pts.length===1){map.setCenter(ll(pts[0][0],pts[0][1]));map.setZoom(14);}
+    else map.fitBounds(b,48);
+    lastCameraExtent=extent;
   }
+  function requestFit(force){
+    forceFit=forceFit || !!force;
+    if(fitQueued)return;
+    fitQueued=true;
+    requestAnimationFrame(function(){fitQueued=false;var requested=forceFit;forceFit=false;fitAll(requested);});
+  }
+  function resizeMap(){ if(window.__jrMapProvider==='google') requestFit(true); }
+  window.addEventListener('resize',resizeMap);
+  if(window.ResizeObserver)new ResizeObserver(resizeMap).observe(map.getDiv());
+  requestAnimationFrame(resizeMap);
+  setTimeout(resizeMap,250);
+
   function animateMarkerTo(marker, lat, lng){
     if (!marker) return;
+    jrStopAnimation(marker); marker.targetPos = ll(Number(lat),Number(lng));
+    var token=marker.__jrAnimationToken;
     var s = marker.getPos(), sLat = s.lat(), sLng = s.lng();
     if (Math.abs(sLat - lat) < 1e-6 && Math.abs(sLng - lng) < 1e-6) return;
+    if (jrVisualDiscontinuity([sLat,sLng],[Number(lat),Number(lng)])) { marker.setPos(marker.targetPos); refreshRoute(); return; }
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { marker.setPos(ll(lat, lng)); refreshRoute(); return; }
     var dur = 1200, t0 = performance.now();
     function step(t){
-      var p = Math.min(1, (t - t0) / dur);
+      if(marker.__jrAnimationToken!==token)return;
+      var p = Math.max(0,Math.min(1, (t - t0) / dur));
       var e = 1 - Math.pow(1 - p, 3);
       marker.setPos(ll(sLat + (lat - sLat) * e, sLng + (lng - sLng) * e));
       refreshRoute();
-      if (p < 1) requestAnimationFrame(step);
+      if (p < 1) marker.__jrAnimationFrame=requestAnimationFrame(step);
     }
-    requestAnimationFrame(step);
+    marker.__jrAnimationFrame=requestAnimationFrame(step);
   }
 
   if (INIT.routePath) setNavRoute(INIT.routePath);
   refreshRoute();
-  google.maps.event.addListenerOnce(map, 'idle', function(){ fitAll(); });
+  google.maps.event.addListenerOnce(map, 'idle', function(){ requestFit(true); });
 
   window.jrMap = {
     update: function(payload){
       window.__jrLatest = payload;
-      if(showPickup !== (payload.showPickup !== false)) { showPickup = payload.showPickup !== false; pickupMarker.setMap(showPickup ? map : null); }
+      var phaseChanged=showPickup !== (payload.showPickup !== false);
+      if(phaseChanged) { showPickup = payload.showPickup !== false; pickupMarker.setMap(showPickup ? map : null); }
       try {
-        if (payload.pickup) { pickupMarker.setPos(ll(payload.pickup.lat, payload.pickup.lng)); pickupMarker.html = jrPinHtml(payload.pickup.label || 'Pickup', 'pickup'); if(pickupMarker.div) pickupMarker.div.innerHTML = pickupMarker.html; }
+        if (payload.pickup) { pickupMarker.targetPos=ll(Number(payload.pickup.lat),Number(payload.pickup.lng)); pickupMarker.setPos(pickupMarker.targetPos); pickupMarker.html = jrPinHtml(payload.pickup.label || 'Pickup', 'pickup'); if(pickupMarker.div) pickupMarker.div.innerHTML = pickupMarker.html; }
         if (payload.driver) {
           if (!driverMarker) {
             driverMarker = new JrPin(ll(payload.driver.lat, payload.driver.lng), payload.driver.label || 'Driver', 'driver');
             trailCoords = [ll(payload.driver.lat, payload.driver.lng)];
-            fitAll();
           } else {
             driverMarker.html = jrPinHtml(payload.driver.label || 'Driver', 'driver');
             if (driverMarker.div) driverMarker.div.innerHTML = driverMarker.html;
+            if (jrVisualDiscontinuity([driverMarker.targetPos.lat(),driverMarker.targetPos.lng()],[Number(payload.driver.lat),Number(payload.driver.lng)])) trailCoords=[];
             animateMarkerTo(driverMarker, payload.driver.lat, payload.driver.lng);
             var last = trailCoords.length ? trailCoords[trailCoords.length - 1] : null;
             if (!last || Math.abs(last.lat() - payload.driver.lat) > 1e-5 || Math.abs(last.lng() - payload.driver.lng) > 1e-5) {
@@ -391,25 +467,29 @@ window.__jrBootGoogle = function(INIT){
           }
           refreshTrail();
         } else if (driverMarker) {
-          driverMarker.setMap(null); driverMarker = null; trailCoords = [];
+          jrStopAnimation(driverMarker); driverMarker.setMap(null); driverMarker = null; trailCoords = [];
           refreshTrail(); refreshRoute();
         }
         if (payload.drop) {
-          if (!dropMarker) { dropMarker = new JrPin(ll(payload.drop.lat, payload.drop.lng), payload.drop.label || 'Drop', 'drop'); fitAll(); }
+          if (!dropMarker) { dropMarker = new JrPin(ll(payload.drop.lat, payload.drop.lng), payload.drop.label || 'Drop', 'drop'); }
           else {
             dropMarker.html = jrPinHtml(payload.drop.label || 'Drop', 'drop');
             if (dropMarker.div) dropMarker.div.innerHTML = dropMarker.html;
             animateMarkerTo(dropMarker, payload.drop.lat, payload.drop.lng);
           }
-        } else if (dropMarker) { dropMarker.setMap(null); dropMarker = null; }
+        } else if (dropMarker) { jrStopAnimation(dropMarker); dropMarker.setMap(null); dropMarker = null; }
         if (Object.prototype.hasOwnProperty.call(payload, 'routePath')) setNavRoute(payload.routeProvider === 'google' && window.__jrMapProvider !== 'google' ? null : payload.routePath || null);
-        refreshRoute();
+        refreshRoute(); requestFit(phaseChanged);
       } catch (e) {
         console.error('Map position update failed');
         if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'jr:map:error',message:'Position update failed'}));
       }
     },
-    recenter: function(){ manuallyMoved = false; fitAll(); }
+    recenter: function(){
+      manuallyMoved=false;
+      [pickupMarker,driverMarker,dropMarker].forEach(function(marker){if(marker){jrStopAnimation(marker);marker.setPos(marker.targetPos);}});
+      refreshRoute();requestFit(true);
+    }
   };
   jrReady();
 };`;

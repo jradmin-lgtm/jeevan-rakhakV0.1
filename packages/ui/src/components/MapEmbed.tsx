@@ -181,9 +181,7 @@ function MapEmbedInner({
   // when the path actually changes (not on every parent re-render).
   const routeKey = useMemo(() => JSON.stringify(routePath), [routePath]);
 
-  useEffect(() => {
-    if (!loaded || !webRef.current) return;
-    const payload = JSON.stringify({
+  const currentPayload = () => JSON.stringify({
       showPickup,
       pickup: { lat: pickup.lat, lng: pickup.lng, label: pickup.label ?? "Pickup" },
       driver: driver ? { lat: driver.lat, lng: driver.lng, label: driver.label ?? "Driver" } : null,
@@ -191,6 +189,10 @@ function MapEmbedInner({
       routeProvider,
       routePath: routePath && routePath.length > 1 ? routePath : null
     });
+
+  useEffect(() => {
+    if (!loaded || !webRef.current) return;
+    const payload = currentPayload();
     // `true;` at the end suppresses the warning about non-undefined eval.
     // Queued when the renderer has not finished booting (Google loads async,
     // and the fallback can swap in later) so no update is ever dropped.
@@ -201,7 +203,8 @@ function MapEmbedInner({
 
   const recenter = () => {
     if (!webRef.current) return;
-    webRef.current.injectJavaScript("window.jrMap && window.jrMap.recenter(); true;");
+    const payload = currentPayload();
+    webRef.current.injectJavaScript(`if(window.jrMap){window.jrMap.update(${payload});window.jrMap.recenter();}else{window.jrPending=${payload};} true;`);
   };
 
   return (
