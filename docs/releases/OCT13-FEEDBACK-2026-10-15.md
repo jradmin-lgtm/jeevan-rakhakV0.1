@@ -73,3 +73,12 @@ Both new free Ohio Render services serve d8c084af843b800f473b98581d398aea2df9af8
 Additional backup hardening compares canonical complete table data, excluding only snapshot time. Verified identical contents update only Drive metadata, keeping original snapshot time separate from the new verification time. Changed contents retain full format-2 backups. Independent backend review found no material blocker; all 13 backup tests passed, including actual PostgreSQL, with zero skips. Active table changes still require full uploads, and simultaneous independent API writers retain a bounded duplicate race.
 
 Native QA found Gradle did not invalidate its JavaScript bundle after shared UI changes. Final QA and production APK builds must force JavaScript bundle regeneration and verify the changed marker label is present in the actual bundled artifact. Source/harness tests alone do not establish APK contents.
+
+
+## Independent final source and native checks
+
+Second independent council: PASS 91/100 for backup/scheduler and hosted-runner/restore safety in the intended single-writer isolated scope. Mandatory restore TLS/hash/cutoff guards present; 11 combined runner/restore tests passed. First source council remains SHIP89/100 with the marker-phase correction independently verified. These are source reviews, not hosted capacity certification.
+
+Android15 local end-to-end requests exercised actual create/cascade and native service handling: normal incoming request used looping device ringtone on the alarm stream, SOS used looping bundled buzzer, accept stopped the alert service and released its player, and normal incoming alert remained foreground after backgrounding the app. This did not exercise remote FCM delivery or establish physical OEM/silent-mode audibility.
+
+Both Gradle applications now declare shared workspace source and Expo environment files as bundle-task inputs, excluding dependency/build/backup directories. Final production builds force initial bundle regeneration, then inspect new hosted endpoints and corrected marker code in the actual APK. Existing signing identity and upgrade compatibility remain required.

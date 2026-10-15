@@ -202,3 +202,18 @@ dependencies {
         implementation jscFlavor
     }
 }
+
+
+// Shared workspace sources sit outside the app root tracked by React Native's bundle task.
+// Track them and Expo environment files so release APKs never retain stale UI or endpoints.
+def workspaceRoot = new File(projectRoot, "../..").canonicalFile
+tasks.configureEach { task ->
+    if (task.name.startsWith("createBundle") && task.name.endsWith("JsAndAssets")) {
+        task.inputs.files(fileTree(dir: new File(workspaceRoot, "packages"), includes: ["*/src/**"], excludes: ["**/node_modules/**", "**/dist/**", "**/*.bak"]))
+            .withPropertyName("workspacePackageSources")
+            .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE)
+        task.inputs.files(fileTree(dir: projectRoot, includes: [".env", ".env.*"], excludes: ["*.bak", "*.example", "*.sample"]))
+            .withPropertyName("expoEnvironmentFiles")
+            .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE)
+    }
+}
