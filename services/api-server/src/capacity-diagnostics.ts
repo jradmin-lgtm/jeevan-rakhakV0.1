@@ -36,10 +36,12 @@ export function readCgroupCounters(read: Dependencies['read']): CounterSnapshot 
       return { available: false, reason: errorCode(error) };
     }
     const fields: Record<string, number> = {};
+    const required = ['nr_periods', 'nr_throttled', candidate.version === 'v2' ? 'throttled_usec' : 'throttled_time'];
     for (const line of text.trim().split('\n')) {
-      const match = /^([a-z_]+)\s+(\d+)$/.exec(line.trim());
-      if (!match || !Number.isSafeInteger(Number(match[2]))) return { available: false, reason: 'malformed_cgroup_counter' };
-      fields[match[1]] = Number(match[2]);
+      const [name, value, ...extra] = line.trim().split(/\s+/);
+      if (!required.includes(name)) continue;
+      if (name in fields || value === undefined || extra.length || !/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) return { available: false, reason: 'malformed_cgroup_counter' };
+      fields[name] = Number(value);
     }
     const time = candidate.version === 'v2' ? fields.throttled_usec : fields.throttled_time / 1000;
     if (![fields.nr_periods, fields.nr_throttled, time].every(Number.isFinite)) return { available: false, reason: 'throttling_counters_not_exposed' };

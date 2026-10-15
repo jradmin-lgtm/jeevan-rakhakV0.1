@@ -26,7 +26,7 @@ test('cgroup v1 nanoseconds convert honestly to microseconds and unlimited quota
 });
 test('missing, denied and malformed cgroup data remain unavailable instead of fabricated zeros',()=>{
  assert.equal(readCgroupCounters(missing).reason,'cgroup_paths_not_found');assert.equal(readCgroupCounters(()=>{throw Object.assign(Error('denied'),{code:'EACCES'})}).reason,'EACCES');
- assert.equal(readCgroupCounters(()=>'not valid').reason,'malformed_cgroup_counter');assert.equal(readCgroupCounters(()=>'usage_usec 9').reason,'throttling_counters_not_exposed');
+ assert.equal(readCgroupCounters(()=>'nr_periods not-valid').reason,'malformed_cgroup_counter');assert.equal(readCgroupCounters(()=>'usage_usec 9').reason,'throttling_counters_not_exposed');
  const r=readCgroupCounters(p=>p.endsWith('cpu.stat')?'nr_periods 1\nnr_throttled 0\nthrottled_usec 0':missing());assert.equal(r.available,true);assert.equal(r.limitAvailable,false);assert.equal(r.limitReason,'ENOENT');
 });
 test('counter resets and empty histogram are reported as unavailable',()=>{
@@ -37,4 +37,10 @@ test('only first application API request arms bounded diagnostics; health reques
  life.onRequest('/api/v1/bookings/private-fixture-id');assert.equal(f.intervals.length,1);f.tick();assert.ok(!JSON.stringify(f.logs).includes('private-fixture-id'));
  f.timeouts[0].fn();assert.equal(f.hist.disabled,1);assert.equal(f.logs.at(-1).reason,'120_second_duration_limit');life.onRequest('/api/v1/me');life.close();assert.equal(f.intervals.length,1);assert.equal(f.hist.disabled,1);
  const disabled=fixture(),closed=createCapacityDiagnosticsLifecycle(true,disabled.emit,disabled.deps);closed.close();closed.onRequest('/api/v1/me');assert.equal(disabled.intervals.length,0);
+});
+
+test('unrelated kernel fields including dotted names cannot hide valid required throttling counters',()=>{
+ const stat='usage_usec 999999999999999999999\ncore_sched.force_idle_usec 0\nnr_periods 10\nnr_throttled 2\nthrottled_usec 500';
+ const r=readCgroupCounters(p=>p.endsWith('cpu.stat')?stat:'15000 100000');assert.equal(r.available,true);assert.equal(r.periods,10);assert.equal(r.throttledMicroseconds,500);
+ for(const suffix of ['\nnr_periods 11','\nnr_throttled nope','\nthrottled_usec 2 extra'])assert.equal(readCgroupCounters(()=>stat+suffix).reason,'malformed_cgroup_counter');
 });

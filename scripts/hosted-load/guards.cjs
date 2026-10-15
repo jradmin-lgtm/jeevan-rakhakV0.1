@@ -17,10 +17,10 @@ function validateConfig(c) {
   assert.notEqual(c.apiOrigin, c.socketOrigin, 'Separate API and realtime service origins required');
   assert.match(c.expectedBuild, /^[a-f0-9]{40}$/);
   if(c.expectedSocketBuild!==undefined)assert.match(c.expectedSocketBuild,/^[a-f0-9]{40}$/,'Explicit socket build must be a full SHA');
-  assert.equal(c.rides, 50, 'This runner is capped at exactly 50 rides');
+  assert.ok([10,50].includes(c.rides), 'Explicit 10 or 50 ride scope required');
   assert.ok(Number.isInteger(c.cycles) && c.cycles >= 12 && c.cycles <= 360, '12 to 360 five-second cycles');
   assert.equal(typeof c.mapsEnabled, 'boolean');
-  assert.equal(c.maxMapHttpCalls, c.mapsEnabled ? 100 : 0);
+  assert.equal(c.maxMapHttpCalls, c.mapsEnabled ? c.rides*2 : 0);
   for (const k of ['httpP95Ms', 'gpsP95Ms', 'deliveryTimeoutMs']) assert.ok(Number.isFinite(c[k]) && c[k] >= 100 && c[k] <= 60000, 'Bounded latency thresholds required');
   assert.equal(c.isolatedHostingConfirmed, true);
   assert.equal(c.outboundNotificationsDisabled, true);

@@ -11,6 +11,6 @@ function createTransport(){
  const counts={connections:0,requests:0,connectionErrors:0};
  const subscriptions=[['undici:client:connected',()=>counts.connections++],['undici:request:create',()=>counts.requests++],['undici:client:connectError',()=>counts.connectionErrors++]];
  for(const [name,fn]of subscriptions)dc.channel(name).subscribe(fn);
- return {dispatcher,summary:()=>({mode:'100 persistent phone HTTP connections',...agentOptions,...counts}),async close(){try{await dispatcher.close();}finally{for(const[name,fn]of subscriptions)dc.channel(name).unsubscribe(fn);}}};
+ return {dispatcher,summary:()=>({mode:'bounded persistent HTTP connection pool',...agentOptions,...counts}),async close(){try{await dispatcher.close();}finally{for(const[name,fn]of subscriptions)dc.channel(name).unsubscribe(fn);}}};
 }
 module.exports={agentOptions,loadDependency,createTransport};
