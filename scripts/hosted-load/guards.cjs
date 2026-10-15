@@ -11,6 +11,7 @@ function publicOrigin(value) {
   return u.origin;
 }
 function validateConfig(c) {
+  if(c.scenario!==undefined){assert.ok(['STRICT_BASELINE','PRODUCTION_CLIENT_RESILIENCE'].includes(c.scenario),'Explicit known scenario required');if(c.scenario==='PRODUCTION_CLIENT_RESILIENCE')require('./client-workload.cjs').validateClientScenario(c);}
   assert.match(c.environmentId, /^jr-load-[a-z0-9-]{6,60}$/);
   assert.match(c.databaseName, /^jr_load_[a-z0-9_]{6,60}$/);
   publicOrigin(c.apiOrigin); publicOrigin(c.socketOrigin);

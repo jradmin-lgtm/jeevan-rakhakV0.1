@@ -16,8 +16,9 @@ async function parallel(items, limit, fn) {
 function summary(xs) { return {count:xs.length,p50:percentile(xs,.5),p95:percentile(xs,.95),p99:percentile(xs,.99),max:xs.length?Math.round(Math.max(...xs)*10)/10:null}; }
 function plan(c) {
   validateConfig(c);
+  const client=c.scenario==='PRODUCTION_CLIENT_RESILIENCE'?require('./client-workload.cjs').workloadPlan(c):null;
   return {environment:c.environmentId,apiOrigin:c.apiOrigin,socketOrigin:c.socketOrigin,databaseName:c.databaseName,build:c.expectedBuild,socketBuild:c.expectedSocketBuild??c.expectedBuild,
-    rides:c.rides,users:c.rides,drivers:c.rides,sockets:c.rides*2,steadySeconds:c.cycles*5,steadyHttpRequests:c.cycles*c.rides*2,
+    ...(client?{client}:{}),rides:c.rides,users:c.rides,drivers:c.rides,sockets:c.rides*2,steadySeconds:c.cycles*5,steadyHttpRequests:client?client.nominalUserPolls+client.nominalDriverPolls+client.nominalSampledGpsPoints:c.cycles*c.rides*2,
     offlinePoints:c.rides*20,offlineReplayRequests:c.rides*2,databaseProbeQueries:111,reconnectUsers:c.rides/2,mapHttpRequestCap:c.maxMapHttpCalls,
     payloadMeasurement:'Decoded UTF-8 JSON response and request-body bytes only; excludes headers/TLS/compression and is not billed network transfer',
     excluded:['Real push/SMS/email','Booking creation and nearest-driver dispatch selection (fixtures pre-offered)','Phone map renderers and APK UI','Physical Android queue storage','Billing/quota guarantees','Login/OTP authentication provider']};
@@ -35,6 +36,7 @@ async function main() {
   const {io}=loadDependency('socket.io-client', root+'/apps/driver-app/node_modules/socket.io-client');
   const transport=createTransport();
   const sql=postgres(process.env.JR_HOSTED_LOAD_DATABASE_URL,{max:4,connect_timeout:15,idle_timeout:20,ssl:{rejectUnauthorized:true},connection:{statement_timeout:15000,application_name:'jr-hosted-load'}});
+  const clientScenario=c.scenario==='PRODUCTION_CLIENT_RESILIENCE';
   const runId='jr-hosted-load-'+Date.now()+'-'+crypto.randomBytes(4).toString('hex');
   const rides=Array.from({length:c.rides},(_,index)=>({index,id:crypto.randomUUID(),userId:crypto.randomUUID(),driverId:crypto.randomUUID()}));
   const report={schemaVersion:1,runId,scope,startedAt:new Date().toISOString(),verdict:'NOT_RUN',stages:[],http:{},failureResponses:[],gps:{expected:0,received:0,duplicates:0,crossRide:0,unexpected:0},socketErrors:0,cleanup:'not_required',maps:{enabled:c.mapsEnabled,httpCalls:0,available:0,unavailable:0},limitations:scope.excluded};
@@ -61,12 +63,12 @@ async function main() {
       const response=await fetch(origin+url,{method:body===undefined?'GET':'POST',redirect:'error',signal:AbortSignal.timeout(timeout),dispatcher:transport.dispatcher,headers:{...(token?{authorization:'Bearer '+token}:{}),'content-type':'application/json'},...(requestBody===undefined?{}:{body:requestBody})});
       metric.statuses[response.status]=(metric.statuses[response.status]||0)+1;
       const text=await response.text();metric.decodedResponseUtf8Bytes+=Buffer.byteLength(text);
-      if(!statuses.includes(response.status)) { metric.unexpected++;if(report.failureResponses.length<5)report.failureResponses.push(failureResponse(label,response.status,response.headers,text,safe)); throw new Error(`${label}: HTTP ${response.status}`); }
+      if(!statuses.includes(response.status)) { metric.unexpected++;if(report.failureResponses.length<5)report.failureResponses.push(failureResponse(label,response.status,response.headers,text,safe)); const error=new Error(`${label}: HTTP ${response.status}`);error.status=response.status;throw error; }
       return JSON.parse(text);
     } catch(error) { if(!String(error.message).startsWith(label+': HTTP')) {metric.unexpected++;metric.statuses.transportOrJson=(metric.statuses.transportOrJson||0)+1;} throw error; }
     finally {metric.times.push(performance.now()-at);}
   }
-  const api=(label,url,token,body,statuses)=>http(label,c.apiOrigin,url,token,body,statuses);
+  const api=(label,url,token,body,statuses)=>http(label,c.apiOrigin,url,token,body,statuses,clientScenario?45000:15000);
   async function stage(name,fn) {
     check();const row={name,startedAt:new Date().toISOString(),status:'running'};report.stages.push(row);const at=performance.now();
     try {await fn();row.status='pass';}catch(error){row.status='fail';row.error=safe(error.message);throw error;}finally{row.durationMs=Math.round(performance.now()-at);console.log(JSON.stringify({stage:name,status:row.status,durationMs:row.durationMs}));}
@@ -130,7 +132,8 @@ async function main() {
       await sleep(2000);rides.forEach(r=>emit(r,point(r,0)));await drained();
       await parallel(rides,c.rides/2,async(r,i)=>{await api('forbidden-other-ride','/api/v1/bookings/'+rides[(i+1)%c.rides].id,r.ut,undefined,[403]);});
     });
-    await stage(`${c.rides} concurrent active rides at five-second cadence`,async()=>{
+    if(clientScenario)await require('./client-workload.cjs').runClientWorkload({c,rides,http:(label,url,token,body,timeout)=>http(label,c.apiOrigin,url,token,body,[200],timeout),emit,point,check,sleep,drained,uploadedTimestamps,report,directory:fs.mkdtempSync('/tmp/jr-client-queue-'),sql,stage});
+    else await stage(`${c.rides} concurrent active rides at five-second cadence`,async()=>{
       await sleep(1100); // Respect the realtime server's per-driver one-second packet limit after the initial probe.
       const start=performance.now();let overruns=0;
       for(let cycle=0;cycle<c.cycles;cycle++) {
@@ -164,7 +167,7 @@ async function main() {
       report.offline.retainedRejectedSimulation=1;
       const [dup]=await sql`SELECT count(*)::int AS n FROM (SELECT driver_id,booking_id,recorded_at FROM driver_locations WHERE booking_id=ANY(${rides.map(r=>r.id)}::uuid[]) GROUP BY driver_id,booking_id,recorded_at HAVING count(*)>1) d`;assert.equal(dup.n,0);report.offline.duplicateRows=dup.n;
       const [persisted]=await sql`SELECT count(*)::int AS n FROM driver_locations WHERE booking_id=ANY(${rides.map(r=>r.id)}::uuid[])`;
-      assert.equal(persisted.n,c.cycles*c.rides+c.rides*20+1,'Every accepted unique GPS point must be persisted');report.offline.persistedUniqueRows=persisted.n;
+      assert.equal(persisted.n,expectedPersistedPoints(uploadedTimestamps),'Every accepted unique GPS point must be persisted');report.offline.persistedUniqueRows=persisted.n;
     });
     await stage(`Arrive, verify pickup and inspect ${c.rides} onboard rides`,async()=>{
       await parallel(rides,c.rides,async r=>{const d=await api('arrived','/api/v1/bookings/'+r.id+'/arrived',r.dt,{});assert.equal(d.booking.status,'ARRIVED');});
@@ -192,8 +195,8 @@ async function main() {
     assert.ok(percentile(report.http['booking-poll'].times,.95)<=c.httpP95Ms,'Booking poll p95 exceeds predeclared budget');
     assert.ok(percentile(report.http['live-gps-batch'].times,.95)<=c.httpP95Ms,'GPS upload p95 exceeds predeclared budget');
     assert.ok(percentile(gpsTimes,.95)<=c.gpsP95Ms,'Realtime delivery p95 exceeds predeclared budget');
-    report.verdict='PASS';
-  } catch(error) {report.verdict='FAIL';report.error=safe(error.message);process.exitCode=1;}
+    if(clientScenario){assert.ok(percentile(report.http['booking-poll-driver'].times,.95)<=c.httpP95Ms,'Driver booking poll p95 exceeds unchanged budget');report.rawTransportVerdict=Object.values(report.http).some(m=>m.unexpected>0)?'FAIL':'PASS';report.resilienceVerdict='PASS';report.strictCapacityCertification=false;report.verdict='CLIENT_RESILIENCE_PASS';}else report.verdict='PASS';
+  } catch(error) {report.verdict='FAIL';if(clientScenario){report.rawTransportVerdict=Object.values(report.http).some(m=>m.unexpected>0)?'FAIL':'PASS';report.resilienceVerdict='FAIL';report.strictCapacityCertification=false;}report.error=safe(error.message);process.exitCode=1;}
   finally {
     sockets.forEach(socket=>socket.disconnect());
     if(seeded) {
@@ -210,10 +213,12 @@ async function main() {
     process.off('SIGINT',stop);process.off('SIGTERM',stop);
     report.finishedAt=new Date().toISOString();report.gps.deliveryMs=summary(gpsTimes);report.connectMs=summary(connectTimes);
     for(const metric of Object.values(report.http)){metric.latencyMs=summary(metric.times);delete metric.times;}
+    if(clientScenario&&report.verdict==='FAIL')report.resilienceVerdict='FAIL';
     report.fixtureIds=rides.map(({id,userId,driverId})=>({id,userId,driverId}));
     fs.writeFileSync(reportFile,JSON.stringify(report,null,2)+'\n',{flag:'wx',mode:0o600});console.log(JSON.stringify({verdict:report.verdict,report:path.resolve(reportFile)}));
   }
 }
 if(require.main===module)main().catch(error=>{console.error('Load runner stopped:',error.code || (error.name==='AssertionError'?'guard_or_assertion_failed':'configuration_or_runtime_error'));process.exitCode=1;});
 
-module.exports={plan};
+function expectedPersistedPoints(uploadedTimestamps){return uploadedTimestamps.size+1;}
+module.exports={plan,expectedPersistedPoints};

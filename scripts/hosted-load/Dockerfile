@@ -3,6 +3,7 @@ WORKDIR /app/scripts/hosted-load
 COPY scripts/hosted-load/package.json scripts/hosted-load/package-lock.json ./
 RUN npm ci --ignore-scripts --registry=https://registry.npmjs.org
 COPY scripts/hosted-load/*.cjs ./
+COPY apps/driver-app/src/locationQueue.ts ./production-location-queue.ts
 ENV NODE_ENV=production
 EXPOSE 10000
 CMD ["node", "host.cjs"]
