@@ -1,11 +1,11 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript'),crypto=require('node:crypto');
 const source=ts.transpileModule(fs.readFileSync(require('node:path').join(__dirname,'../src/backup.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
-function runtime({sql,files=[],seed,failUpload=false,now}={}){
+function runtime({sql,files=[],seed,failUpload=false,failPatch=false,now}={}){
  const queries=[],logs=[],requests=[],timers=[];let snapshots=0;
  const db=sql??{begin:async(mode,fn)=>{snapshots++;const tx=async()=>[];tx.unsafe=async()=>[];return fn(tx)}};
  class Auth{async getClient(){return {getAccessToken:async()=>({token:'isolated-fake-token'})}}}
  const mod={exports:{}};
- const fetch=async(url,init)=>{requests.push({url,init});if(url.includes('upload/'))return {ok:!failUpload,status:failUpload?503:200};if(url.includes('alt=media'))return {ok:true,json:async()=>seed};const q=new URL(url).searchParams.get('q');return {ok:true,json:async()=>({files:files.filter(f=>!q.includes('appProperties has')||f.appProperties?.jrBackupSource===identity)})}};
+ const fetch=async(url,init)=>{requests.push({url,init});if(init.method==='PATCH')return {ok:!failPatch,status:failPatch?503:200};if(url.includes('upload/'))return {ok:!failUpload,status:failUpload?503:200};if(url.includes('alt=media'))return {ok:true,json:async()=>seed};const q=new URL(url).searchParams.get('q');return {ok:true,json:async()=>({files:files.filter(f=>!q.includes('appProperties has')||f.appProperties?.jrBackupSource===identity)})}};
  const identity=crypto.createHash('sha256').update('local@127.0.0.1:5449/jr_feedback_20261015').digest('hex');
  vm.runInNewContext(source,{module:mod,exports:mod.exports,Buffer,URL,URLSearchParams,AbortSignal,Date:class extends Date{constructor(...args){super(...(args.length?args:[now??Date.now()]))}static now(){return now??Date.now()}},Map,process:{env:{DATABASE_URL:'postgres://local@127.0.0.1:5449/jr_feedback_20261015',DRIVE_SA_JSON:'{}'}},console:{log:x=>logs.push(x)},setTimeout(fn,ms){const t={fn,ms,unref(){}};timers.push(t);return t},clearTimeout(t){t.cleared=true},fetch,require(name){if(name==='google-auth-library')return {GoogleAuth:Auth};if(name==='node:crypto')return crypto;if(name==='@jr/db')return {sql:db};throw Error(name)}});
  return {...mod.exports,logs,requests,timers,identity,get snapshots(){return snapshots}};
@@ -37,6 +37,55 @@ test('local guard refuses overlap; independent simultaneous processes retain bou
 });
 test('invalid previous snapshot fails loudly before any database backup query',async()=>{
  const r=runtime({files:[{id:'old',createdTime:new Date(0).toISOString()}],seed:{tables:{}}});await assert.rejects(()=>r.runDatabaseBackup(),/formatVersion 2/);assert.equal(r.snapshots,0);
+});
+function snapshotSql(tables){return {begin:async(mode,fn)=>{
+ const tx=async(strings,...values)=>strings.join('').includes('FROM pg_tables')?Object.keys(tables).map(tablename=>({tablename})):[];
+ tx.unsafe=async query=>tables[JSON.parse(query.replace('SELECT * FROM ',''))];return fn(tx);
+}}}
+function priorFile(r,at,extra={}){return {id:'verified-source',createdTime:at,appProperties:{jrBackupSource:r.identity,jrBackupTakenAt:at,...extra}}}
+test('canonical full content hash ignores capture time and row/object order, preserves JSON arrays and duplicate rows',()=>{
+ const r=runtime(),s={...emptySnapshot,tables:{z:[{b:{y:2,x:1},a:[1,2]},{a:null}],a:[]}};
+ const reorder={...s,takenAt:'2000-01-01T00:00:00.000Z',tables:{a:[],z:[{a:null},{a:[1,2],b:{x:1,y:2}}]}};
+ assert.equal(r.snapshotDataHash(s),r.snapshotDataHash(reorder));
+ assert.notEqual(r.snapshotDataHash(s),r.snapshotDataHash({...s,tables:{...s.tables,z:[{b:{y:2,x:1},a:[2,1]},{a:null}]}}));
+ assert.notEqual(r.snapshotDataHash(s),r.snapshotDataHash({...s,tables:{...s.tables,z:[...s.tables.z,{a:null}]}}));
+ assert.notEqual(r.snapshotDataHash(s),r.snapshotDataHash({...s,tables:{...s.tables,new_table:[]}}));
+});
+test('verified unchanged complete snapshot patches metadata only and keeps original capture/creation times',async()=>{
+ const now=Date.now(),at=new Date(now-7*3600000).toISOString(),r=runtime(),tables={items:[{id:2,nested:{b:2,a:1}},{id:1,nested:null}]};
+ const prior={takenAt:at,formatVersion:2,tables:{items:[{nested:null,id:1},{nested:{a:1,b:2},id:2}]}};
+ const s=runtime({now,files:[priorFile(r,at)],seed:prior,sql:snapshotSql(tables)});await s.runDatabaseBackup();
+ assert.equal(s.requests.filter(x=>x.url.includes('upload/')).length,0);
+ const patch=s.requests.find(x=>x.init.method==='PATCH');assert.ok(patch);const metadata=JSON.parse(patch.init.body);
+ assert.deepEqual(Object.keys(metadata),['appProperties']);assert.equal(metadata.appProperties.jrBackupTakenAt,at);assert.equal(metadata.appProperties.jrBackupCheckedAt,new Date(now).toISOString());assert.equal(metadata.appProperties.jrBackupDataHash,s.snapshotDataHash(prior));
+ const log=JSON.parse(s.logs.at(-1));assert.equal(log.event,'backup.unchanged');assert.equal(log.createdAt,at);assert.equal(log.snapshotTakenAt,at);assert.equal(log.verifiedUnchangedAt,new Date(now).toISOString());
+ assert.ok(!s.logs.some(x=>x.includes('backup.uploaded')));
+ const restarted=runtime({now:now+2*3600000,files:[{...priorFile(r,at),appProperties:metadata.appProperties}]});await restarted.runDatabaseBackup();assert.equal(restarted.snapshots,0);assert.equal(restarted.requests.length,1);
+ const stop=restarted.startDatabaseBackups(e=>{throw e});for(let i=0;i<30;i++)await Promise.resolve();assert.equal(restarted.timers[0].ms,4*3600000);stop();
+});
+test('a real content change uploads a complete format2 snapshot, with its new hash',async()=>{
+ const now=Date.now(),at=new Date(now-7*3600000).toISOString(),r=runtime(),prior={takenAt:at,formatVersion:2,tables:{items:[{id:1,note:'before'}],empty:[]}};
+ const s=runtime({now,files:[priorFile(r,at)],seed:prior,sql:snapshotSql({items:[{id:1,note:'after'}],empty:[]})});await s.runDatabaseBackup();
+ assert.equal(s.requests.filter(x=>x.init.method==='PATCH').length,0);const upload=s.requests.find(x=>x.url.includes('upload/'));assert.ok(upload);assert.ok(upload.init.body.includes('"formatVersion":2'));assert.ok(upload.init.body.includes('"empty":[]'));assert.ok(upload.init.body.includes('"note":"after"'));assert.ok(upload.init.body.includes('jrBackupDataHash'));
+});
+test('identical different-source backup can seed blobs but never suppress a full upload',async()=>{
+ const now=Date.now(),at=new Date(now-7*3600000).toISOString(),prior={takenAt:at,formatVersion:2,tables:{}};
+ const s=runtime({now,files:[{id:'other',createdTime:at,appProperties:{jrBackupSource:'other-source',jrBackupTakenAt:at,jrBackupCheckedAt:new Date(now).toISOString(),jrBackupDataHash:runtime().snapshotDataHash(prior)}}],seed:prior});await s.runDatabaseBackup();
+ assert.equal(s.requests.filter(x=>x.url.includes('upload/')).length,1);assert.equal(s.requests.filter(x=>x.init.method==='PATCH').length,0);
+});
+test('metadata update failure and corrupt previous data hash fail loudly without success or replacement upload',async()=>{
+ const now=Date.now(),at=new Date(now-7*3600000).toISOString(),r=runtime(),prior={takenAt:at,formatVersion:2,tables:{}};
+ const s=runtime({now,files:[priorFile(r,at)],seed:prior,failPatch:true});await assert.rejects(()=>s.runDatabaseBackup(),/HTTP 503/);assert.ok(!s.logs.some(x=>/backup\.(unchanged|uploaded)/.test(x)));assert.equal(s.requests.filter(x=>x.url.includes('upload/')).length,0);
+ const corrupt=runtime({now,files:[priorFile(r,at,{jrBackupDataHash:'0'.repeat(64)})],seed:prior});await assert.rejects(()=>corrupt.runDatabaseBackup(),/dataHash mismatch/);assert.equal(corrupt.snapshots,0);
+ const badAt=runtime({now,files:[priorFile(r,at)],seed:{...prior,takenAt:new Date(now-8*3600000).toISOString()}});await assert.rejects(()=>badAt.runDatabaseBackup(),/takenAt does not match/);assert.equal(badAt.snapshots,0);
+});
+test('malformed, future or backwards checkedAt cannot extend cooldown; checkedAt requires a hash',async()=>{
+ const now=Date.now(),at=new Date(now-7*3600000).toISOString(),r=runtime();
+ for(const checked of ['tomorrow','2026-02-30T00:00:00.000Z',new Date(now+120000).toISOString(),new Date(now-8*3600000).toISOString()]){
+  const s=runtime({now,files:[priorFile(r,at,{jrBackupCheckedAt:checked,jrBackupDataHash:'a'.repeat(64)})]});await assert.rejects(()=>s.runDatabaseBackup(),/checkedAt/);assert.equal(s.snapshots,0);
+ }
+ const missing=runtime({now,files:[priorFile(r,at,{jrBackupCheckedAt:new Date(now).toISOString()})]});await assert.rejects(()=>missing.runDatabaseBackup(),/dataHash/);
+ const malformed=runtime({now,files:[priorFile(r,'2026-02-30T00:00:00.000Z')]});await assert.rejects(()=>malformed.runDatabaseBackup(),/timestamp/);
 });
 // This integration test runs only against the named isolated clone and never contacts Drive.
 test('actual PostgreSQL full snapshot restores exact binary bytes, reuses them, and fetches changed document only',{skip:!process.env.BACKUP_TEST_DATABASE_URL},async()=>{

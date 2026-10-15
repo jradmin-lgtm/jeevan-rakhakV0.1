@@ -14,6 +14,9 @@ function guardTarget(env) {
   assert.equal(env.RESTORE_TARGET_DATABASE, 'jr_restore_oct15_v1', 'Explicit rehearsal target required');
   assert.equal(url.hostname, env.EXPECTED_DATABASE_HOST, 'Restore hostname differs from API-verified alternate project');
   assert.ok(url.hostname.endsWith('.neon.tech'), 'Hosted Neon target required');
+  assert.ok(['require', 'verify-full'].includes(url.searchParams.get('sslmode')), 'Restore requires explicit TLS sslmode=require or verify-full');
+  assert.match(env.EXPECTED_SNAPSHOT_SHA256 ?? '', /^[a-f0-9]{64}$/, 'Approved snapshot SHA256 is mandatory');
+  assert.ok(typeof env.EXPECTED_SNAPSHOT_TAKEN_AT === 'string' && Number.isFinite(Date.parse(env.EXPECTED_SNAPSHOT_TAKEN_AT)), 'Approved snapshot cutoff is mandatory');
 }
 function topologicalOrder(names, relations) {
   const remaining = new Set(names), ordered = [];
@@ -73,8 +76,8 @@ function chunks(rows) {
 async function restoreSnapshot({env, snapshotPath, reportPath}) {
   guardTarget(env);
   const source = fs.readFileSync(snapshotPath), snapshot = JSON.parse(source);
-  if (env.EXPECTED_SNAPSHOT_SHA256) assert.equal(digest(source), env.EXPECTED_SNAPSHOT_SHA256, 'Snapshot differs from the approved source file');
-  if (env.EXPECTED_SNAPSHOT_TAKEN_AT) assert.equal(snapshot.takenAt, env.EXPECTED_SNAPSHOT_TAKEN_AT, 'Snapshot cutoff differs from approved source');
+  assert.equal(digest(source), env.EXPECTED_SNAPSHOT_SHA256, 'Snapshot differs from the approved source file');
+  assert.equal(snapshot.takenAt, env.EXPECTED_SNAPSHOT_TAKEN_AT, 'Snapshot cutoff differs from approved source');
   const sql = postgres(env.DATABASE_URL, {max:1, onnotice(){}});
   try {
     const [identity] = await sql`SELECT current_database() AS name`;

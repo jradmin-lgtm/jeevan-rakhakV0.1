@@ -62,3 +62,14 @@ Root verification: `npm run build` passed all 7 configured build tasks when PATH
 51 focused queue, incoming-alert, map, ETA, pending-timer, push-recipient, hosted-runner guard and restore-helper checks passed with zero skips. A separate backup suite passed 7/7, zero skips, including actual PostgreSQL binary snapshot/reuse/change/restore checks on the isolated local clone. This is not a hosted load result. Candidate-file scan found zero literal matches for available private credential values across 70 selected source/document files. Configured loud/supplied build-gate seams passed 2/2; observed is disabled in the existing gate configuration and these passes do not prove deployment.
 
 Independent review identified stale existing-marker labels after pickup. The native owner implemented in-place label updates and phase-transition tests for both map renderers, plus stationary Google route refresh. Re-review and final native bundles remain pending at this entry.
+
+
+## Restored cutoff and isolated hosted readiness
+
+Approved snapshot restored atomically into the alternate Neon project: 21 source tables, 6,894 rows, 129 binary documents totaling 27,142,474 bytes. All typed row checksums and binary checksums matched. All 27 foreign-key relationships checked with zero orphan rows. Failure injection proved rollback, and a second restore correctly refused the populated target. Original source untouched. The reusable restore helper now requires explicit TLS and exact expected source hash/cutoff; the completed restore already supplied those values. Six restore guard tests pass.
+
+Both new free Ohio Render services serve d8c084af843b800f473b98581d398aea2df9af8b against the isolated hosted load database, with fresh test auth keys and external provider credentials absent. Health and database readiness were observed. This is not a load-test result and production portal/APKs remain unswitched.
+
+Additional backup hardening compares canonical complete table data, excluding only snapshot time. Verified identical contents update only Drive metadata, keeping original snapshot time separate from the new verification time. Changed contents retain full format-2 backups. Independent backend review found no material blocker; all 13 backup tests passed, including actual PostgreSQL, with zero skips. Active table changes still require full uploads, and simultaneous independent API writers retain a bounded duplicate race.
+
+Native QA found Gradle did not invalidate its JavaScript bundle after shared UI changes. Final QA and production APK builds must force JavaScript bundle regeneration and verify the changed marker label is present in the actual bundled artifact. Source/harness tests alone do not establish APK contents.

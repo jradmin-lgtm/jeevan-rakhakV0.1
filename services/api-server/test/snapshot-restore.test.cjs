@@ -3,10 +3,14 @@ const {guardTarget,topologicalOrder,prepareSnapshot,chunks}=require('../../../sc
 const columns=[{table_name:'docs',column_name:'id',data_type:'uuid',is_generated:'NEVER'},{table_name:'docs',column_name:'data',data_type:'bytea',is_generated:'NEVER'},{table_name:'docs',column_name:'new_flag',data_type:'boolean',is_generated:'NEVER'}];
 const snapshot=rows=>({formatVersion:2,takenAt:new Date().toISOString(),tables:{docs:rows}});
 test('restore guard rejects ordinary and production databases',()=>{
- const env={NEON_PROJECT_ID:'soft-wave-50441469',DATABASE_URL:'postgres://test@approved.neon.tech/jr_restore_oct15_v1',RESTORE_TARGET_DATABASE:'jr_restore_oct15_v1',EXPECTED_DATABASE_HOST:'approved.neon.tech'};guardTarget(env);
+ const env={NEON_PROJECT_ID:'soft-wave-50441469',DATABASE_URL:'postgres://test@approved.neon.tech/jr_restore_oct15_v1?sslmode=require',EXPECTED_SNAPSHOT_SHA256:'a'.repeat(64),EXPECTED_SNAPSHOT_TAKEN_AT:'2026-10-15T06:33:01.447Z',RESTORE_TARGET_DATABASE:'jr_restore_oct15_v1',EXPECTED_DATABASE_HOST:'approved.neon.tech'};guardTarget(env);
  assert.throws(()=>guardTarget({...env,DATABASE_URL:'postgres://test@approved.neon.tech/neondb'}),/separate rehearsal/);
  assert.throws(()=>guardTarget({...env,NEON_PROJECT_ID:'production'}),/alternate project/);
  assert.throws(()=>guardTarget({...env,EXPECTED_DATABASE_HOST:'different.neon.tech'}),/hostname/);
+ for(const mode of ['', '?sslmode=disable', '?sslmode=prefer']) assert.throws(()=>guardTarget({...env,DATABASE_URL:'postgres://test@approved.neon.tech/jr_restore_oct15_v1'+mode}),/explicit TLS/);
+ guardTarget({...env,DATABASE_URL:'postgres://test@approved.neon.tech/jr_restore_oct15_v1?sslmode=verify-full'});
+ for(const hash of [undefined,'', 'bad']) assert.throws(()=>guardTarget({...env,EXPECTED_SNAPSHOT_SHA256:hash}),/SHA256 is mandatory/);
+ for(const cutoff of [undefined,'','invalid']) assert.throws(()=>guardTarget({...env,EXPECTED_SNAPSHOT_TAKEN_AT:cutoff}),/cutoff is mandatory/);
 });
 test('foreign keys restore parents before children and refuse cycles or missing parents',()=>{
  assert.deepEqual(topologicalOrder(['events','users','bookings'],[{child:'events',parent:'bookings'},{child:'bookings',parent:'users'}]),['users','bookings','events']);

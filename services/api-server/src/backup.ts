@@ -8,7 +8,6 @@ export const BACKUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 type Snapshot = { takenAt: string; formatVersion: number; tables: Record<string, Record<string, unknown>[]> };
 type BackupFile = { id: string; createdTime: string; appProperties?: Record<string, string> };
 const blobCache = new Map<string, string>();
-let cacheLoaded = false;
 let lastSuccessfulAt = 0;
 // Single API writer: simultaneous blue-green workers can still upload two due snapshots.
 // Multi-writer deployment requires a durable distributed lease; session locks are unsafe through transaction pooling.
@@ -29,7 +28,7 @@ function cacheKey(bytes: Buffer): string {
 }
 export function cacheSnapshotBlobs(snapshot: unknown, cache: Map<string, string>): void {
   const value = snapshot as Snapshot;
-  if (!value || value.formatVersion !== 2 || !Number.isFinite(Date.parse(value.takenAt)) || !value.tables || Array.isArray(value.tables)) {
+  if (!value || value.formatVersion !== 2 || !validTimestamp(value.takenAt) || !value.tables || typeof value.tables !== 'object' || Array.isArray(value.tables)) {
     throw new Error("Previous Drive backup is not a valid formatVersion 2 snapshot");
   }
   for (const rows of Object.values(value.tables)) {
@@ -49,6 +48,35 @@ export function cacheSnapshotBlobs(snapshot: unknown, cache: Map<string, string>
       }
     }
   }
+}
+function validTimestamp(value: unknown): value is string {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)
+    && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value.replace(/Z$/, value.includes('.') ? 'Z' : '.000Z');
+}
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`).join(',')}}`;
+  throw new Error('Backup contains a non-JSON value');
+}
+/** Row ordering is not database content; nested JSON array ordering and duplicate rows are. */
+export function snapshotDataHash(snapshot: Snapshot): string {
+  const hash = createHash('sha256');
+  hash.update('{');
+  for (const [index, table] of Object.keys(snapshot.tables).sort().entries()) {
+    hash.update(`${index ? ',' : ''}${JSON.stringify(table)}:[`);
+    const rows = snapshot.tables[table].map(canonicalJson).sort();
+    for (const [rowIndex, row] of rows.entries()) hash.update(`${rowIndex ? ',' : ''}${row}`);
+    hash.update(']');
+  }
+  return hash.update('}').digest('hex');
+}
+function previousCheckTime(file: BackupFile): number {
+  const takenAt = file.appProperties?.jrBackupTakenAt ?? file.createdTime;
+  const checkedAt = file.appProperties?.jrBackupCheckedAt;
+  if (!validTimestamp(file.createdTime) || !validTimestamp(takenAt) || Date.parse(takenAt) > Date.now() + 60_000 || Date.parse(file.createdTime) > Date.now() + 60_000) throw new Error('Drive backup timestamp is invalid');
+  if (checkedAt !== undefined && (!validTimestamp(checkedAt) || Date.parse(checkedAt) < Date.parse(takenAt) || Date.parse(checkedAt) > Date.now() + 60_000 || !/^[a-f0-9]{64}$/.test(file.appProperties?.jrBackupDataHash ?? ''))) throw new Error('Drive backup checkedAt or dataHash is invalid');
+  return Date.parse(checkedAt ?? takenAt);
 }
 function identifier(value: string): string { return `"${value.replace(/"/g, '""')}"`; }
 function serializeRow(row: Record<string, unknown>): Record<string, unknown> {
@@ -123,7 +151,7 @@ async function latestBackup(token: string, source?: string): Promise<BackupFile 
   if (!Array.isArray(result.files)) throw new Error("Drive backup listing has no files array");
   return result.files[0] ?? null;
 }
-/** Force bypasses the durable cooldown for explicit operator backups. */
+/** Force bypasses cooldown, but verified identical content still reuses the complete snapshot. */
 export async function runDatabaseBackup(options: { force?: boolean } = {}): Promise<void> {
   if (running) throw new Error("database backup already running");
   running = true;
@@ -134,25 +162,47 @@ export async function runDatabaseBackup(options: { force?: boolean } = {}): Prom
     if (!token) throw new Error("Drive backup access token unavailable");
     const previous = await latestBackup(token, source);
     if (previous) {
-      const at = Date.parse(previous.appProperties?.jrBackupTakenAt ?? previous.createdTime);
-      if (!Number.isFinite(at) || at > Date.now() + 60_000) throw new Error("Drive backup timestamp is invalid");
+      if (previous.appProperties?.jrBackupSource !== source) throw new Error('Drive backup listing returned a different source');
+      const at = previousCheckTime(previous);
       lastSuccessfulAt = Math.max(lastSuccessfulAt, at);
       if (!options.force && Date.now() - at < BACKUP_INTERVAL_MS) {
-        console.log(`[backup] recent source-matched snapshot exists; next due in ${Math.ceil((BACKUP_INTERVAL_MS - (Date.now() - at)) / 60000)} minutes`);
+        console.log(`[backup] source-matched backup recently created or verified unchanged; next due in ${Math.ceil((BACKUP_INTERVAL_MS - (Date.now() - at)) / 60000)} minutes`);
         return;
       }
     }
-    if (!cacheLoaded) {
-      const seed = previous ?? await latestBackup(token);
-      if (seed) {
-        const snapshot = await (await driveRequest(token, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(seed.id)}?alt=media&supportsAllDrives=true`)).json();
-        cacheSnapshotBlobs(snapshot, blobCache);
+    let previousSnapshot: Snapshot | undefined;
+    let previousHash: string | undefined;
+    const seed = previous ?? await latestBackup(token);
+    if (seed) {
+      const snapshot = await (await driveRequest(token, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(seed.id)}?alt=media&supportsAllDrives=true`)).json() as Snapshot;
+      const verifiedCache = new Map<string, string>();
+      cacheSnapshotBlobs(snapshot, verifiedCache);
+      if (Date.parse(snapshot.takenAt) > Date.now() + 60_000) throw new Error('Previous Drive snapshot takenAt is invalid');
+      if (previous) {
+        if (previous.appProperties?.jrBackupTakenAt !== undefined && previous.appProperties.jrBackupTakenAt !== snapshot.takenAt) throw new Error('Previous Drive snapshot takenAt does not match metadata');
+        previousHash = snapshotDataHash(snapshot);
+        const recordedHash = previous.appProperties?.jrBackupDataHash;
+        if (recordedHash !== undefined && recordedHash !== previousHash) throw new Error('Previous Drive snapshot dataHash mismatch');
+        if (previous.appProperties?.jrBackupCheckedAt && Date.parse(previous.appProperties.jrBackupCheckedAt) < Date.parse(snapshot.takenAt)) throw new Error('Previous Drive snapshot checkedAt precedes takenAt');
+        previousSnapshot = snapshot;
       }
-      cacheLoaded = true;
+      blobCache.clear();
+      for (const [key, value] of verifiedCache) blobCache.set(key, value);
     }
     const dump = await buildDatabaseSnapshot();
+    const dataHash = snapshotDataHash(dump);
+    if (previous && previousSnapshot && dataHash === previousHash) {
+      if (Date.parse(dump.takenAt) < Date.parse(previousSnapshot.takenAt)) throw new Error('Backup verification clock precedes original snapshot');
+      await driveRequest(token, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(previous.id)}?supportsAllDrives=true`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appProperties: { ...previous.appProperties, jrBackupSource: source, jrBackupTakenAt: previousSnapshot.takenAt, jrBackupCheckedAt: dump.takenAt, jrBackupDataHash: dataHash } })
+      });
+      lastSuccessfulAt = Date.parse(dump.takenAt);
+      console.log(JSON.stringify({ event: 'backup.unchanged', fileId: previous.id, createdAt: previous.createdTime, snapshotTakenAt: previousSnapshot.takenAt, verifiedUnchangedAt: dump.takenAt, dataHash, nextDueAt: new Date(lastSuccessfulAt + BACKUP_INTERVAL_MS).toISOString() }));
+      return;
+    }
     const name = `jr-db-backup-${dump.takenAt.replace(/[:.]/g, "-")}.json`;
-    const metadata = JSON.stringify({ name, parents: [BACKUP_FOLDER_ID], appProperties: { jrBackupSource: source, jrBackupTakenAt: dump.takenAt } });
+    const metadata = JSON.stringify({ name, parents: [BACKUP_FOLDER_ID], appProperties: { jrBackupSource: source, jrBackupTakenAt: dump.takenAt, jrBackupDataHash: dataHash } });
     const body = JSON.stringify(dump), boundary = "jr_backup_boundary_7e2";
     const multipart = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${boundary}--`;
     await driveRequest(token, "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true", {
