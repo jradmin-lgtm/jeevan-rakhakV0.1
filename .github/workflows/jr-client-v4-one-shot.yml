@@ -1,0 +1,38 @@
+name: JR V4 reviewed client recovery one shot
+on:
+  push:
+    branches: [codex/jr-load-client-v4-20261016]
+permissions:
+  contents: read
+concurrency:
+  group: jr-client-v4-one-shot-20261016
+  cancel-in-progress: false
+jobs:
+  isolated-client-test:
+    if: github.repository == 'jradmin-lgtm/jeevan-rakhakV0.1' && github.run_attempt == 1 && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout reviewed wrapper
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Checkout exact reviewed measurement source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 38414608c9bb701b269b8f9ceb6464fa9e046e51
+          path: .harness
+          persist-credentials: false
+      - name: Validate exact reviewed workload before building or traffic
+        run: node scripts/hosted-load/ci/launch-v4.cjs --plan
+      - name: Build pinned Node 24 measurement image
+        run: docker build -f .harness/scripts/hosted-load/Dockerfile -t jr-reviewed-load:one-shot .harness
+      - name: Run unchanged 10 ride app cadence with aggregate evidence only
+        env:
+          JR_HOSTED_LOAD_DATABASE_URL: ${{ secrets.JR_OCT16_V4_LOAD_DATABASE_URL }}
+          JR_HOSTED_LOAD_JWT_SECRET: ${{ secrets.JR_OCT16_V4_LOAD_JWT_SECRET }}
+          JR_HOSTED_LOAD_CONFIRM: jr-load-oct16-v3-hosted
+        run: node scripts/hosted-load/ci/launch-v4.cjs
+      - name: Stop owned container if runner cancels
+        if: always()
+        run: node scripts/hosted-load/ci/launch-v4.cjs --cleanup
