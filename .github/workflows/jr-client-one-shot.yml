@@ -1,0 +1,36 @@
+name: JR isolated client resilience one shot
+on:
+  push:
+    branches: [codex/jr-load-client-20261015]
+permissions:
+  contents: read
+concurrency:
+  group: jr-client-one-shot-20261015
+  cancel-in-progress: false
+jobs:
+  isolated-client-test:
+    if: github.repository == 'jradmin-lgtm/jeevan-rakhakV0.1' && github.run_attempt == 1 && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout reviewed wrapper
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Checkout exact reviewed measurement source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 31df8963634b745cf0ac27c493cf222435b94c75
+          path: .harness
+          persist-credentials: false
+      - name: Build pinned Node 24 measurement image
+        run: docker build -f .harness/scripts/hosted-load/Dockerfile -t jr-reviewed-load:one-shot .harness
+      - name: Run unchanged 10 ride app cadence with aggregate evidence only
+        env:
+          JR_HOSTED_LOAD_DATABASE_URL: ${{ secrets.JR_OCT15_LOAD_DATABASE_URL }}
+          JR_HOSTED_LOAD_JWT_SECRET: ${{ secrets.JR_OCT15_LOAD_JWT_SECRET }}
+          JR_HOSTED_LOAD_CONFIRM: jr-load-oct15-v1-hosted
+        run: node scripts/hosted-load/ci/launch.cjs
+      - name: Stop owned container if runner cancels
+        if: always()
+        run: node scripts/hosted-load/ci/launch.cjs --cleanup
