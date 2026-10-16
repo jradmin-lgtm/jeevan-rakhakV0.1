@@ -1,3 +1,9 @@
+## Realtime investigation update: 16 October 2026, 09:43 AM IST
+
+Local reproduction confirmed the reconnect timing failure mechanism: the test's 1.1-second probe can occur before automatic user reconnection. A real source-bound local socket run delivered all 60 steady probes. Across six forced reconnect rounds it missed 15/120 probes, all while the intended user was disconnected and absent from the booking room; no missing event had its recipient present. No duplicate/cross-ride event occurred. Seven attribution/scope regression cases passed locally and are added to CI configuration; the new GitHub workflow has not been run. No production source, schema, APK, deployment or provider usage changed.
+
+The original hosted 3,667/3,670 raw realtime FAIL remains unchanged. The saved aggregate lacks per-event timing, so exact attribution of those three historical events remains unproved. Original GPS persistence and client-recovery PASS are separate. [Detailed realtime investigation](OCT16-REALTIME-RCA.md).
+
 # Jeevan Rakshak controlled team pilot
 
 <!-- JR_V4_CURRENT_BEGIN -->
