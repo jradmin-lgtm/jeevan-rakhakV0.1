@@ -1,3 +1,17 @@
+<!-- JR_LOCAL_CLEANUP_BEGIN -->
+## Current local handoff: 16 October 2026, 11:29 AM IST
+
+Current release: 2.2.4 build 59, controlled team pilot. Live API/realtime source last observed before cleanup is 563cbd9; portal source is 950ed84. Local diagnostic source is 6ea8f2a. No deployment or runtime change is included in this cleanup.
+
+[Current local index](</Applications/VsCode Works/12. Jeevan App/INDEX.md>) | [Source and evidence index](</Users/kumar.sh/.codex/worktrees/jr-ended-ride-privacy/jr-prod/docs/INDEX.md>) | [Cleanup and recovery record](</Users/kumar.sh/.codex/worktrees/jr-ended-ride-privacy/jr-prod/docs/releases/OCT16-LOCAL-CLEANUP.md>).
+
+Latest retained full database backup: **16/10/2026, 06:54:47 IST**, 22 tables, 129 driver documents, independently hash-verified. Current signed APK pair, plaintext owner-only credentials and all feedback originals have indexed locations. Older edit copies and previous database backups are recoverable from the private archive. Existing uncommitted application source remains unchanged.
+
+The hosted 10-ride client-recovery result passed, while raw realtime delivery remained 3,667/3,670 FAIL. Exact attribution of the original three is unproved; 50 rides, physical Infinix and physical alert behavior remain unverified. Provider readings in dated reports remain dated, not current usage. No hosted load was run for cleanup. See the latest ledgers for scope and accepted/open risks.
+
+The material below is historical unless explicitly supported by a newer dated verification. Older instructions do not supersede this index.
+<!-- JR_LOCAL_CLEANUP_END -->
+
 ## Realtime investigation update: 16 October 2026, 09:43 AM IST
 
 Local reproduction confirmed the reconnect timing failure mechanism: the test's 1.1-second probe can occur before automatic user reconnection. A real source-bound local socket run delivered all 60 steady probes. Across six forced reconnect rounds it missed 15/120 probes, all while the intended user was disconnected and absent from the booking room; no missing event had its recipient present. No duplicate/cross-ride event occurred. Seven attribution/scope regression cases passed locally and are added to CI configuration; the new GitHub workflow has not been run. No production source, schema, APK, deployment or provider usage changed.

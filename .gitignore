@@ -26,3 +26,22 @@ keystore.properties
 keystore.properties.*
 jr-upload.keystore
 *.jks
+
+# Local cleanup: preserve private files and keep generated/edit artifacts out of Git.
+.DS_Store
+node_modules
+*.PRE_*
+*.bak
+*.orig
+*.rej
+*.apk
+*.aab
+/.gate/
+/LOCAL PRIVATE/
+/LOCAL DATABASE BACKUPS/
+/LOCAL ARCHIVE/
+/LATEST RELEASE/
+credentials.local.json
+creds.local.json
+/CREDS_AND_API_REFS.md
+/PASSWORDS.txt

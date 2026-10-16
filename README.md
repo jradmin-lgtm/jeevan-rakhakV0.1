@@ -1,35 +1,9 @@
-# Jeevan Rakshak — v0.2
+# Jeevan Rakshak
 
-Cost-first emergency ambulance dispatch platform.
+Ambulance booking, driver dispatch, operations and hospital portals. Current controlled pilot: 2.2.4, Android build 59.
 
-## Apps
+[Current state](docs/CURRENT-STATE.md) | [Documentation index](docs/INDEX.md) | [Local workspace index](</Applications/VsCode Works/12. Jeevan App/INDEX.md>).
 
-- `apps/user-app` — Expo (React Native) patient app, Hermes-enabled.
-- `apps/driver-app` — Expo driver app with availability toggle + live location push.
-- `apps/admin-web` — Next.js operations dashboard (auto-refresh every 5s).
+User and driver apps: Expo/React Native. Admin and hospital portals: Next.js. API: Fastify/PostgreSQL. Realtime: Socket.IO. Shared code lives in packages/. Read the current state and private local configuration before running or deploying. The historical launch/setup notes remain available but do not supersede current release evidence.
 
-## Services
-
-- `services/api-server` — Fastify 5 + JWT + zod + Drizzle ORM.
-- `services/socket-server` — socket.io with rooms, JWT-authed handshake.
-- `services/worker-jobs` — booking timeout reaper + stale-driver sweeper.
-
-## Packages
-
-- `packages/ui` — shared design system (tokens + 11 components, optimized for low-RAM).
-- `packages/config` — single env / feature-flag registry.
-- `packages/db` — Drizzle schema, migration, seed.
-- `packages/types`, `packages/utils` — shared DTOs / helpers.
-
-## One-shot setup
-
-```bash
-cp .env.example .env
-pnpm install
-docker compose up -d postgres
-pnpm --filter @jr/db migrate
-pnpm --filter @jr/db seed
-pnpm dev
-```
-
-See `../LAUNCH_GUIDE.md` for production deploy + APK build instructions.
+Live API/realtime source is 563cbd9; local diagnostic source is 6ea8f2a. Local cleanup does not deploy code or certify new capacity. Preserve primary uncommitted work and local credential/signing files. See the index for backup, current signed APKs, feedback and known limitations.
