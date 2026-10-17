@@ -1,3 +1,6 @@
+> **Superseded for deployment status:** [Live rollout and remaining observation](OCT18-COST-FIXES-LIVE.md). API 9dfa945 is now live. The dated local implementation/test record below remains historical evidence.
+
+<!-- HISTORICAL_CONTENT -->
 # Drive downloads and incremental backups: local review candidate
 
 Updated 18 October 2026, 12:20 AM IST. Started 17 October. The owner approved link-readable access for only the two existing release APKs, requested a one-click download and localhost review first, and requested advancing backups with changed data. No production backend deployment, new native APK build, paid plan change or hosted load test was performed.

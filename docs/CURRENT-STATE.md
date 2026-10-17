@@ -1,3 +1,8 @@
+## Live cost release: 18 October 2026, 12:41 AM IST
+
+API **9dfa945** is observed live with direct APK delivery and incremental mode. Both live download handoffs passed; no duplicate backup occurred at startup. First scheduled increment is due around 18 October 2:22 AM IST and remains pending observation. Realtime/portal/APK59 are unchanged. [Authoritative rollout record](releases/OCT18-COST-FIXES-LIVE.md). Older pending-review statements below are historical.
+
+<!-- HISTORICAL_CONTENT -->
 ## Local cost-fix candidate: 18 October 2026, 12:20 AM IST
 
 [Local download preview](http://127.0.0.1:3101/download-apk) and [implementation/verification](releases/OCT18-COST-FIXES-LOCAL.md) are ready for owner review. Drive direct delivery and incremental backups passed 46 focused local tests, real PostgreSQL restore/lease checks and bounded memory testing. Only the two current APKs were made link-readable as approved. No production backend deployment, new APK build or hosted load was performed. Live backend rollout remains pending this review; older live-state evidence below stays dated.

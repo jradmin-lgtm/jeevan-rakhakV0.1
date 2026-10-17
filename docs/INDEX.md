@@ -1,3 +1,6 @@
+Current release status: [Live Drive downloads and incremental backups](releases/OCT18-COST-FIXES-LIVE.md). The local-review-only entry below has been superseded.
+
+<!-- HISTORICAL_CONTENT -->
 Latest local candidate: [Drive delivery and incremental backup review](releases/OCT18-COST-FIXES-LOCAL.md). Production backend rollout is pending localhost review.
 
 # Source and evidence index
