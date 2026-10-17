@@ -4,16 +4,16 @@
  * Flow (gated; no anonymous downloads):
  *   POST /api/v1/dl/visit            -> log a page visit (best-effort)
  *   POST /api/v1/dl/:app  {contact}  -> validate mobile/email, log request, return one-time token
- *   GET  /api/v1/dl/:app/file?token= -> validate token, stream the latest APK via the Drive SA
+ *   GET  /api/v1/dl/:app/file?token= -> validate token, then redirect to Drive or use explicit legacy proxy mode
  *   GET  /api/v1/admin/app-events    -> (admin-key) aggregates for the dashboard "App Installs" tab
  *
- * APK bytes are streamed through the server via the Drive SA (drive.ts); the
- * files stay private, so a server-issued token is required to download.
+ * The portal keeps its contact/token flow. Drive mode sends APK payloads directly
+ * from approved link-readable files; copied public links can bypass this gate.
  */
 import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { sql } from "@jr/db";
-import { driveConfigured, resolveLatestApk, openApkStream } from "../drive";
+import { driveConfigured, resolveLatestApk, openApkStream, resolveDirectApkLink } from "../drive";
 
 const APPS = new Set(["user", "driver"]);
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -29,6 +29,8 @@ function validContact(raw: string): boolean {
 }
 
 export async function registerDownloadRoutes(app: FastifyInstance) {
+  const delivery = process.env.APK_DOWNLOAD_MODE ?? "proxy";
+  if (delivery !== "proxy" && delivery !== "drive") throw new Error("APK_DOWNLOAD_MODE must be proxy or drive");
   // Page-visit log (fire-and-forget from /get on load)
   app.post("/api/v1/dl/visit", async (req: any) => {
     const a = typeof req.body?.app === "string" && APPS.has(req.body.app) ? req.body.app : null;
@@ -83,6 +85,20 @@ export async function registerDownloadRoutes(app: FastifyInstance) {
     if (!row) return reply.code(410).send({ error: "token_invalid_or_used", message: "Please request the download again." });
     const apk = await resolveLatestApk(appName as "user" | "driver");
     if (!apk) return reply.code(502).send({ error: "apk_unavailable" });
+    if (delivery === "drive") {
+      let url: string;
+      try { url = await resolveDirectApkLink(apk); }
+      catch (error) {
+        app.log.error({ event: "apk.direct_unavailable", app: appName, errorType: error instanceof Error ? error.name : "unknown resolution failure" }, "Drive direct download could not be verified");
+        return reply.code(503).send({ error: "direct_download_unavailable", message: "The download could not start. Please try again shortly." });
+      }
+      const claimed = await sql`UPDATE app_events SET status = 'downloaded', completed_at = now(), message = 'redirected_to_drive; transfer completion is not observable' WHERE id = ${row.id} AND status = 'requested' RETURNING id`;
+      if (claimed.length !== 1) return reply.code(410).send({ error: "token_invalid_or_used" });
+      reply.header("Cache-Control", "private, no-store");
+      reply.header("Referrer-Policy", "no-referrer");
+      app.log.info({ event: "apk.redirected", app: appName, delivery: "drive", bytesProxied: 0 }, "APK delivery handed to Drive");
+      return reply.redirect(url, 303);
+    }
     const stream = await openApkStream(apk.id);
     if (!stream) return reply.code(502).send({ error: "apk_stream_failed" });
     await sql`UPDATE app_events SET status = 'downloaded', completed_at = now() WHERE id = ${row.id}`;

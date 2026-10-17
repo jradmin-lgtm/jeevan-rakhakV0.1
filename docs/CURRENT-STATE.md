@@ -1,3 +1,7 @@
+## Local cost-fix candidate: 18 October 2026, 12:20 AM IST
+
+[Local download preview](http://127.0.0.1:3101/download-apk) and [implementation/verification](releases/OCT18-COST-FIXES-LOCAL.md) are ready for owner review. Drive direct delivery and incremental backups passed 46 focused local tests, real PostgreSQL restore/lease checks and bounded memory testing. Only the two current APKs were made link-readable as approved. No production backend deployment, new APK build or hosted load was performed. Live backend rollout remains pending this review; older live-state evidence below stays dated.
+
 <!-- JR_LOCAL_CLEANUP_BEGIN -->
 ## Current local handoff: 16 October 2026, 11:29 AM IST
 

@@ -1,13 +1,13 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript'),crypto=require('node:crypto');
 const source=ts.transpileModule(fs.readFileSync(require('node:path').join(__dirname,'../src/backup.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
-function runtime({sql,files=[],seed,failUpload=false,failPatch=false,now}={}){
+function runtime({sql,files=[],seed,failUpload=false,failPatch=false,now,backupMode,leaseState={busy:false}}={}){
  const queries=[],logs=[],requests=[],timers=[];let snapshots=0;
  const db=sql??{begin:async(mode,fn)=>{snapshots++;const tx=async()=>[];tx.unsafe=async()=>[];return fn(tx)}};
  class Auth{async getClient(){return {getAccessToken:async()=>({token:'isolated-fake-token'})}}}
  const mod={exports:{}};
- const fetch=async(url,init)=>{requests.push({url,init});if(init.method==='PATCH')return {ok:!failPatch,status:failPatch?503:200};if(url.includes('upload/'))return {ok:!failUpload,status:failUpload?503:200};if(url.includes('alt=media'))return {ok:true,json:async()=>seed};const q=new URL(url).searchParams.get('q');return {ok:true,json:async()=>({files:files.filter(f=>!q.includes('appProperties has')||f.appProperties?.jrBackupSource===identity)})}};
+ const fetch=async(url,init)=>{requests.push({url,init});if(init.method==='PATCH')return {ok:!failPatch,status:failPatch?503:200};if(url.includes('upload/'))return {ok:!failUpload,status:failUpload?503:200};if(url.includes('alt=media'))return new Response(JSON.stringify(seed));const q=new URL(url).searchParams.get('q');return {ok:true,json:async()=>({files:files.filter(f=>!q.includes('appProperties has')||f.appProperties?.jrBackupSource===identity)})}};
  const identity=crypto.createHash('sha256').update('local@127.0.0.1:5449/jr_feedback_20261015').digest('hex');
- vm.runInNewContext(source,{module:mod,exports:mod.exports,Buffer,URL,URLSearchParams,AbortSignal,Date:class extends Date{constructor(...args){super(...(args.length?args:[now??Date.now()]))}static now(){return now??Date.now()}},Map,process:{env:{DATABASE_URL:'postgres://local@127.0.0.1:5449/jr_feedback_20261015',DRIVE_SA_JSON:'{}'}},console:{log:x=>logs.push(x)},setTimeout(fn,ms){const t={fn,ms,unref(){}};timers.push(t);return t},clearTimeout(t){t.cleared=true},fetch,require(name){if(name==='google-auth-library')return {GoogleAuth:Auth};if(name==='node:crypto')return crypto;if(name==='@jr/db')return {sql:db};throw Error(name)}});
+ vm.runInNewContext(source,{module:mod,exports:mod.exports,Buffer,URL,URLSearchParams,AbortSignal,Response,Date:class extends Date{constructor(...args){super(...(args.length?args:[now??Date.now()]))}static now(){return now??Date.now()}},Map,process:{env:{DATABASE_URL:'postgres://local@127.0.0.1:5449/jr_feedback_20261015',DRIVE_SA_JSON:'{}',DB_BACKUP_MODE:backupMode}},console:{log:x=>logs.push(x)},setTimeout(fn,ms){const t={fn,ms,unref(){}};timers.push(t);return t},clearTimeout(t){t.cleared=true},fetch,require(name){if(name==='./backupLease')return {BACKUP_JOB_TIMEOUT_MS:480000,acquireBackupLease:async()=>{if(leaseState.busy)return null;leaseState.busy=true;return{assertOwned:async()=>{if(!leaseState.busy)throw Error('lease_lost')},release:async()=>{leaseState.busy=false}};}};if(name==='google-auth-library')return {GoogleAuth:Auth};if(name==='node:crypto')return crypto;if(name==='../../../packages/utils/backupCodec.cjs')return require('../../../packages/utils/backupCodec.cjs');if(name==='@jr/db')return {sql:db};throw Error(name)}});
  return {...mod.exports,logs,requests,timers,identity,get snapshots(){return snapshots}};
 }
 const emptySnapshot={takenAt:new Date().toISOString(),formatVersion:2,tables:{documents:[{data:{__bytea__:Buffer.from('saved document').toString('base64')}}]}};
@@ -21,9 +21,9 @@ test('restart cooldown skips database and schedules remaining six-hour deadline'
  const s=runtime({files:[file],now});await s.runDatabaseBackup();assert.equal(s.snapshots,0);assert.equal(s.requests.length,1);
  const stop=s.startDatabaseBackups(e=>{throw e});for(let i=0;i<20;i++)await Promise.resolve();assert.equal(s.timers[0].ms,4*3600000);stop();assert.equal(s.timers[0].cleared,true);
 });
-test('manual force bypasses recent backup cooldown and uploads complete snapshot',async()=>{
+test('manual force bypasses recent backup cooldown and uploads an incremental snapshot',async()=>{
  const r=runtime(),file={id:'current',createdTime:new Date().toISOString(),appProperties:{jrBackupSource:r.identity}};
- const s=runtime({files:[file],seed:emptySnapshot});await s.runDatabaseBackup({force:true});assert.equal(s.snapshots,1);assert.ok(s.requests.some(x=>x.url.includes('alt=media')));const upload=s.requests.find(x=>x.url.includes('upload/'));assert.ok(upload.init.body.includes('"formatVersion":2'));assert.ok(upload.init.body.includes('jrBackupTakenAt'));
+ const s=runtime({files:[file],seed:emptySnapshot});await s.runDatabaseBackup({force:true});assert.equal(s.snapshots,1);assert.ok(s.requests.some(x=>x.url.includes('alt=media')));const upload=s.requests.find(x=>x.url.includes('upload/'));assert.ok(upload.init.body.includes('"formatVersion":3'));assert.ok(upload.init.body.includes('jrBackupTakenAt'));
 });
 test('stale backup and different source never suppress snapshot; upload failure is loud',async()=>{
  const s=runtime({files:[{id:'other',createdTime:new Date().toISOString(),appProperties:{jrBackupSource:'other-source'}}],seed:emptySnapshot,failUpload:true});
@@ -31,9 +31,9 @@ test('stale backup and different source never suppress snapshot; upload failure 
  const r=runtime(),old={id:'stale',createdTime:new Date(Date.now()-7*3600000).toISOString(),appProperties:{jrBackupSource:r.identity}};
  const t=runtime({files:[old],seed:emptySnapshot});await t.runDatabaseBackup();assert.equal(t.snapshots,1);
 });
-test('local guard refuses overlap; independent simultaneous processes retain bounded duplicate risk',async()=>{
- const a=runtime(),b=runtime();const first=a.runDatabaseBackup();await assert.rejects(()=>a.runDatabaseBackup(),/already running/);const second=b.runDatabaseBackup();await Promise.all([first,second]);
- assert.equal(a.requests.filter(x=>x.url.includes('upload/')).length,1);assert.equal(b.requests.filter(x=>x.url.includes('upload/')).length,1);
+test('local overlap is rejected and a shared lease prevents independent deploys uploading twice',async()=>{
+ const leaseState={busy:false},a=runtime({leaseState}),b=runtime({leaseState});const first=a.runDatabaseBackup();await assert.rejects(()=>a.runDatabaseBackup(),/already running/);const second=b.runDatabaseBackup();await Promise.all([first,second]);
+ assert.equal(a.requests.filter(x=>x.url.includes('upload/')).length+b.requests.filter(x=>x.url.includes('upload/')).length,1);assert.equal(leaseState.busy,false);
 });
 test('invalid previous snapshot fails loudly before any database backup query',async()=>{
  const r=runtime({files:[{id:'old',createdTime:new Date(0).toISOString()}],seed:{tables:{}}});await assert.rejects(()=>r.runDatabaseBackup(),/formatVersion 2/);assert.equal(r.snapshots,0);
@@ -63,10 +63,10 @@ test('verified unchanged complete snapshot patches metadata only and keeps origi
  const restarted=runtime({now:now+2*3600000,files:[{...priorFile(r,at),appProperties:metadata.appProperties}]});await restarted.runDatabaseBackup();assert.equal(restarted.snapshots,0);assert.equal(restarted.requests.length,1);
  const stop=restarted.startDatabaseBackups(e=>{throw e});for(let i=0;i<30;i++)await Promise.resolve();assert.equal(restarted.timers[0].ms,4*3600000);stop();
 });
-test('a real content change uploads a complete format2 snapshot, with its new hash',async()=>{
+test('a real content change uploads a checksum-bound incremental snapshot',async()=>{
  const now=Date.now(),at=new Date(now-7*3600000).toISOString(),r=runtime(),prior={takenAt:at,formatVersion:2,tables:{items:[{id:1,note:'before'}],empty:[]}};
  const s=runtime({now,files:[priorFile(r,at)],seed:prior,sql:snapshotSql({items:[{id:1,note:'after'}],empty:[]})});await s.runDatabaseBackup();
- assert.equal(s.requests.filter(x=>x.init.method==='PATCH').length,0);const upload=s.requests.find(x=>x.url.includes('upload/'));assert.ok(upload);assert.ok(upload.init.body.includes('"formatVersion":2'));assert.ok(upload.init.body.includes('"empty":[]'));assert.ok(upload.init.body.includes('"note":"after"'));assert.ok(upload.init.body.includes('jrBackupDataHash'));
+ assert.equal(s.requests.filter(x=>x.init.method==='PATCH').length,0);const upload=s.requests.find(x=>x.url.includes('upload/'));assert.ok(upload);assert.ok(upload.init.body.includes('"formatVersion":3'));assert.ok(upload.init.body.includes('parentDataHash'));assert.ok(upload.init.body.includes('"note":"after"'));assert.ok(upload.init.body.includes('jrBackupDataHash'));
 });
 test('identical different-source backup can seed blobs but never suppress a full upload',async()=>{
  const now=Date.now(),at=new Date(now-7*3600000).toISOString(),prior={takenAt:at,formatVersion:2,tables:{}};
@@ -106,4 +106,9 @@ test('actual PostgreSQL full snapshot restores exact binary bytes, reuses them, 
  fs.writeFileSync('/tmp/jr-oct15-backup-transfer-evidence.json',JSON.stringify({first:firstStats,unchanged:secondStats,changed:stats,restoreBytesEqual:true,restartMisses:0},null,2));
  const key=crypto.createHash('sha256').update(a).digest('hex')+':'+a.length;restartCache.set(key,a.toString('base64')+'!');await assert.rejects(()=>r.buildDatabaseSnapshot(restartCache),/cache checksum mismatch/);
  }finally{await sql`DROP TABLE IF EXISTS backup_transfer_fixture`;await sql.end()}
+});
+
+test('explicit rollback mode uploads a legacy complete snapshot while invalid modes fail startup',async()=>{
+ const now=Date.now(),at=new Date(now-7*3600000).toISOString(),r=runtime(),prior={takenAt:at,formatVersion:2,tables:{items:[{id:1}]}};
+ const s=runtime({backupMode:'full',now,files:[priorFile(r,at)],seed:prior,sql:snapshotSql({items:[{id:2}]})});await s.runDatabaseBackup();const uploaded=s.requests.find(x=>x.url.includes('upload/'));assert.ok(uploaded.init.body.includes('"formatVersion":2'));assert.ok(uploaded.init.body.includes('full-v2'));assert.throws(()=>runtime({backupMode:'bad'}),/DB_BACKUP_MODE/);
 });

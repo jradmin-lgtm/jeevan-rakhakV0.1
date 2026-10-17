@@ -1,3 +1,5 @@
+Latest local candidate: [Drive delivery and incremental backup review](releases/OCT18-COST-FIXES-LOCAL.md). Production backend rollout is pending localhost review.
+
 # Source and evidence index
 
 Updated 16 October 2026, 11:29 AM IST. Read CURRENT-STATE.md first. Documentation follow-ups do not change the deployed release.

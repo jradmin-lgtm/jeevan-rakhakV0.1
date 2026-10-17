@@ -208,6 +208,12 @@ async function bootstrap() {
     `;
     await pgClient`CREATE UNIQUE INDEX IF NOT EXISTS api_usage_provider_operation_period_uniq ON api_usage(provider, operation, period)`;
     await pgClient`CREATE INDEX IF NOT EXISTS api_usage_period_idx ON api_usage(period)`;
+    // Runtime coordination only. Lease expiry/ownership must not enter patient backups.
+    await pgClient`CREATE TABLE IF NOT EXISTS backup_writer_leases (
+      source text PRIMARY KEY,
+      owner uuid NOT NULL,
+      expires_at timestamptz NOT NULL
+    )`;
     // Public download portal (the /get page): visit + gated-download analytics.
     await pgClient`
       CREATE TABLE IF NOT EXISTS app_events (

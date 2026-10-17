@@ -44,6 +44,17 @@ jobs:
       - name: Typecheck
         run: pnpm check
 
+      - name: Backup chain and direct APK regression
+        run: node --test services/api-server/test/backup-transfer.test.cjs services/api-server/test/incremental-backup.test.cjs services/api-server/test/snapshot-restore.test.cjs services/api-server/test/direct-apk-download.test.cjs services/api-server/test/download-routing.test.cjs services/api-server/test/backup-export.test.cjs
+
+      - name: Isolated incremental backup restore rehearsal
+        env:
+          BACKUP_INTEGRATION_DATABASE_URL: postgres://postgres:local-integration-only@127.0.0.1:5432/jr_backup_restore_ci
+          BACKUP_EVIDENCE_DIR: /tmp/jr-backup-restore-proof
+        run: |
+          node -e 'const sql=require("./packages/db/node_modules/postgres")("postgres://postgres:local-integration-only@127.0.0.1:5432/jr_release_test"); (async()=>{try{await sql.unsafe("CREATE DATABASE jr_backup_restore_ci");}finally{await sql.end();}})().catch(e=>{console.error(e.message);process.exitCode=1;});'
+          node --import ./services/api-server/node_modules/tsx/dist/loader.mjs --test services/api-server/test/incremental-backup.integration.cjs
+
       - name: Ops session security
         run: node --test apps/admin-web/test/admin-session.test.cjs
 

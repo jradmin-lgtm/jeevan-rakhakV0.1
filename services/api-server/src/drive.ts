@@ -1,17 +1,13 @@
 /**
- * drive.ts — read the public APK folder via the Drive service account
- * (jeevan-rakshak@…d3f52). Reuses google-auth-library (already a dep for FCM).
- *
- * Resolves the latest user/driver APK and streams its bytes. The APK files stay
- * private (SA-only) — the download is gated by a server-issued one-time token in
- * routes/download.ts, so there are no anonymous downloads.
- *
- * Config (env): DRIVE_SA_JSON = the SA key JSON (string); DRIVE_FOLDER_ID =
- * the PUBLIC APK Shared-Drive folder id (defaults baked). If DRIVE_SA_JSON is
- * unset, downloads are disabled (endpoints return 503) — never crashes the app.
+ * Google Drive APK metadata and delivery.
+ * Proxy mode streams private APK files. Drive mode verifies explicitly
+ * link-readable release files and returns an anonymous browser download URL.
+ * The portal retains contact collection; copied public links can bypass it.
+ * Service-account credentials never enter the redirect URL.
  */
 import { GoogleAuth } from "google-auth-library";
 import { Readable } from "node:stream";
+import { resolveDirectApk } from "./directApkDownload";
 
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 const FOLDER_ID = process.env.DRIVE_FOLDER_ID || "0AMCAe2CcITBfUk9PVA";
@@ -89,4 +85,26 @@ export async function openApkStream(
     return null;
   }
   return { body: Readable.fromWeb(r.body as any), contentLength: r.headers.get("content-length") };
+}
+
+/** Read-only metadata/anonymous prefix checks; APK payload never proxies through Render. */
+export async function resolveDirectApkLink(apk: ApkFile): Promise<string> {
+  const token = await accessToken();
+  if (!token) throw new Error("Drive account is unavailable");
+  const query = new URLSearchParams({ supportsAllDrives: "true", fields: "id,size,mimeType,capabilities(canDownload),permissions(type,role)" });
+  const response = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(apk.id)}?${query}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000) });
+  if (!response.ok) { await response.body?.cancel(); throw new Error(`APK permission verification failed: HTTP ${response.status}`); }
+  const file = await response.json() as { id: string; size: string; capabilities?: { canDownload?: boolean }; permissions?: { type: string; role: string }[] };
+  if (file.id !== apk.id || file.size !== apk.size || !file.capabilities?.canDownload) throw new Error("The selected APK identity, size or download access changed");
+  let permissions = file.permissions;
+  if (!permissions) {
+    const query = new URLSearchParams({ supportsAllDrives: "true", pageSize: "100", fields: "permissions(type,role),nextPageToken" });
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.id)}/permissions?${query}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000) });
+    if (!response.ok) { await response.body?.cancel(); throw new Error(`APK access listing failed: HTTP ${response.status}`); }
+    const result = await response.json() as { permissions?: { type: string; role: string }[]; nextPageToken?: string };
+    if (!Array.isArray(result.permissions) || result.nextPageToken) throw new Error("APK access listing is incomplete");
+    permissions = result.permissions;
+  }
+  if (!permissions.some(p => p.type === "anyone" && p.role === "reader")) throw new Error("The selected APK is not explicitly link-readable");
+  return resolveDirectApk(file.id, Number(file.size));
 }

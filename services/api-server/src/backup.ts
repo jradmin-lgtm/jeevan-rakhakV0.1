@@ -1,17 +1,27 @@
 import { GoogleAuth } from "google-auth-library";
 import { createHash } from "node:crypto";
 import { sql as pgClient } from "@jr/db";
+import { acquireBackupLease, BACKUP_JOB_TIMEOUT_MS } from "./backupLease";
 
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 const BACKUP_FOLDER_ID = process.env.DB_BACKUP_FOLDER_ID || "1zjoheWt2K7GP3v_-AUetnbCKBFq11H7G";
 export const BACKUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const BACKUP_MODE = process.env.DB_BACKUP_MODE ?? "incremental";
+if (BACKUP_MODE !== "incremental" && BACKUP_MODE !== "full") throw new Error("DB_BACKUP_MODE must be incremental or full");
 type Snapshot = { takenAt: string; formatVersion: number; tables: Record<string, Record<string, unknown>[]> };
 type BackupFile = { id: string; createdTime: string; appProperties?: Record<string, string> };
 const blobCache = new Map<string, string>();
 let lastSuccessfulAt = 0;
-// Single API writer: simultaneous blue-green workers can still upload two due snapshots.
-// Multi-writer deployment requires a durable distributed lease; session locks are unsafe through transaction pooling.
+// A row lease serializes backup writers across deploys; no session lock crosses pooled transactions.
 let running = false;
+let backupSignal: AbortSignal | undefined;
+let retryNotBefore = 0;
+const { snapshotDataHash: codecHash, createIncrement, materializeBackup, MAX_DEPTH } = require("../../../packages/utils/backupCodec.cjs") as {
+  snapshotDataHash(value: Snapshot): string;
+  createIncrement(previous: Snapshot, current: Snapshot, options: { parentFileId: string; source: string; parentDepth: number }): Record<string, unknown>;
+  materializeBackup(head: { file: BackupFile; payload: unknown }, source: string, download: (id: string) => Promise<{ file: BackupFile; payload: unknown }>): Promise<{ snapshot: Snapshot; depth: number }>;
+  MAX_DEPTH: number;
+};
 
 function sourceIdentity(): string {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL missing: backup source cannot be identified");
@@ -53,24 +63,8 @@ function validTimestamp(value: unknown): value is string {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)
     && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value.replace(/Z$/, value.includes('.') ? 'Z' : '.000Z');
 }
-function canonicalJson(value: unknown): string {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (value && typeof value === 'object') return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`).join(',')}}`;
-  throw new Error('Backup contains a non-JSON value');
-}
-/** Row ordering is not database content; nested JSON array ordering and duplicate rows are. */
-export function snapshotDataHash(snapshot: Snapshot): string {
-  const hash = createHash('sha256');
-  hash.update('{');
-  for (const [index, table] of Object.keys(snapshot.tables).sort().entries()) {
-    hash.update(`${index ? ',' : ''}${JSON.stringify(table)}:[`);
-    const rows = snapshot.tables[table].map(canonicalJson).sort();
-    for (const [rowIndex, row] of rows.entries()) hash.update(`${rowIndex ? ',' : ''}${row}`);
-    hash.update(']');
-  }
-  return hash.update('}').digest('hex');
-}
+/** Shared with the independent offline restore materializer. */
+export function snapshotDataHash(snapshot: Snapshot): string { return codecHash(snapshot); }
 function previousCheckTime(file: BackupFile): number {
   const takenAt = file.appProperties?.jrBackupTakenAt ?? file.createdTime;
   const checkedAt = file.appProperties?.jrBackupCheckedAt;
@@ -91,7 +85,10 @@ export async function buildDatabaseSnapshot(cache = blobCache): Promise<Snapshot
     const startedAt = Date.now();
     let reusedBytes = 0, fetchedBytes = 0, hits = 0, misses = 0;
     const tables = await tx`SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`;
+    await tx`SET LOCAL statement_timeout = '120s'`;
     for (const { tablename } of tables) {
+      backupSignal?.throwIfAborted();
+      if (tablename === "backup_writer_leases") continue;
       const columns = await tx`SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ${tablename} ORDER BY ordinal_position`;
       const blobs = columns.filter(c => c.data_type === "bytea");
       if (!blobs.length) {
@@ -106,6 +103,7 @@ export async function buildDatabaseSnapshot(cache = blobCache): Promise<Snapshot
       const rows = await tx.unsafe(`SELECT ${projection.join(',')} FROM ${identifier(tablename)}`);
       const serialized: Record<string, unknown>[] = [];
       for (const row of rows) {
+        backupSignal?.throwIfAborted();
         const out = serializeRow(row);
         for (let i = 0; i < blobs.length; i++) {
           const hash = row[`${prefix}hash${i}`], length = row[`${prefix}len${i}`];
@@ -133,12 +131,12 @@ export async function buildDatabaseSnapshot(cache = blobCache): Promise<Snapshot
       }
       dump.tables[tablename] = serialized;
     }
-    console.log(JSON.stringify({ event: "backup.snapshot", binarySourceBytesFetched: fetchedBytes, binarySourceBytesReused: reusedBytes, cacheHits: hits, cacheMisses: misses, estimatedBinaryWireBytes: Math.ceil(fetchedBytes / 3) * 4, wireBytesMeasured: false, tables: tables.length, durationMs: Date.now() - startedAt }));
+    console.log(JSON.stringify({ event: "backup.snapshot", binarySourceBytesFetched: fetchedBytes, binarySourceBytesReused: reusedBytes, cacheHits: hits, cacheMisses: misses, estimatedBinaryWireBytes: Math.ceil(fetchedBytes / 3) * 4, wireBytesMeasured: false, tables: Object.keys(dump.tables).length, durationMs: Date.now() - startedAt }));
     return dump;
   });
 }
 async function driveRequest(token: string, url: string, init: RequestInit = {}): Promise<Response> {
-  const response = await fetch(url, { ...init, headers: { Authorization: `Bearer ${token}`, ...init.headers }, signal: AbortSignal.timeout(120_000) });
+  const response = await fetch(url, { ...init, headers: { Authorization: `Bearer ${token}`, ...init.headers }, signal: backupSignal ? AbortSignal.any([AbortSignal.timeout(120_000), backupSignal]) : AbortSignal.timeout(120_000) });
   if (!response.ok) throw new Error(`Drive backup request failed: HTTP ${response.status}`);
   return response;
 }
@@ -151,6 +149,27 @@ async function latestBackup(token: string, source?: string): Promise<BackupFile 
   if (!Array.isArray(result.files)) throw new Error("Drive backup listing has no files array");
   return result.files[0] ?? null;
 }
+async function readBackupEntry(token: string, id: string, budget: { bytes: number }, file?: BackupFile): Promise<{ file: BackupFile; payload: unknown }> {
+  if (!/^[\w-]{1,200}$/.test(id)) throw new Error("Invalid backup parent file ID");
+  if (!file) {
+    const query = new URLSearchParams({ supportsAllDrives: "true", fields: "id,createdTime,appProperties" });
+    file = await (await driveRequest(token, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?${query}`)).json() as BackupFile;
+  }
+  if (file.id !== id) throw new Error("Backup file identity mismatch");
+  const response = await driveRequest(token, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true`);
+  if (!response.body) throw new Error("Backup content is unavailable");
+  const reader = response.body.getReader(), chunks: Buffer[] = []; let length = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read(); if (done) break;
+      length += value.length; budget.bytes += value.length;
+      if (budget.bytes > 128 * 1024 * 1024) throw new Error("Backup chain exceeds safe restore size");
+      if (length > 128 * 1024 * 1024) throw new Error("Backup file exceeds safe restore size");
+      chunks.push(Buffer.from(value));
+    }
+  } finally { await reader.cancel(); }
+  return { file, payload: JSON.parse(Buffer.concat(chunks).toString("utf8")) };
+}
 /** Force bypasses cooldown, but verified identical content still reuses the complete snapshot. */
 export async function runDatabaseBackup(options: { force?: boolean } = {}): Promise<void> {
   if (running) throw new Error("database backup already running");
@@ -160,21 +179,51 @@ export async function runDatabaseBackup(options: { force?: boolean } = {}): Prom
     const client = await getAuth().getClient();
     const token = (await client.getAccessToken()).token;
     if (!token) throw new Error("Drive backup access token unavailable");
-    const previous = await latestBackup(token, source);
+    let previous = await latestBackup(token, source);
     if (previous) {
       if (previous.appProperties?.jrBackupSource !== source) throw new Error('Drive backup listing returned a different source');
       const at = previousCheckTime(previous);
       lastSuccessfulAt = Math.max(lastSuccessfulAt, at);
-      if (!options.force && Date.now() - at < BACKUP_INTERVAL_MS) {
+      const fullRollback = BACKUP_MODE === "full" && previous.appProperties?.jrBackupFormat === "incremental-v3";
+      if (!options.force && !fullRollback && Date.now() - at < BACKUP_INTERVAL_MS) {
         console.log(`[backup] source-matched backup recently created or verified unchanged; next due in ${Math.ceil((BACKUP_INTERVAL_MS - (Date.now() - at)) / 60000)} minutes`);
         return;
       }
     }
+    const lease = await acquireBackupLease(source);
+    if (!lease) {
+      retryNotBefore = Date.now() + 120_000;
+      console.log(JSON.stringify({ event: "backup.writer_busy", retryAfterSeconds: 120 }));
+      return;
+    }
+    backupSignal = AbortSignal.timeout(BACKUP_JOB_TIMEOUT_MS);
+    try {
+    // Another deploy may have finished between the initial metadata read and lease acquisition.
+    const refreshed = await latestBackup(token, source);
+    if (refreshed) {
+      const at = previousCheckTime(refreshed);
+      if (refreshed.appProperties?.jrBackupSource !== source) throw new Error("Refreshed backup source differs");
+      const fullRollback = BACKUP_MODE === "full" && refreshed.appProperties?.jrBackupFormat === "incremental-v3";
+      if (!options.force && !fullRollback && Date.now() - at < BACKUP_INTERVAL_MS) {
+        lastSuccessfulAt = Math.max(lastSuccessfulAt, at); return;
+      }
+    }
+    previous = refreshed;
     let previousSnapshot: Snapshot | undefined;
     let previousHash: string | undefined;
+    let previousDepth = 0;
     const seed = previous ?? await latestBackup(token);
+    const readBudget = { bytes: 0 };
     if (seed) {
-      const snapshot = await (await driveRequest(token, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(seed.id)}?alt=media&supportsAllDrives=true`)).json() as Snapshot;
+      const entry = await readBackupEntry(token, seed.id, readBudget, seed);
+      let snapshot: Snapshot;
+      if (previous) {
+        const restored = await materializeBackup(entry, source, id => readBackupEntry(token, id, readBudget));
+        snapshot = restored.snapshot; previousDepth = restored.depth;
+      } else {
+        if ((entry.payload as Snapshot)?.formatVersion !== 2) throw new Error("A different source can seed only a complete formatVersion 2 snapshot");
+        snapshot = entry.payload as Snapshot;
+      }
       const verifiedCache = new Map<string, string>();
       cacheSnapshotBlobs(snapshot, verifiedCache);
       if (Date.parse(snapshot.takenAt) > Date.now() + 60_000) throw new Error('Previous Drive snapshot takenAt is invalid');
@@ -191,8 +240,9 @@ export async function runDatabaseBackup(options: { force?: boolean } = {}): Prom
     }
     const dump = await buildDatabaseSnapshot();
     const dataHash = snapshotDataHash(dump);
-    if (previous && previousSnapshot && dataHash === previousHash) {
+    if (previous && previousSnapshot && dataHash === previousHash && !(BACKUP_MODE === "full" && previousDepth > 0)) {
       if (Date.parse(dump.takenAt) < Date.parse(previousSnapshot.takenAt)) throw new Error('Backup verification clock precedes original snapshot');
+      backupSignal.throwIfAborted(); await lease.assertOwned();
       await driveRequest(token, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(previous.id)}?supportsAllDrives=true`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ appProperties: { ...previous.appProperties, jrBackupSource: source, jrBackupTakenAt: previousSnapshot.takenAt, jrBackupCheckedAt: dump.takenAt, jrBackupDataHash: dataHash } })
@@ -201,10 +251,13 @@ export async function runDatabaseBackup(options: { force?: boolean } = {}): Prom
       console.log(JSON.stringify({ event: 'backup.unchanged', fileId: previous.id, createdAt: previous.createdTime, snapshotTakenAt: previousSnapshot.takenAt, verifiedUnchangedAt: dump.takenAt, dataHash, nextDueAt: new Date(lastSuccessfulAt + BACKUP_INTERVAL_MS).toISOString() }));
       return;
     }
-    const name = `jr-db-backup-${dump.takenAt.replace(/[:.]/g, "-")}.json`;
-    const metadata = JSON.stringify({ name, parents: [BACKUP_FOLDER_ID], appProperties: { jrBackupSource: source, jrBackupTakenAt: dump.takenAt, jrBackupDataHash: dataHash } });
-    const body = JSON.stringify(dump), boundary = "jr_backup_boundary_7e2";
+    const incremental = BACKUP_MODE === "incremental" && previous && previousSnapshot && previousDepth < MAX_DEPTH;
+    const payload = incremental ? createIncrement(previousSnapshot!, dump, { parentFileId: previous!.id, source, parentDepth: previousDepth }) : dump;
+    const name = `jr-db-backup-${dump.takenAt.replace(/[:.]/g, "-")}${incremental ? ".delta" : ""}.json`;
+    const metadata = JSON.stringify({ name, parents: [BACKUP_FOLDER_ID], appProperties: { jrBackupSource: source, jrBackupTakenAt: dump.takenAt, jrBackupDataHash: dataHash, jrBackupFormat: incremental ? "incremental-v3" : "full-v2", jrBackupDepth: String(incremental ? previousDepth + 1 : 0) } });
+    const body = JSON.stringify(payload), boundary = "jr_backup_boundary_7e2";
     const multipart = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${boundary}--`;
+    backupSignal.throwIfAborted(); await lease.assertOwned();
     await driveRequest(token, "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true", {
       method: "POST", headers: { "Content-Type": `multipart/related; boundary=${boundary}` }, body: multipart
     });
@@ -212,7 +265,8 @@ export async function runDatabaseBackup(options: { force?: boolean } = {}): Prom
     // Bound cache memory to one complete snapshot, including only currently referenced bytes.
     const current = new Map<string, string>(); cacheSnapshotBlobs(dump, current); blobCache.clear();
     for (const [key, value] of current) blobCache.set(key, value);
-    console.log(JSON.stringify({ event: "backup.uploaded", name, snapshotJsonBytes: Buffer.byteLength(body), lastSuccessfulAt: new Date(lastSuccessfulAt).toISOString(), nextDueAt: new Date(lastSuccessfulAt + BACKUP_INTERVAL_MS).toISOString() }));
+    console.log(JSON.stringify({ event: "backup.uploaded", name, kind: incremental ? "incremental" : "full-baseline", depth: incremental ? previousDepth + 1 : 0, snapshotJsonBytes: Buffer.byteLength(body), lastSuccessfulAt: new Date(lastSuccessfulAt).toISOString(), nextDueAt: new Date(lastSuccessfulAt + BACKUP_INTERVAL_MS).toISOString() }));
+    } finally { backupSignal = undefined; await lease.release(); }
   } finally { running = false; }
 }
 /** Restart cooldown never delays the next backup beyond its six-hour due time. */
@@ -223,7 +277,7 @@ export function startDatabaseBackups(onError: (error: unknown) => void): () => v
     let failed = false;
     try { await runDatabaseBackup(); } catch (error) { failed = true; onError(error); }
     if (!stopped) {
-      timer = setTimeout(() => { void tick(); }, failed ? 300_000 : Math.max(1000, BACKUP_INTERVAL_MS - (Date.now() - lastSuccessfulAt)));
+      timer = setTimeout(() => { void tick(); }, failed ? 300_000 : Math.max(1000, retryNotBefore - Date.now(), BACKUP_INTERVAL_MS - (Date.now() - lastSuccessfulAt)));
       timer.unref();
     }
   };
