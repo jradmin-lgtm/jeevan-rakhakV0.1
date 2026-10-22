@@ -47,8 +47,5 @@
   .form { padding: 20px; gap: 18px; }
   .footer > button { flex: 1 1 auto; }
 }
-@media (prefers-color-scheme: dark) {
-  :global(:root:not([data-theme="light"])) .dialog { --op-surface: #172033; --op-text: #F3F5FA; --op-muted: #B4BED2; --op-border: #3B4760; --op-subtle: #222E44; --op-input-border: #8290AB; --op-error: #FCA5A5; color-scheme: dark; }
-}
 :global([data-theme="dark"]) .dialog { --op-surface: #172033; --op-text: #F3F5FA; --op-muted: #B4BED2; --op-border: #3B4760; --op-subtle: #222E44; --op-input-border: #8290AB; --op-error: #FCA5A5; color-scheme: dark; }
 :global([data-theme="light"]) .dialog { color-scheme: light; }
