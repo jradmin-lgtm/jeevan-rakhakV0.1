@@ -21,7 +21,7 @@ import { registerPlacesRoutes } from "./routes/places";
 import { registerMapConfigRoutes } from "./routes/map-config";
 import { emitEvent } from "./events";
 import { recoverBookingExpiry } from "./booking-maintenance";
-import { startDatabaseBackups } from "./backup";
+import { startDatabaseBackups } from "./backupSupervisor";
 import { validateCapacityDiagnostics, createCapacityDiagnosticsLifecycle } from "./capacity-diagnostics";
 
 declare module "@fastify/jwt" {
@@ -692,7 +692,7 @@ async function bootstrap() {
   }, 6 * 60 * 60 * 1000);
 
   // Full snapshots stay six hours apart across process restarts.
-  const stopDatabaseBackups = startDatabaseBackups(error => app.log.error({ error }, "[backup] scheduled snapshot failed; retry in five minutes"));
+  const stopDatabaseBackups = startDatabaseBackups(error => app.log.error({ err: error }, "[backup] background snapshot failed; retry in five minutes"));
   app.addHook("onClose", async () => stopDatabaseBackups());
 
   await pgClient`DELETE FROM ui_events WHERE received_at < now() - interval '30 days'`;

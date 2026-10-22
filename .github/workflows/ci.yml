@@ -45,7 +45,7 @@ jobs:
         run: pnpm check
 
       - name: Backup chain and direct APK regression
-        run: node --test services/api-server/test/backup-transfer.test.cjs services/api-server/test/incremental-backup.test.cjs services/api-server/test/snapshot-restore.test.cjs services/api-server/test/direct-apk-download.test.cjs services/api-server/test/download-routing.test.cjs services/api-server/test/backup-export.test.cjs
+        run: node --test services/api-server/test/backup-transfer.test.cjs services/api-server/test/incremental-backup.test.cjs services/api-server/test/snapshot-restore.test.cjs services/api-server/test/direct-apk-download.test.cjs services/api-server/test/download-routing.test.cjs services/api-server/test/backup-export.test.cjs services/api-server/test/backup-supervisor.test.cjs
 
       - name: Isolated incremental backup restore rehearsal
         env:
