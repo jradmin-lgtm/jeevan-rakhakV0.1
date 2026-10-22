@@ -202,7 +202,7 @@ export function DriverCardLive({ driverId }: { driverId: string }) {
       ) : null}
 
       {/* Stats — rides to THIS hospital only. */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 }}>
+      <div className="hospital-driver-kpis">
         <Kpi label="Total rides" value={s.total} />
         <Kpi label="Completed" value={s.completed} tone="var(--success)" />
         <Kpi label="Active" value={s.active} tone="#0E7490" />

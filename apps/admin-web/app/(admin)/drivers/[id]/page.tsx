@@ -250,9 +250,9 @@ export default async function DriverDetail({ params }: { params: Promise<{ id: s
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
-      <span className="muted" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>{label}</span>
-      <span style={{ fontSize: 13, fontWeight: 500 }}>{value}</span>
+    <div className="detail-field">
+      <span className="detail-field-label">{label}</span>
+      <span className="detail-field-value">{value}</span>
     </div>
   );
 }

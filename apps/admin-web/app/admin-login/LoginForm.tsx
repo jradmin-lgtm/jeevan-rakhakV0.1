@@ -31,8 +31,8 @@ export function LoginForm() {
   };
 
   return (
-    <div style={styles.wrap}>
-      <form onSubmit={submit} style={styles.card}>
+    <div className="portal-login-shell" style={styles.wrap}>
+      <form className="portal-login-form" onSubmit={submit} style={styles.card}>
         <div style={styles.brand}>
           <div style={styles.brandMark}>JR</div>
           <div>
@@ -69,7 +69,8 @@ export function LoginForm() {
 
 const styles: Record<string, React.CSSProperties> = {
   wrap: {
-    minHeight: "100vh",
+    minHeight: "100dvh",
+    padding: "24px 16px",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -77,10 +78,10 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: "-apple-system, system-ui, sans-serif"
   },
   card: {
-    width: 360,
+    width: "min(100%, 400px)",
     background: "#fff",
     borderRadius: 14,
-    padding: 28,
+    padding: "clamp(20px, 5vw, 28px)",
     border: "1px solid #E2E8F0",
     boxShadow: "0 10px 30px rgba(15, 23, 42, 0.08)",
     display: "flex",
@@ -98,7 +99,7 @@ const styles: Record<string, React.CSSProperties> = {
   label: { display: "flex", flexDirection: "column", gap: 6, fontSize: 12, color: "#475569", textTransform: "uppercase", letterSpacing: 0.4 },
   input: {
     padding: "12px 14px", border: "1px solid #CBD5E1", borderRadius: 8,
-    fontSize: 14, color: "#0F172A", outline: "none"
+    fontSize: 16, color: "#0F172A", outline: "none"
   },
   err: { background: "rgba(220,38,38,0.08)", color: "#DC2626", padding: 10, borderRadius: 8, fontSize: 13 },
   btn: {
@@ -106,5 +107,5 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "12px 16px", borderRadius: 8, fontSize: 14, fontWeight: 600,
     cursor: "pointer"
   },
-  hint: { fontSize: 11, color: "#94A3B8", lineHeight: 1.5 }
+  hint: { fontSize: 12, color: "#64748B", lineHeight: 1.5 }
 };

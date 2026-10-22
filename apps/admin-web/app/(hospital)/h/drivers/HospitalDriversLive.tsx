@@ -70,7 +70,7 @@ export function HospitalDriversLive() {
   return (
     <div style={{ display: "grid", gap: 16 }}>
       {refreshError && <div role="alert" className="card" style={{ color: "var(--danger)" }}>{refreshError}</div>}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}>
+      <div className="hospital-summary-kpis" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}>
         <Kpi label="Total drivers" value={loaded ? counts.total : "·"} />
         <Kpi label="Online now" value={loaded ? counts.online : "·"} tone="var(--success)" />
         <Kpi label="On trip" value={loaded ? counts.onTrip : "·"} tone="#0E7490" />

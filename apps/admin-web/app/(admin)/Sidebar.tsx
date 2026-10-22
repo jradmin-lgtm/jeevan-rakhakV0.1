@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import { useMobileNavigation } from "../useMobileNavigation";
 import { adminFetch } from "../../lib/adminFetch";
 
 /**
@@ -52,6 +53,7 @@ const I = {
 
 export function Sidebar() {
   const pathname = usePathname() ?? "/";
+  const mobileNav = useMobileNavigation(pathname);
   const [collapsed, setCollapsed] = useState(false);
   const alerts = usePollCount("/api/v1/admin/safety/count", 8000);
   const tickets = usePollCount("/api/v1/admin/tickets/count", 30000);
@@ -105,12 +107,12 @@ export function Sidebar() {
           <small>OPERATIONS</small>
         </div>
       </div>
-      <nav>
+      <nav ref={mobileNav} aria-label="Operations navigation">
         {groups.map((g) => (
           <React.Fragment key={g.title}>
             <div className="nav-sec">{g.title}</div>
             {g.items.map((it) => (
-              <a key={it.href} href={it.href} className={isActive(it.href) ? "nav-item active" : "nav-item"} title={it.label}>
+              <a key={it.href} href={it.href} className={isActive(it.href) ? "nav-item active" : "nav-item"} title={it.label} aria-current={isActive(it.href) ? "page" : undefined}>
                 <svg className="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                   {it.icon}
                 </svg>

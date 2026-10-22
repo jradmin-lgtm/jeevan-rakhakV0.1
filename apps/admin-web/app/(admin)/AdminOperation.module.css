@@ -1,0 +1,54 @@
+.dialog {
+  --op-surface: var(--surface);
+  --op-text: var(--text);
+  --op-muted: var(--muted);
+  --op-border: var(--border);
+  --op-subtle: var(--bg);
+  width: min(480px, calc(100% - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  border: 1px solid var(--op-border);
+  border-radius: 16px;
+  background: var(--op-surface);
+  color: var(--op-text);
+  box-shadow: var(--shadow-lg);
+  overflow: auto;
+}
+.dialog::backdrop { background: rgb(11 19 34 / 48%); }
+.trigger { min-height: 44px; padding: 10px 16px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); font-size: 13px; font-weight: 700; line-height: 1.5; cursor: pointer; }
+.trigger:hover { border-color: var(--muted); background: var(--bg); }
+.form { display: grid; gap: 20px; padding: 24px; min-width: 0; }
+.header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.header > div { min-width: 0; flex: 1; }
+.header h2 { margin: 4px 0 0; font-size: 21px; line-height: 1.3; letter-spacing: -.4px; font-weight: 800; }
+.eyebrow { margin: 0; color: var(--op-muted); font-size: 11px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+.close { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 44px; margin: 0; border: 0; border-radius: 9px; background: transparent; color: var(--op-muted); cursor: pointer; }
+.close:hover { background: var(--op-subtle); color: var(--op-text); }
+.context { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; padding: 12px 14px; border-radius: 9px; background: var(--op-subtle); font-size: 13px; overflow-wrap: anywhere; }
+.context span { color: var(--op-muted); }
+.context strong { font-weight: 700; min-width: 0; }
+.description { margin: -6px 0 0; font-size: 13px; line-height: 1.65; color: var(--op-muted); }
+.field { display: grid; gap: 8px; min-width: 0; font-size: 13px; font-weight: 700; }
+.field input, .field textarea { display: block; width: 100%; min-width: 0; min-height: 44px; border: 1px solid var(--op-input-border, #8994AA); border-radius: 9px; padding: 11px 12px; background: var(--op-surface); color: var(--op-text); font: inherit; font-size: 14px; font-weight: 500; line-height: 1.5; }
+.field textarea { min-height: 96px; resize: vertical; max-height: 220px; }
+.field input:hover, .field textarea:hover { border-color: var(--op-muted); }
+.field input:focus, .field textarea:focus { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
+.hint { color: var(--op-muted); font-size: 11px; line-height: 1.4; font-weight: 500; }
+.footer { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; padding-top: 18px; border-top: 1px solid var(--op-border); }
+.cancel, .confirm { min-height: 44px; padding: 10px 16px; border: 1px solid var(--op-border); border-radius: 9px; font-size: 13px; font-weight: 700; line-height: 1.5; cursor: pointer; overflow-wrap: anywhere; }
+.cancel { background: var(--op-surface); color: var(--op-text); }
+.cancel:hover { background: var(--op-subtle); }
+.confirm { background: var(--accent); border-color: transparent; color: #FFFFFF; }
+.destructive { background: var(--danger); }
+.confirm:hover { filter: brightness(.92); }
+.error { margin: 0; padding: 12px; border: 1px solid var(--op-error, var(--danger)); border-radius: 9px; color: var(--op-error, var(--danger)); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.form :disabled { opacity: .6; cursor: wait; }
+@media (max-width: 480px) {
+  .form { padding: 20px; gap: 18px; }
+  .footer > button { flex: 1 1 auto; }
+}
+@media (prefers-color-scheme: dark) {
+  :global(:root:not([data-theme="light"])) .dialog { --op-surface: #172033; --op-text: #F3F5FA; --op-muted: #B4BED2; --op-border: #3B4760; --op-subtle: #222E44; --op-input-border: #8290AB; --op-error: #FCA5A5; color-scheme: dark; }
+}
+:global([data-theme="dark"]) .dialog { --op-surface: #172033; --op-text: #F3F5FA; --op-muted: #B4BED2; --op-border: #3B4760; --op-subtle: #222E44; --op-input-border: #8290AB; --op-error: #FCA5A5; color-scheme: dark; }
+:global([data-theme="light"]) .dialog { color-scheme: light; }

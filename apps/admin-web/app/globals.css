@@ -470,3 +470,65 @@ input, select, textarea { min-width: 0; box-sizing: border-box; }
 .jr-confirm-cancel { color: var(--ink); background: var(--surface, #fff); border: 1px solid var(--border); }
 .jr-confirm-accept { color: #fff; background: var(--danger, #b91c1c); border: 1px solid var(--danger, #b91c1c); }
 .jr-confirm-dialog button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+
+/* Shared profile alignment, including long emails and editable values. */
+.detail-field { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.detail-field-label { color: var(--muted); font-size: 12px; line-height: 1.5; text-transform: uppercase; letter-spacing: .025em; }
+.detail-field-value { min-width: 0; text-align: right; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; font-weight: 500; }
+.detail-field-editable { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.detail-field-editable > span { min-width: 0; overflow-wrap: anywhere; }
+.detail-field-editable > button { flex-shrink: 0; }
+.hospital-driver-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+
+@media (max-width: 1100px) {
+  .shell, body.nav-collapsed .shell { grid-template-rows: auto minmax(0, 1fr); }
+  .sidebar { gap: 10px; min-width: 0; padding: 12px 16px 8px; align-self: start; }
+  .sidebar .brand { padding: 0; }
+  .sidebar nav { display: flex; flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; gap: 6px; max-width: 100%; padding: 0 0 6px; scrollbar-width: thin; }
+  .sidebar nav a.nav-item, body.nav-collapsed .sidebar nav a.nav-item { flex: 0 0 auto; justify-content: flex-start; min-height: 44px; padding: 10px 12px; font-size: 13px; }
+  .sidebar nav a.nav-item:hover { transform: none; }
+  body.nav-collapsed .nav-badge { position: static; margin-left: 4px; min-width: 18px; height: 18px; font-size: 11px; }
+  .page-header > div, .page-header > div > div { min-width: 0; }
+  .page-header img { flex-shrink: 0; }
+  .page-header h1, .page-header p { overflow-wrap: anywhere; }
+  .hospital-sidebar { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; align-items: center; }
+  .hospital-sidebar .brand > div { min-width: 0; }
+  .hospital-sidebar .brand h2 { white-space: normal; }
+  .hospital-sidebar .brand { grid-column: 1; grid-row: 1; }
+  .hospital-sidebar nav { grid-column: 1 / -1; grid-row: 2; }
+  .hospital-sidebar .hospital-footer { grid-column: 2; grid-row: 1; align-self: center; margin: 0; }
+}
+
+@media (max-width: 600px) {
+  main.content { padding: 20px 16px 40px; font-size: 14px; line-height: 1.55; }
+  .page-header { gap: 12px; margin-bottom: 16px; }
+  .page-header h1 { font-size: 22px; line-height: 1.25; letter-spacing: -.02em; }
+  .page-header p { font-size: 13px; line-height: 1.6; }
+  .card { padding: 16px; border-radius: 12px; overflow-x: auto; }
+  .card h3 { font-size: 16px; line-height: 1.4; }
+  .kpi-row { gap: 10px; }
+  .kpi { padding: 14px; }
+  .kpi p { min-height: 34px; font-size: 12px; line-height: 1.4; letter-spacing: .035em; }
+  .kpi h2 { font-size: 28px; line-height: 1.2; }
+  .filter-bar { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .filter-bar input, .filter-bar select { width: 100%; min-width: 0 !important; }
+  main.content input:not([type="checkbox"]):not([type="radio"]), main.content select, main.content textarea { min-height: 44px; max-width: 100%; font-size: 16px !important; }
+  main.content button { min-width: 44px; min-height: 44px; }
+  main.content input[type="checkbox"], main.content input[type="radio"] { width: 20px; height: 20px; min-height: 20px; flex-shrink: 0; }
+  .card table { font-size: 14px; line-height: 1.5; }
+  .card table th { font-size: 12px; }
+  .card table td { min-width: 90px; font-size: 14px; }
+  .card table a { display: inline-flex; align-items: center; min-height: 44px; }
+  .detail-field { grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); padding: 10px 0; gap: 10px; }
+  .detail-field-value, .detail-field-value > span { font-size: 14px !important; }
+  .detail-field-label { font-size: 12px; line-height: 1.5; }
+  .hospital-summary-kpis .muted, .hospital-kpis .muted { font-size: 12px !important; white-space: normal !important; }
+  .hospital-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .hospital-driver-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  main.content dl { grid-template-columns: minmax(0, 1fr) !important; }
+  main.content dl > * { min-width: 0; overflow-wrap: anywhere; }
+  main.content dl dd { margin: 0 0 12px; }
+  .leaflet-control-zoom a { min-width: 44px; min-height: 44px; line-height: 44px !important; }
+  .portal-login-form input { min-height: 48px; font-size: 16px !important; }
+  .portal-login-form button { min-height: 48px; }
+}

@@ -65,11 +65,11 @@ export function EditableField({
 
   if (!editing) {
     return (
-      <div style={fieldRow}>
-        <span style={labelStyle}>{label}</span>
-        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div className="detail-field">
+        <span className="detail-field-label">{label}</span>
+        <span className="detail-field-value detail-field-editable">
           <span style={{ fontSize: 13, fontWeight: 500, color: value ? "var(--ink)" : "var(--muted)" }}>
-            {value ?? "-"}
+            {value ?? "·"}
           </span>
           <button
             onClick={() => { setDraft(value ?? ""); setEditing(true); setErr(null); }}
@@ -136,21 +136,6 @@ export function EditableField({
     </div>
   );
 }
-
-const fieldRow: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  padding: "6px 0",
-  borderBottom: "1px solid var(--border)"
-};
-
-const labelStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: "var(--muted)",
-  textTransform: "uppercase",
-  letterSpacing: 0.4
-};
 
 const editLink: React.CSSProperties = {
   background: "transparent",

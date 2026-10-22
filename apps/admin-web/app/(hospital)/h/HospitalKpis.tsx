@@ -112,7 +112,7 @@ export function HospitalKpis() {
       </div>
 
       {/* KPI cards — responsive grid, reuses the portal card surface. */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
+      <div className="hospital-kpis" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 150px), 1fr))", gap: 12 }}>
         <Kpi label="Incoming now" value={a.incomingNow} accent="var(--accent)" />
         <Kpi label="Preparing now" value={a.preparingNow} accent="var(--warning)" />
         <Kpi label="Arrivals today" value={a.arrivalsToday} accent="var(--success)" />
@@ -127,7 +127,7 @@ export function HospitalKpis() {
       </div>
 
       {/* Trends row — 7-day bars + case mix, side by side then stacking. */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))", gap: 16 }}>
         <SevenDayChart days={a.last7Days} />
         <CaseMix items={a.byEmergencyType} />
       </div>
